@@ -50,7 +50,7 @@ function fakeHot({ prompts = {} } = {}) {
       media: { maxOutputTokens: 300 },
       models: { routes: chainsOf({ vision: 'v/model' }) },
     },
-    prompts: { avatar: PROMPT, ...prompts },
+    prompts: { 'describe/avatar': PROMPT, ...prompts },
   };
 }
 
@@ -261,7 +261,7 @@ test('offer: only a profiled member of the served root, never the persona, and o
 });
 
 test('offer: with the prompt missing nothing is queued', () => {
-  const { queue } = setup({ hot: fakeHot({ prompts: { avatar: '' } }) });
+  const { queue } = setup({ hot: fakeHot({ prompts: { 'describe/avatar': '' } }) });
   assert.equal(queue.offer(ROOT, view('u1', 'h1')), 'off');
   assert.deepEqual(queue.pending(), []);
 });

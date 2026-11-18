@@ -5,7 +5,7 @@
 //   `createSummaryBuilder({ hot, llm, now })(evidence, limits)` takes `{ kind: 'history', selfName, question, windows,
 //   messages }` or `{ kind: 'web', query, results }`, and `limits` `{ maxChars, maxOutputTokens, signal?, timeoutMs? }`;
 //   it resolves `{ status: 'note' | 'none' | 'failed' | 'no-prompt', text, stretch, reason? }` and never rejects
-//   history sends its caller's `messages` on the analyzer, web reads `prompts['search-summary']` on the analyzer
+//   history sends its caller's `messages` on the analyzer, web reads `prompts['summarize/search']` on the analyzer
 import { noMediaNames } from './fixtures/media-namer.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -90,8 +90,8 @@ function builder(options: { answer?: string | Error; prompts?: Record<string, un
         ...(options.prompts === null
           ? {}
           : (options.prompts ?? {
-              'recall-summary': 'History for {{name}}, at most {{answerChars}}.',
-              'search-summary': 'Web on {{query}}, at most {{maxChars}}.',
+              'summarize/recall': 'History for {{name}}, at most {{answerChars}}.',
+              'summarize/search': 'Web on {{query}}, at most {{maxChars}}.',
             })),
       },
     },
@@ -229,7 +229,7 @@ test('a web search whose summary answers none gives her no text', async () => {
             },
           },
         },
-        prompts: { 'search-summary': 'The query: {{query}}. Up to {{maxChars}} characters.' },
+        prompts: { 'summarize/search': 'The query: {{query}}. Up to {{maxChars}} characters.' },
       },
       store: { ...objectMediaCache({}) },
       llm: { complete: () => Promise.resolve({ text: 'none', usage: {}, estimated: 5 }) },
@@ -272,7 +272,7 @@ test('a recall whose summary answers none finds nothing', async () => {
       mediaNameOf: noMediaNames,
       hot: {
         config: recallConfig({ llm: { analyzerTimeoutMs: 30000 } }),
-        prompts: { 'recall-summary': PROMPT, labels },
+        prompts: { 'summarize/recall': PROMPT, labels },
       },
       store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },
       llm: { capLeft: () => 100, complete: () => Promise.resolve({ text: 'none' }) },

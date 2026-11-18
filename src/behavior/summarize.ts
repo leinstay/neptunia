@@ -1,5 +1,5 @@
 // The summarizer: where a text is longer than its limit, the analyzer model shortens it once in place of a cut. A media
-// description (a picture, a GIF or a video) takes prompts/summarize-media.md, any other text prompts/summarize-text.md.
+// description (a picture, a GIF or a video) takes prompts/summarize/media.md, any other text prompts/summarize/text.md.
 // The answer is kept as the model gives it, even over the limit, and every failure keeps the original text whole.
 
 import { roleRequestOptions } from '../llm/openrouter.ts';
@@ -28,7 +28,7 @@ export function createSummarizer(deps: {
     const { maxChars, kind } = options;
     const chars = Array.from(text).length;
     if (chars <= maxChars) return text;
-    const name = kind === 'text' ? 'summarize-text' : 'summarize-media';
+    const name = kind === 'text' ? 'summarize/text' : 'summarize/media';
     const template = hot.prompts[name];
     if (typeof template !== 'string' || template.trim() === '') {
       log.warn('summarize: failed', { chars, reason: 'no-prompt' });

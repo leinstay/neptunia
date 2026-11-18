@@ -193,7 +193,7 @@ async function sentBy(answer: string, inner: Record<string, unknown> | null = nu
     allowed: ['message.create'],
     inner,
     ...(inner
-      ? { config: { wakes: { mode: 'live', chatMessages: 2 } }, prompts: { inner: 'Do what the wake says.' } }
+      ? { config: { wakes: { mode: 'live', chatMessages: 2 } }, prompts: { 'turn/inner': 'Do what the wake says.' } }
       : {}),
   });
   return run.sends.map((send) => [send.to, send.text]);

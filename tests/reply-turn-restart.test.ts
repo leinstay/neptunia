@@ -101,10 +101,10 @@ async function replyLives(spec: {
       wakes: { mode: 'live' },
     },
     prompts: {
-      'system-prompt': 'You are a regular member of this chat.',
-      'character-card': 'You are friendly and terse.',
+      main: 'You are a regular member of this chat.',
+      persona: 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
-      reply: 'Someone called you: {{author}}.',
+      'turn/reply': 'Someone called you: {{author}}.',
       labels: shippedLabels,
     },
   };

@@ -150,7 +150,7 @@ async function withEnv(
     db,
     write: (update) => Promise.resolve(applyMemoryWrite(handle, update)),
     llm,
-    hot: { config: { bot: { ownerPerson: '' } }, prompts: { 'description-merge': options.prompt ?? MERGE_PROMPT } },
+    hot: { config: { bot: { ownerPerson: '' } }, prompts: { 'memory/merge': options.prompt ?? MERGE_PROMPT } },
     selfName: 'Ayla',
     now: () => NOW,
   };

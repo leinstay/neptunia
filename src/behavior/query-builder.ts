@@ -1,5 +1,5 @@
 // The query builder: the step before a search that plans whether to search, where and with which forms
-// (prompts/query-builder.md). parseQueryPlan reads its answer, the JSON object of QUERY_PLAN_FORMAT with the fields `web`,
+// (prompts/classify/query.md). parseQueryPlan reads its answer, the JSON object of QUERY_PLAN_FORMAT with the fields `web`,
 // `history`, `who`, `when`, `when_role`, `recent` and `skills`. A live turn has no such step, because the persona's own tools search during her
 // reply (`lookup: skipped`, reason `core-tools`, in src/turn/phases/request/lookup.ts). The callers are the replay and the
 // two evaluation scripts, and every other caller of the plan takes it from here.

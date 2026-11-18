@@ -143,12 +143,12 @@ export function startStages(ctx: PhaseContext, params: PhaseParams, turn: Stages
 
   // The splitter (runTurn's first turn only): a call that may hold several requests asks it
   // now, beside everything else and under the same deadline. The turn waits for it as for any
-  // stage; parts in time end the wait at once (below). Without prompts.split it is off
+  // stage; parts in time end the wait at once (below). Without prompts['classify/split'] it is off
   // (`split: skipped`, `no-prompt`); without labels.task.part (an older labels file) it is
   // never asked.
   let splitStage: Staged['splitStage'] = null;
   if (maySplit && trigger && splitCandidate(trigger, triggerKind, config)) {
-    const splitPrompt = hot.prompts?.split;
+    const splitPrompt = hot.prompts?.['classify/split'];
     const promptLabels = hot.prompts?.labels;
     if (!splitPrompt) {
       log.info('split: skipped', { channel: channel.id, reason: 'no-prompt' });

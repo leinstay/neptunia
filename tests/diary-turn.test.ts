@@ -241,8 +241,8 @@ function fakeHot({ diary = {}, prompts = {} }: { diary?: Untyped; prompts?: Unty
       },
     },
     prompts: {
-      'system-prompt': 'SYSTEM for {{name}}',
-      'character-card': 'CARD_TEXT',
+      main: 'SYSTEM for {{name}}',
+      persona: 'CARD_TEXT',
       format: 'FORMAT_TEXT',
       diary: 'DIARY_TASK for {{name}}',
       'diary-planner': 'PLAN_SYSTEM for {{name}}',
@@ -805,7 +805,7 @@ test('diary turn: the drawing prompt carries the local time', async () => {
 
 test("diary turn: an ordinary turn's draw.create carries the local time too", async () => {
   const hot = fakeHot();
-  loose(hot.prompts).reply = 'REPLY for {{author}}';
+  loose(hot.prompts)['turn/reply'] = 'REPLY for {{author}}';
   const llm = fakeLlm(null, toolAnswer('', [call('draw.create', { people: [], text: 'a pier' })]));
   const images = fakeImages();
   const raw = ownRaw('m1', NOW - 60_000, 'draw a pier');

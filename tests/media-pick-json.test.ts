@@ -50,7 +50,7 @@ async function pickWith(text: string, capability: Capability = BOTH) {
           pick: { maxOutputTokens: 17, candidates: 5, emojiCandidates: 5, emojiPerReplies: 0, emojiCooldownMinutes: 0 },
         },
       },
-      prompts: { labels, 'media-pick': 'Pick for {{name}}.' },
+      prompts: { labels, 'classify/pick': 'Pick for {{name}}.' },
     },
     store: {
       mediaNameOf: noMediaNames,

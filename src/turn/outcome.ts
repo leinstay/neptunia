@@ -185,7 +185,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   (with `params.inner`).
    * @param {{ wake: import('../behavior/inner/types.ts').WakeInfo, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.ts,
    *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its
-   *   request is the turn frame's (src/turn/request/frame.ts), its task `prompts.inner` or the service's own, its
+   *   request is the turn frame's (src/turn/request/frame.ts), its task `prompts['turn/inner']` or the service's own, its
    *   history the last `wakes.chatMessages` lines of `channel` when it has one, its prefetch searches the
    *   purposes of the intentions it woke for, no planner runs. What she writes in tags (a `<msg>`,
    *   a `<react to>`) is lowered into the calls they stand for, in the current channel

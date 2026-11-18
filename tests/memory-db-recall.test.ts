@@ -689,7 +689,7 @@ function runner(
       return { text: '' };
     },
   };
-  const hot = { config, prompts: { 'recall-summary': 'x', labels: withHidden } };
+  const hot = { config, prompts: { 'summarize/recall': 'x', labels: withHidden } };
   const recaller = asRecall({
     reads: asReads(reads),
     hot,

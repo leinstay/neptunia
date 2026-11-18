@@ -1,4 +1,4 @@
-// The address classifier's call about one line of a group place (prompts/address.md): its verdict `yes`, `overheard` or
+// The address classifier's call about one line of a group place (prompts/classify/address.md): its verdict `yes`, `overheard` or
 // `no`. A failed call opens for a line that carries the interface's flag, so nobody who addressed her is dropped in
 // silence, and for an unflagged line that keeps an active one-to-one exchange. createMessageHandler
 // (src/behavior/pipeline.ts) builds it once with createAddressClassifier; the door (src/pipeline/follow-up.ts) calls it.
@@ -118,7 +118,7 @@ export function createAddressClassifier({
     try {
       const prompts = hot.prompts;
       request = await buildClassifierRequest({
-        prompt: prompts?.address,
+        prompt: prompts?.['classify/address'],
         config,
         prompts,
         channel,
@@ -135,7 +135,7 @@ export function createAddressClassifier({
       // Only a really missing prompt latches its one warning; a failed build was logged above.
       if (!buildFailed && !missingAddressPromptLogged) {
         missingAddressPromptLogged = true;
-        log.warn('follow-up: prompts.address is missing, every follow-up is treated as "no"', {});
+        log.warn('follow-up: prompts["classify/address"] is missing, every follow-up is treated as "no"', {});
       }
       // A failed build is a failed gate (src/behavior/missed.ts); a missing prompt is the deployment's.
       const unjudged = flagged ? 'yes' : 'no';

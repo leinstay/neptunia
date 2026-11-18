@@ -54,7 +54,7 @@ function rig({
   });
   const cache = {};
   const deps = {
-    hot: { config, prompts: { 'search-summary': 'Condense the results for {{query}}.' } },
+    hot: { config, prompts: { 'summarize/search': 'Condense the results for {{query}}.' } },
     store: { ...objectMediaCache(cache) },
     llm: {
       complete: (messages: unknown, options: Record<string, unknown>) => {

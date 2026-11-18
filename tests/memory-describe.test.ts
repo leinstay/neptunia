@@ -37,7 +37,10 @@ function rig(base: Record<string, unknown>) {
       media: { maxOutputTokens: 120, video: VIDEO_CFG },
       context: { vision: { fetchTimeoutMs: 10_000 } },
     },
-    prompts: { describe: 'Describe this picture.', 'describe-video': 'Watch this clip and say what happens.' },
+    prompts: {
+      'describe/picture': 'Describe this picture.',
+      'describe/video': 'Watch this clip and say what happens.',
+    },
   };
   const llm = fakeLlm({ text: 'a described thing' });
   const imageFetcher = fakeImageFetcher();

@@ -166,10 +166,10 @@ async function loopRun(
   const hot = {
     config: cfg,
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       format: 'FORMAT',
-      reply: 'REPLY {{author}}',
+      'turn/reply': 'REPLY {{author}}',
       labels,
     },
   };
@@ -384,10 +384,10 @@ test('the step engine: the first request leaves the step reserve under the promp
   const hot = {
     config,
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       format: 'FORMAT',
-      reply: 'REPLY {{author}}',
+      'turn/reply': 'REPLY {{author}}',
       labels,
     },
   };
@@ -455,10 +455,10 @@ test('the step engine: with the production limits (50000 cap, 0.9 margin, 10000 
   const hot = {
     config,
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       format: 'FORMAT',
-      reply: 'REPLY {{author}}',
+      'turn/reply': 'REPLY {{author}}',
       labels,
     },
   };
@@ -1186,10 +1186,10 @@ async function triggerRun({ single, transport = null, answers, config = toolConf
   const hot = {
     config,
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       format: 'FORMAT',
-      reply: 'REPLY {{author}}',
+      'turn/reply': 'REPLY {{author}}',
       labels,
     },
   };

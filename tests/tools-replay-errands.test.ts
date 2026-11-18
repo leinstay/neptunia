@@ -376,10 +376,10 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
   const hot = {
     config,
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       format: 'FORMAT',
-      reply: 'REPLY {{author}}',
+      'turn/reply': 'REPLY {{author}}',
       interject: 'INTERJECT {{trigger}}',
       labels,
     },

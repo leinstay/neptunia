@@ -21,7 +21,7 @@ const HOT = {
     media: { maxOutputTokens: 120 },
     context: { vision: { fetchTimeoutMs: 10_000 } },
   },
-  prompts: { describe: 'Describe this picture.' },
+  prompts: { 'describe/picture': 'Describe this picture.' },
 };
 
 /** A line of #room that holds the attachments `ids`. */

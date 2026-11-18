@@ -97,7 +97,7 @@ function runner(env: ReturnType<typeof fixture>) {
   const hot = {
     config,
     prompts: {
-      'recall-summary': 'x',
+      'summarize/recall': 'x',
       labels: {
         ...labels,
         tools: {

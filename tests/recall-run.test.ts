@@ -183,7 +183,7 @@ function scene({
   settings.context = { ...settings.context, memory: memorySettings };
   const hot = {
     config: settings,
-    prompts: { 'recall-summary': PROMPT, labels },
+    prompts: { 'summarize/recall': PROMPT, labels },
   };
   const recaller = createRecall({
     iface: 'discord',

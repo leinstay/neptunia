@@ -1133,9 +1133,9 @@ test('events: an onIdle drain arriving while the busy drain is still finishing d
 // ---------------------------------------------------------------------------
 // The address classifier (features.followUp) -- an untagged follow-up
 // message inside a window the persona opened by answering is checked by
-// address.md before it is (or is not) answered.
+// classify/address.md before it is (or is not) answered.
 
-test('follow-up: the classifier request is address.md as system and a <candidate> block in the user message', async () => {
+test('follow-up: the classifier request is classify/address.md as system and a <candidate> block in the user message', async () => {
   const llm = fakeFollowUpLlm();
   const config = baseConfig();
   const handler = makeHandler({ config, llm, prompts: fakeAddressPrompts() });
@@ -1418,10 +1418,10 @@ test('follow-up: a "yes" verdict runs a reply turn with the candidate as the tar
   assert.equal(spontaneous.onMessageCalls.length, 0);
 });
 
-test('follow-up: a missing prompts.address is a "no" without calling the model', async () => {
+test('follow-up: a missing prompts["classify/address"] is a "no" without calling the model', async () => {
   const llm = fakeFollowUpLlm();
   const spontaneous = fakeSpontaneous();
-  const prompts = { ...fakeAddressPrompts(), address: undefined };
+  const prompts = { ...fakeAddressPrompts(), 'classify/address': undefined };
   const handler = makeHandler({ spontaneous, llm, prompts });
   const guild = fakeGuild();
   const channel = fakeChannelWithHistory('c1', guild, []);
@@ -2943,7 +2943,7 @@ test('follow-up: a pre-filtered or prompt-less "no" logs answer no too', async (
   const missing = makeHandler({
     spontaneous,
     llm: fakeFollowUpLlm(),
-    prompts: { ...fakeAddressPrompts(), address: undefined },
+    prompts: { ...fakeAddressPrompts(), 'classify/address': undefined },
   });
   await openFollowUpWindow(missing, { guild, channel, ts: Date.now() });
   const second = await withCapturedLogs(() =>
@@ -3376,7 +3376,7 @@ test('events: a message that replies to nothing fetches no message; a reply targ
   );
 });
 
-test('follow-up: a failure while building the classifier request is not reported as a missing prompts.address', async () => {
+test('follow-up: a failure while building the classifier request is not reported as a missing prompts["classify/address"]', async () => {
   const llm = fakeFollowUpLlm();
   const prompts = fakeAddressPrompts();
   const handler = makeHandler({ llm, prompts });
@@ -3392,17 +3392,17 @@ test('follow-up: a failure while building the classifier request is not reported
   assert.equal(llm.calls.length, 0);
   assert.ok(first.logs.some((l) => l.msg === 'follow-up: building the classifier request failed'));
   assert.equal(
-    first.logs.some((l) => l.msg.startsWith('follow-up: prompts.address is missing')),
+    first.logs.some((l) => l.msg.startsWith('follow-up: prompts["classify/address"] is missing')),
     false
   );
 
   // The real cause still gets its warning afterwards.
-  wrongly<Record<string, unknown>>(prompts).address = undefined;
+  wrongly<Record<string, unknown>>(prompts)['classify/address'] = undefined;
   const second = await withCapturedLogs(async () => {
     await handler(plainFollowUpMessage({ id: 'm2', guild, channel, content: 'plain again' }));
     await tick();
   });
-  assert.ok(second.logs.some((l) => l.msg.startsWith('follow-up: prompts.address is missing')));
+  assert.ok(second.logs.some((l) => l.msg.startsWith('follow-up: prompts["classify/address"] is missing')));
 });
 
 test('follow-up: a failed classifier call is logged with its error, not only as a "no"', async () => {
@@ -4181,7 +4181,7 @@ async function tickUntil(check: Untyped, rounds = 3000) {
  * a real turn runner, and the handler, wired as src/index.ts wires them. `talk(index)` answers the
  * talk requests (it may return a promise: a gate holding the turn); `split` and `merge` the
  * splitter and the merge classifier (a string, an Error, or a function of the call's index).
- * `prompts.split` / `prompts.merge` exist only when their answer is given.
+ * `prompts['classify/split']` / `prompts['classify/merge']` exist only when their answer is given.
  */
 function liveScene({
   dm = false,
@@ -4213,14 +4213,14 @@ function liveScene({
     )
   );
   const prompts = {
-    'system-prompt': 'SYSTEM',
-    'character-card': 'CARD',
+    main: 'SYSTEM',
+    persona: 'CARD',
     rules: 'RULES',
     format: 'FORMAT',
-    reply: 'Reply to {{author}}.',
+    'turn/reply': 'Reply to {{author}}.',
     labels: ownLabels,
-    ...(split !== undefined ? { split: 'Split for {{name}}, at most {{maxTasks}}.' } : {}),
-    ...(merge !== undefined ? { merge: 'Merge for {{name}}.' } : {}),
+    ...(split !== undefined ? { 'classify/split': 'Split for {{name}}, at most {{maxTasks}}.' } : {}),
+    ...(merge !== undefined ? { 'classify/merge': 'Merge for {{name}}.' } : {}),
   };
   const hot = { config, prompts };
   const calls: Record<string, Array<Untyped>> = { talk: [], split: [], merge: [] };

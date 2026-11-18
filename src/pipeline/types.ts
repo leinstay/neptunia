@@ -103,10 +103,10 @@ export type PipelineHot = {
   readonly config: PipelineConfig;
   readonly prompts?: {
     readonly labels: PipelineLabels;
-    readonly address?: string;
-    readonly 'character-card'?: unknown;
+    readonly 'classify/address'?: string;
+    readonly persona?: unknown;
     readonly room?: string;
-    readonly merge?: string;
+    readonly 'classify/merge'?: string;
   } | null;
 };
 

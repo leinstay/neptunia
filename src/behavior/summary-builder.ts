@@ -1,6 +1,6 @@
 // The summary builder: the step after a search. One contract, evidence in and a note out, over two prompt files,
 // because chat stretches with people and notes read differently from web results with a title, a URL and an age. Chat
-// evidence is its caller's request from prompts/recall-summary.md and web evidence reads prompts/search-summary.md, both
+// evidence is its caller's request from prompts/summarize/recall.md and web evidence reads prompts/summarize/search.md, both
 // sent on the analyzer under a purpose of their own.
 // The single word `none` is no note. Every caller goes through it: src/behavior/recall-run.ts and src/web/lookup.ts.
 
@@ -90,7 +90,7 @@ export function createSummaryBuilder({
     limits: SummaryLimits
   ): Array<{ role: string; content: unknown }> | null {
     if (evidence.kind === 'history') return evidence.messages;
-    const prompt = hot.prompts?.['search-summary'];
+    const prompt = hot.prompts?.['summarize/search'];
     if (typeof prompt !== 'string' || !prompt.trim()) return null;
     const filled = fillPromptTemplate(prompt, {
       query: evidence.query,

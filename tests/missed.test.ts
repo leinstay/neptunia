@@ -258,7 +258,7 @@ function scene({
   paused = false,
   canSend = () => true,
   dataDir = tmpData(),
-  prompts = { missed: 'Check for {{name}}.', labels },
+  prompts = { 'classify/missed': 'Check for {{name}}.', labels },
   channels = [],
   memoryDb,
 }: {

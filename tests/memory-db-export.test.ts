@@ -24,7 +24,11 @@ async function fixture(responses: Parameters<typeof fakeLlm>[0]) {
       models: { routes: chainsOf({ vision: 'fake/vision', video: 'fake/video' }) },
       media: { maxOutputTokens: 120, recacheBefore: null as string | null, video: { errorRetryMinutes: 60 } },
     },
-    prompts: { describe: 'Describe.', 'describe-video': 'Summarize.', 'rewatch-answer': 'Answer {{question}}.' },
+    prompts: {
+      'describe/picture': 'Describe.',
+      'describe/video': 'Summarize.',
+      'describe/rewatch': 'Answer {{question}}.',
+    },
   };
   let memory = await openTestMemory({ now: () => clock.at, iface: () => 'synthetic' });
   let store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });

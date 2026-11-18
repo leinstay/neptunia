@@ -226,10 +226,10 @@ test('an answer whose tool-calls.json holds a data call drives two steps of a re
   const hot = {
     config,
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       format: 'FORMAT',
-      reply: 'REPLY {{author}}',
+      'turn/reply': 'REPLY {{author}}',
       labels: (await import('./fixtures/labels.ts')).labels,
     },
   };

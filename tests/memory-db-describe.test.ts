@@ -28,13 +28,13 @@ const ADA = 'u-ada';
 const OLD = 'Ada likes café mornings and quiet talk. She plays chess privately.';
 
 const prompts = {
-  'system-prompt': 'SYSTEM {{name}}',
-  'character-card': 'CARD {{name}}',
+  main: 'SYSTEM {{name}}',
+  persona: 'CARD {{name}}',
   rules: 'RULES',
   format: 'FORMAT',
-  'description-draft': 'DRAFT PROMPT',
-  'description-check': 'CHECK PROMPT',
-  'memory-session': 'SESSION',
+  'memory/draft': 'DRAFT PROMPT',
+  'memory/check': 'CHECK PROMPT',
+  'memory/session': 'SESSION',
   labels,
 };
 // PR 7d: the field lengths are MEMORY_LIMITS.fieldChars (1000) and RELATIONSHIP_LIMITS.textChars (800).
@@ -286,7 +286,7 @@ test('refusals and failures write nothing: off, no key of its own, no prompt, an
       status: 'refused',
       code: 'not_configured',
     });
-    assert.deepEqual(await run({ promptSet: { ...prompts, 'description-check': '' } }), {
+    assert.deepEqual(await run({ promptSet: { ...prompts, 'memory/check': '' } }), {
       status: 'refused',
       code: 'no_prompt',
     });

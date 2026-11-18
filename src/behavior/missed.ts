@@ -18,7 +18,7 @@
 // back by every new message in the channel but never past `missed.sweepMaxDelaySeconds`: code
 // first (resolved by the channel's history, expired after `missed.expireMinutes`, or
 // `missed.questionExpireMinutes` for a message carrying a question mark), then one analyzer call
-// for the channel (`prompts/missed.md`, role `analyzer`, purpose `missed`) answering one verdict
+// for the channel (`prompts/classify/missed.md`, role `analyzer`, purpose `missed`) answering one verdict
 // per candidate: owed, resolved, intentional-skip, stale or uncertain; a failed call is
 // `unchecked`, never owed. With `features.missedRecovery` exactly true the owed ones of a channel
 // get one ordinary reply turn together (trigger kind `missed`, the earliest as its trigger, all
@@ -341,7 +341,7 @@ export const MISSED_FORMAT = {
 };
 
 /**
- * The analyzer's answer (prompts/missed.md) for `count` candidates: the JSON object of
+ * The analyzer's answer (prompts/classify/missed.md) for `count` candidates: the JSON object of
  * MISSED_FORMAT, one entry per candidate. An entry whose `n` is not a whole number 1..`count` or
  * whose `verdict` is not one of MISSED_VERDICTS is skipped, the others kept. A candidate no entry
  * names, or named twice with different verdicts, is `uncertain`; text that is not the object, or
@@ -1132,10 +1132,10 @@ export function createMissed({
   /** The analyzer's verdicts for `list` (one call), each `unchecked` when it fails. */
   async function classify(list: Array<Candidate>, { channel, history, config }: ClassifyContext) {
     const unchecked = () => list.map(() => UNCHECKED);
-    const prompts = hot.prompts;
+    const prompt = hot.prompts?.['classify/missed'];
     const request = buildCheckRequest({
-      prompt: prompts?.missed,
-      labels: prompts?.labels,
+      prompt,
+      labels: hot.prompts?.labels,
       config,
       selfName: getSelfName(sharedPlaceOf(store, channel)),
       history,
@@ -1145,9 +1145,9 @@ export function createMissed({
       mediaNameOf: store.mediaNameOf,
     });
     if (!request) {
-      if (!promptMissingLogged && !(typeof prompts?.missed === 'string' && prompts.missed.trim())) {
+      if (!promptMissingLogged && !(typeof prompt === 'string' && prompt.trim())) {
         promptMissingLogged = true;
-        log.warn('missed: prompts.missed is missing, every check is unchecked', {});
+        log.warn('missed: prompts["classify/missed"] is missing, every check is unchecked', {});
       }
       return unchecked();
     }

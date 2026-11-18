@@ -34,11 +34,11 @@ export function identityCalibrator(): { ratio: number; apply: (n: number) => num
 
 export function fakePrompts(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    'system-prompt': 'SYSTEM_TEXT for {{name}}',
-    'character-card': 'CARD_TEXT',
+    main: 'SYSTEM_TEXT for {{name}}',
+    persona: 'CARD_TEXT',
     rules: 'RULES_TEXT',
     format: 'FORMAT_TEXT',
-    reply: 'Called by {{author}}, they {{trigger}}. Answer {{target}} as {{name}}. Target: {{target}}.',
+    'turn/reply': 'Called by {{author}}, they {{trigger}}. Answer {{target}} as {{name}}. Target: {{target}}.',
     interject: 'INTERJECT_TASK for {{name}}',
     initiate: 'INITIATE_TASK for {{name}}',
     memory: 'MEMORY_TEXT for {{name}}',

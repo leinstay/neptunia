@@ -113,13 +113,13 @@ function sceneHot({ coreTools, access = {} }: { coreTools?: boolean; access?: ob
       tools: { safeMode: false, resultMaxChars: 2000, loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     },
     prompts: {
-      'system-prompt': 'You are a regular member of this chat, not an assistant.',
-      'character-card': 'You are friendly and terse.',
+      main: 'You are a regular member of this chat, not an assistant.',
+      persona: 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
-      reply: 'Someone called you: {{author}}.',
+      'turn/reply': 'Someone called you: {{author}}.',
       interject: 'Jump into the chat.',
       initiate: 'Start a topic.',
-      'query-builder': 'Decide whether {{name}} needs to look something up.\n{{skills}}',
+      'classify/query': 'Decide whether {{name}} needs to look something up.\n{{skills}}',
       labels,
     },
   };

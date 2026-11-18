@@ -65,8 +65,8 @@ const hot = {
     diary: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
   },
   prompts: {
-    'system-prompt': 'SYSTEM for {{name}}',
-    'character-card': 'CARD_TEXT',
+    main: 'SYSTEM for {{name}}',
+    persona: 'CARD_TEXT',
     format: 'FORMAT_TEXT',
     diary: 'DIARY_TASK for {{name}}',
     'diary-planner': 'PLAN_SYSTEM for {{name}}',

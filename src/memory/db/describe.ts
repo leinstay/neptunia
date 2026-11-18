@@ -1,11 +1,11 @@
 // The description review (plan 2026-10-20-memory-f, section 9; docs/prompt-contract.md, "Description review"): she
 // rewrites her account of one subject (a person, a place or herself) in one field, in two calls.
 //
-//   Call 1 (prompts/description-draft.md): the system text her turns get, then <subject> (who, which field, the display
+//   Call 1 (prompts/memory/draft.md): the system text her turns get, then <subject> (who, which field, the display
 //   cap), <claims> (every claim of the subject with its dates and whether it is shown or historical), <evidence> (what
 //   changed since the last review, with sources and dates) and <samples> (lines from older periods, spread over time).
 //   The old description text is NOT sent. Answer: <description> and <reason>.
-//   Call 2 (prompts/description-check.md): <draft>, <current> (the stored description, empty when there is none) and
+//   Call 2 (prompts/memory/check.md): <draft>, <current> (the stored description, empty when there is none) and
 //   <diff> (the claims the stored text showed and the draft does not, and the reverse). Answer: <description> (final)
 //   and <reason>.
 //
@@ -43,8 +43,11 @@ import type { Context, Scope } from './scope.ts';
 import { CURRENT_REVISION, LINE_KIND } from './source-current.ts';
 import type { Completion, SessionContext } from './session.ts';
 
-export const DRAFT_PURPOSE = 'description-draft';
-export const CHECK_PURPOSE = 'description-check';
+const DRAFT_PURPOSE = 'description-draft';
+const CHECK_PURPOSE = 'description-check';
+// The prompt files of the two calls, keyed by their path under prompts/.
+const DRAFT_PROMPT = 'memory/draft';
+const CHECK_PROMPT = 'memory/check';
 const EVIDENCE_MAX = 40;
 const SAMPLES_MAX = 8;
 // The latest lines a place review reads of the place and the places under it.
@@ -375,7 +378,7 @@ export function reviewRefusal(
 ): string | null {
   if (sessionSettings(config).mode === 'off') return CODES.OFF;
   if (!memoryKeyState(config, env, ring, path).ok) return CODES.NOT_CONFIGURED;
-  if (!present(prompts?.[DRAFT_PURPOSE]) || !present(prompts?.[CHECK_PURPOSE])) return CODES.NO_PROMPT;
+  if (!present(prompts?.[DRAFT_PROMPT]) || !present(prompts?.[CHECK_PROMPT])) return CODES.NO_PROMPT;
   return null;
 }
 
@@ -454,7 +457,7 @@ export async function reviewDescription(
     const completion = await askMemoryModel(
       ctx,
       [
-        { role: 'system', content: systemTextOf(prompts, selfName, prompts?.[DRAFT_PURPOSE], liveRules(db)) },
+        { role: 'system', content: systemTextOf(prompts, selfName, prompts?.[DRAFT_PROMPT], liveRules(db)) },
         { role: 'user', content: draftUser },
       ],
       { purpose: DRAFT_PURPOSE, maxOutputTokens: settings.descriptionMaxOutputTokens }
@@ -488,7 +491,7 @@ export async function reviewDescription(
     const completion = await askMemoryModel(
       ctx,
       [
-        { role: 'system', content: systemTextOf(prompts, selfName, prompts?.[CHECK_PURPOSE], liveRules(db)) },
+        { role: 'system', content: systemTextOf(prompts, selfName, prompts?.[CHECK_PROMPT], liveRules(db)) },
         { role: 'user', content: checkUser },
       ],
       { purpose: CHECK_PURPOSE, maxOutputTokens: settings.descriptionMaxOutputTokens }
@@ -520,7 +523,7 @@ export async function reviewDescription(
       cap,
       ...(chars > cap ? { overCap: chars } : {}),
       model: roleModel(config, MEMORY_ROLE),
-      prompts: { draft: shortHash(prompts?.[DRAFT_PURPOSE]), check: shortHash(prompts?.[CHECK_PURPOSE]) },
+      prompts: { draft: shortHash(prompts?.[DRAFT_PROMPT]), check: shortHash(prompts?.[CHECK_PROMPT]) },
       tokens,
       sinceReview: gathered.last,
       basedOn: gathered.currentVersion,

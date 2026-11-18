@@ -101,7 +101,7 @@ async function turnIn(
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     access: personaGrants(['message.create', 'message.edit', 'draw.create', 'voice.say']),
   });
-  Object.assign(hot.prompts, { inner: 'Nobody wrote to you; read the wake block.', draw: 'DRAW {{request}}' });
+  Object.assign(hot.prompts, { 'turn/inner': 'Nobody wrote to you; read the wake block.', draw: 'DRAW {{request}}' });
   const store = Object.assign(fakeStore(), {
     findGif: () => ({ id: 'g1', url: 'https://media.example/g1.gif', file: null }),
     recordOwnGif: () => {},

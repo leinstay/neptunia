@@ -25,7 +25,7 @@ const args = {
 };
 const hot = {
   config: config({ features: { recall: true, meaningSearch: false } }),
-  prompts: { labels, 'recall-summary': 'Synthetic summary prompt' },
+  prompts: { labels, 'summarize/recall': 'Synthetic summary prompt' },
 };
 const lanes = [{ kind: 'message', text: 'rabbit', words: 'rabbit' }];
 type Quotes = { outcome: { kind: string }; quotes: Array<{ channelName: string | null; lines: string }> };

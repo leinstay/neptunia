@@ -45,7 +45,7 @@ function runner(env: ReturnType<typeof fixture>) {
   );
   const hot = {
     config: { features: { recall: true, meaningSearch: false }, bot: { timezone: 'UTC' } },
-    prompts: { 'recall-summary': 'Summarize the stored evidence.', labels },
+    prompts: { 'summarize/recall': 'Summarize the stored evidence.', labels },
   };
   const recaller = createRecall({
     mediaNameOf: noMediaNames,

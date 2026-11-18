@@ -1098,7 +1098,7 @@ function drawHot(
   const hot = fakeHot({ ...features }, bot, { image: { ...DRAW_IMAGE_CFG, ...image } });
   hot.prompts.draw = 'Drawing for {{name}}.\n\n{{appearance}}\n\n{{request}}';
   hot.prompts.appearance = '{{name}} wears a green scarf.';
-  hot.prompts.reply = 'Someone called you: {{author}}, they {{trigger}}.';
+  hot.prompts['turn/reply'] = 'Someone called you: {{author}}, they {{trigger}}.';
   return hot;
 }
 
@@ -1379,8 +1379,8 @@ test('runTurn: a failed drawing without a trigger fires onIdle once, right away'
 
 function privateHot(features = {}) {
   const hot = drawHot(features);
-  hot.prompts.reply = 'Someone called you: {{author}}, they {{trigger}}. You are {{name}}.';
-  hot.prompts.private = 'PRIVATE_TASK with {{author}} as {{name}}';
+  hot.prompts['turn/reply'] = 'Someone called you: {{author}}, they {{trigger}}. You are {{name}}.';
+  hot.prompts['turn/private'] = 'PRIVATE_TASK with {{author}} as {{name}}';
   return hot;
 }
 
@@ -1534,7 +1534,7 @@ test('runTurn: a guild channel keeps its own guild id even when a placeId param 
   const channel = fakeTurnChannel({ placeId: 'g1', historyMessages: [raw] });
   const store = fakeStore();
   const hot = fakeHot();
-  hot.prompts.private = 'PRIVATE_TASK';
+  hot.prompts['turn/private'] = 'PRIVATE_TASK';
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -1563,7 +1563,7 @@ test('runTurn: a guild turn never carries the private prompt or the private sens
   const llm = fakeLlm('<skip/>');
   // PR 7d: features.privateMessages is the key dm.enabled.
   const hot = fakeHot({}, {}, { dm: { enabled: true } });
-  hot.prompts.private = 'PRIVATE_TASK';
+  hot.prompts['turn/private'] = 'PRIVATE_TASK';
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -2977,7 +2977,7 @@ test('runTurn: pace.dropAfterMs 0 sets no bar -- a slow answer is still posted, 
 });
 
 // ---------------------------------------------------------------------------
-// A message that holds several requests: the splitter (prompts/split.md) and the chain of parts.
+// A message that holds several requests: the splitter (prompts/classify/split.md) and the chain of parts.
 
 /** The `<candidate>` text a classifier request carried. */
 function candidateOf(call: Untyped) {
@@ -2996,7 +2996,7 @@ test('runTurn: a short or unstructured call never asks the splitter', async () =
 // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('runTurn: a `one` verdict leaves the turn exactly as without the splitter', async () => {
   const off = splitHot();
-  delete off.prompts.split;
+  delete off.prompts['classify/split'];
   const before = await runSplitTurn({ hot: off });
   const after = await runSplitTurn({ llm: splitLlm({ split: '{"parts":[]}' }) });
 
@@ -3018,7 +3018,7 @@ test('runTurn: a `one` verdict leaves the turn exactly as without the splitter',
 });
 
 // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
-test('runTurn: the splitter request fills split.md and carries the transcript and the candidate', async () => {
+test('runTurn: the splitter request fills classify/split.md and carries the transcript and the candidate', async () => {
   const { llm } = await runSplitTurn({ llm: splitLlm({ split: '{"parts":[]}' }) });
   const [call] = llm.calls.split;
   assert.equal(call.messages[0].content, fillPromptTemplate(SPLIT_SYSTEM, { name: 'Bot', maxTasks: 4 }));
@@ -3160,14 +3160,14 @@ test('runTurn: an overheard line asks the splitter and an unprompted turn never 
   assert.equal(llm.calls.split.length, 0);
 });
 
-test('runTurn: an older labels file without labels.task.part never starts a chain; a missing split.md logs no-prompt', async () => {
+test('runTurn: an older labels file without labels.task.part never starts a chain; a missing classify/split.md logs no-prompt', async () => {
   const { task, ...older } = labels;
   const old = await runSplitTurn({ hot: splitHot({ labels: older }) });
   assert.equal(old.llm.calls.split.length, 0);
   assert.equal(old.llm.calls.talk.length, 1);
 
   const hot = splitHot();
-  delete hot.prompts.split;
+  delete hot.prompts['classify/split'];
   const { logs, llm } = await runSplitTurn({ hot });
   assert.equal(llm.calls.split.length, 0);
   assert.deepEqual(
@@ -3481,7 +3481,7 @@ function pickHot({
     }
   );
   declarePick();
-  Object.assign(hot.prompts, { 'media-pick': GIF_PICK_PROMPT }, prompts);
+  Object.assign(hot.prompts, { 'classify/pick': GIF_PICK_PROMPT }, prompts);
   for (const [name, text] of Object.entries(prompts)) if (text === null) delete hot.prompts[name];
   return hot;
 }
@@ -3628,8 +3628,8 @@ test('runTurn: no pick for a reply over maxChars', async () => {
 
 test('runTurn: no pick without the prompt or without a captioned GIF', async () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const noPrompt = await runPickTurn({ pick: '{"pick":"gif","name":"g1"}', prompts: { 'media-pick': null } });
-  assert.equal(noPrompt.picks.length, 0, 'no prompts/media-pick.md');
+  const noPrompt = await runPickTurn({ pick: '{"pick":"gif","name":"g1"}', prompts: { 'classify/pick': null } });
+  assert.equal(noPrompt.picks.length, 0, 'no prompts/classify/pick.md');
   const empty = await runPickTurn({
     pick: '{"pick":"gif","name":"g1"}',
     store: pickStore({ library: { gifs: { nextId: 1, entries: {} }, mediaCache: {} } }),

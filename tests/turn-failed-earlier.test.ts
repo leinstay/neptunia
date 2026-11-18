@@ -109,10 +109,10 @@ function hotWith(context: Record<string, unknown> = {}) {
       mention: { oneAtATime: true },
     },
     prompts: {
-      'system-prompt': 'You are a regular member of this chat.',
-      'character-card': 'You are friendly and terse.',
+      main: 'You are a regular member of this chat.',
+      persona: 'You are friendly and terse.',
       format: 'Use <msg> tags.',
-      reply: 'Someone called you: {{author}}.',
+      'turn/reply': 'Someone called you: {{author}}.',
       interject: 'Jump in.',
       initiate: 'Start a topic.',
       labels,

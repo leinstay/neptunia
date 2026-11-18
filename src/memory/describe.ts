@@ -77,7 +77,7 @@
 // prompt learns it through `{{maxChars}}`). `rewatchVideo()` is the
 // second look on a question (features.videoRewatch, a missing key counts as
 // on): the same media fetch as a watch, asked one question through the
-// `rewatch-answer` prompt. Its answer is cached for an hour under
+// `describe/rewatch` prompt. Its answer is cached for an hour under
 // `video:<itemId>:q:<hash of the question>`, failures never. `relookImage()`
 // is the same second look at a picture: the picture
 // downloaded as for a caption, the question asked through the same prompt on
@@ -616,7 +616,7 @@ function mediaCacheAccess({ store, hot, now }: Pick<DescriberDeps, 'store' | 'ho
 
 /** The picture prompt is read at use so an owner reload takes effect on the next request. */
 function pictureBlockerOf(hot: DescriberDeps['hot']): 'no-prompt' | null {
-  return hot.prompts?.describe ? null : 'no-prompt';
+  return hot.prompts?.['describe/picture'] ? null : 'no-prompt';
 }
 
 // health: allow function-length until 2027-04-01 -- the closure holds its whole operation, grown by the one dependency that names the loop watch
@@ -776,7 +776,7 @@ function buildDescriber({
     const item = await addressed(placeId, stored);
     if (isAudioItem(item)) return hearAudio(audioDeps(placeId), item);
     if (item.kind === 'text') return readTextFile(audioDeps(placeId), item);
-    const promptText: unknown = hot.prompts?.describe;
+    const promptText: unknown = hot.prompts?.['describe/picture'];
     if (typeof promptText !== 'string' || !promptText) return null;
 
     const keepPrevious = (mark: boolean) => keptCaption(placeId, item, previous, mark);
@@ -894,7 +894,7 @@ function buildDescriber({
    * request, nothing cached, null on any failure, with pictures off or with `llm.maxRequestsPerDay` spent.
    */
   async function describeDataUrl(placeId: string, dataUrl: string): Promise<string | null> {
-    const promptText: unknown = hot.prompts?.describe;
+    const promptText: unknown = hot.prompts?.['describe/picture'];
     if (!picturesOn() || typeof promptText !== 'string' || !promptText || capSpent()) return null;
     const captioned = await captionPicture(placeId, dataUrl, promptText, 'image');
     return 'failed' in captioned ? null : captioned.text;
@@ -924,7 +924,7 @@ function buildDescriber({
 
   /** What src/memory/describe-audio.ts works with, placed: a text form goes to this place's cache as a picture's does. */
   const audioDeps = (placeId: string): AudioDeps => ({
-    prompt: () => (hot.prompts as Record<string, unknown> | null | undefined)?.['describe-audio'],
+    prompt: () => (hot.prompts as Record<string, unknown> | null | undefined)?.['describe/audio'],
     settings: () =>
       ({ ...videoSettingsOf(hot.config), summaryChars: AUDIO_DESCRIPTION_CHARS }) as ReturnType<AudioDeps['settings']>,
     model: () => roleModel(hot.config, 'video'),
@@ -966,10 +966,10 @@ function buildDescriber({
    * One GIF watch, uncached: the animation at `source` is downloaded and
    * converted to a short mp4 (src/media/fetch-video.ts#fetchGif, the first
    * `media.gif.maxSeconds`, the video size and tool settings), then
-   * summarised by the video model through the `describe-gif` prompt
+   * summarised by the video model through the `describe/gif` prompt
    * (`{{maxChars}}` = `GIF_DESCRIPTION_CHARS` and `{{seconds}}` the clip's length to one decimal, with
    * `labels.gifCut` after a blank line when the GIF runs longer than the clip),
-   * else the `describe-video` prompt with `{{maxChars}}` alone;
+   * else the `describe/video` prompt with `{{maxChars}}` alone;
    * under the video token cap and output budget. The answer on one line, through the summarizer at
    * `GIF_DESCRIPTION_CHARS` and made plain, is cached under the GIF's own item id as `{ text, ts, watched: true, gif: true }`;
    * nothing is cached otherwise. An attached GIF's clip comes from the address `freshAddress` reads, else from
@@ -1086,15 +1086,15 @@ function buildDescriber({
   }
 
   /**
-   * The system message of a GIF watch: `describe-gif` with `{{maxChars}}`,
-   * `{{seconds}}` (the clip's length to one decimal) and `{{today}}`, else `describe-video` with `{{maxChars}}` and
+   * The system message of a GIF watch: `describe/gif` with `{{maxChars}}`,
+   * `{{seconds}}` (the clip's length to one decimal) and `{{today}}`, else `describe/video` with `{{maxChars}}` and
    * `{{today}}`. A GIF longer than the clip adds `labels.gifCut` after a blank line. Read at the moment of use.
    */
   function gifSystemPrompt(maxChars: number, seconds: number, totalSeconds: number | null) {
     const prompt = gifWatchPrompt(hot.prompts);
     const values: Record<string, Untyped> = { maxChars, today: todayDate() };
     const clipSeconds = oneDecimal(seconds);
-    if (prompt?.name === 'describe-gif') values.seconds = clipSeconds;
+    if (prompt?.name === 'describe/gif') values.seconds = clipSeconds;
     const filled = fillPromptTemplate(prompt?.text, values);
     const labels = hot.prompts?.labels;
     const cut = labels?.gifCut;
@@ -1193,7 +1193,7 @@ function buildDescriber({
    */
   function cachedDescriptions(placeId: string, items: Array<MediaItem>): Map<string, string> {
     const descriptions = new Map();
-    if (!hot.prompts?.describe) return descriptions;
+    if (!hot.prompts?.['describe/picture']) return descriptions;
     for (const item of items ?? []) {
       const entry = item?.itemId ? readEntry(placeId, item.itemId) : undefined;
       if (!entry || entry.miss || typeof entry.text !== 'string' || !entry.text) continue;
@@ -1535,7 +1535,7 @@ function buildDescriber({
    * still applies).
    */
   async function describeVideoCharged(placeId: string, item: MediaItem, { cacheOnly = false, force = false } = {}) {
-    const promptText = hot.prompts?.['describe-video'];
+    const promptText = hot.prompts?.['describe/video'];
     if (!promptText || !isVideoCandidate(item)) return { result: null, sent: false, attempted: false };
 
     const key = `video:${item.itemId}`;
@@ -1671,7 +1671,7 @@ function buildDescriber({
   /**
    * The second look on a question: fetch `item` again exactly like a watch
    * (fetchVideoMedia -- same probe chain, direct-URL rules, caps and pinned
-   * provider) and ask the video model `question`: the `rewatch-answer`
+   * provider) and ask the video model `question`: the `describe/rewatch`
    * prompt is the system message (`{{maxChars}}` =
    * `VIDEO_DESCRIPTION_CHARS`; a `{{question}}` still in it is filled
    * too, never left literal) and the question goes as a text part of the user
@@ -1683,7 +1683,7 @@ function buildDescriber({
    * @param item  One collectVideos candidate.
    */
   async function rewatchVideo(placeId: string, item: MediaItem, question: string, { model = null }: Ask = {}): Looked {
-    const promptText = hot.prompts?.['rewatch-answer'];
+    const promptText = hot.prompts?.['describe/rewatch'];
     const asked = String(question ?? '').trim();
     if (!promptText || !isVideoCandidate(item) || !asked) return null;
 
@@ -1759,7 +1759,7 @@ function buildDescriber({
    * `context.vision.maxBytes`) and ask the
    * media model (`vision`, a request on a model role other than `core`, `purpose: 'relook'`,
    * output capped at `media.video.rewatch.maxOutputTokens`) `question`: the
-   * `rewatch-answer` prompt is the system message (`{{maxChars}}` =
+   * `describe/rewatch` prompt is the system message (`{{maxChars}}` =
    * `PICTURE_DESCRIPTION_CHARS`; a `{{question}}` still in it is filled
    * too, never left literal) and the question goes as a text part of the user
    * message next to the picture. Only an `image` item with a URL and a
@@ -1770,7 +1770,7 @@ function buildDescriber({
    * @param item  One collectPictures item of kind `image`.
    */
   async function relookImage(placeId: string, item: MediaItem, question: string, { model = null }: Ask = {}): Looked {
-    const promptText = hot.prompts?.['rewatch-answer'];
+    const promptText = hot.prompts?.['describe/rewatch'];
     const asked = String(question ?? '').trim();
     if (!promptText || item?.kind !== 'image' || !item.itemId || !item.url || !asked) return null;
 
@@ -1896,7 +1896,7 @@ function buildDescriber({
    * The second look at a watched GIF on a question: its clip fetched again
    * the way the GIF watch fetches it (fetchGifClip, the first
    * `media.gif.maxSeconds` -- the same cap as the first watch) and the video
-   * model asked `question` through the `rewatch-answer` prompt
+   * model asked `question` through the `describe/rewatch` prompt
    * (`{{question}}`, `{{maxChars}}` = `GIF_DESCRIPTION_CHARS`,
    * output capped at `media.video.rewatch.maxOutputTokens`), under the video
    * request rails. Needs GIFs watched now (gifWatchBlocker),
@@ -1910,7 +1910,7 @@ function buildDescriber({
    */
   async function rewatchGif(placeId: string, item: MediaItem, question: string, { model = null }: Ask = {}): Looked {
     if (gifWatchBlocker() !== null) return null;
-    const promptText = hot.prompts?.['rewatch-answer'];
+    const promptText = hot.prompts?.['describe/rewatch'];
     const asked = String(question ?? '').trim();
     const source = gifAnimationSource(item);
     if (!promptText || !item?.itemId || !source || !asked) return null;

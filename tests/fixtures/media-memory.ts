@@ -529,7 +529,7 @@ export function recallRig(
   const llm = { capLeft: () => 100, complete: () => Promise.resolve({ text: '' }) };
   const created = createRecall({ iface: 'discord',
     reads,
-    hot: { config, prompts: { 'recall-summary': 'x', labels: wording } },
+    hot: { config, prompts: { 'summarize/recall': 'x', labels: wording } },
     store,
     llm,
     now: () => NOW,

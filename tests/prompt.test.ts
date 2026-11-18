@@ -52,7 +52,7 @@ test('buildRequest: a reply in <chat> quotes its parent whole', () => {
 
 test('buildRequest: {{name}} is filled with selfName in every system part', () => {
   const request = buildRequest(
-    baseInput({ prompts: fakePrompts({ 'system-prompt': 'Hi, I am {{name}}.', 'character-card': 'card of {{name}}' }) })
+    baseInput({ prompts: fakePrompts({ main: 'Hi, I am {{name}}.', persona: 'card of {{name}}' }) })
   );
   assert.ok(request.messages[0].content.includes('Hi, I am Nept.'));
   assert.ok(request.messages[0].content.includes('card of Nept'));
@@ -75,15 +75,15 @@ test('buildRequest: target is the #index of the trigger message in the transcrip
 });
 
 // A follow-up (a classifier yes) and an untagged reply (a Discord reply to the persona with no
-// typed tag, taggedCall false) take prompts['follow-up'] as their task; every other call keeps reply.md.
+// typed tag, taggedCall false) take prompts['turn/follow'] as their task; every other call keeps turn/reply.md.
 const FOLLOW_UP_TASK = 'FOLLOW_UP_TASK: {{author}} {{trigger}} at {{target}}; you are {{name}}.';
 
-test('buildRequest: triggerKind "followUp" takes prompts["follow-up"] as its task, every placeholder filled, no reply.md text', () => {
+test('buildRequest: triggerKind "followUp" takes prompts["turn/follow"] as its task, every placeholder filled, no turn/reply.md text', () => {
   const m1 = makeMessage(1, NOW - 2 * MIN);
   const trigger = makeMessage(2, NOW - MIN, { authorName: 'Élodie' });
   const request = buildRequest(
     baseInput({
-      prompts: fakePrompts({ 'follow-up': FOLLOW_UP_TASK }),
+      prompts: fakePrompts({ 'turn/follow': FOLLOW_UP_TASK }),
       history: [m1, trigger],
       trigger,
       triggerKind: 'followUp',
@@ -91,14 +91,14 @@ test('buildRequest: triggerKind "followUp" takes prompts["follow-up"] as its tas
   );
   const user = contentText(request.messages[1].content);
   assert.ok(user.includes(`FOLLOW_UP_TASK: Élodie ${labels.triggers.followUp} at #2; you are Nept.`), user);
-  assert.ok(!user.includes('Called by'), 'reply.md is not used on a follow-up');
+  assert.ok(!user.includes('Called by'), 'turn/reply.md is not used on a follow-up');
 });
 
-test('buildRequest: an untagged reply (taggedCall false) takes prompts["follow-up"] with the reply label', () => {
+test('buildRequest: an untagged reply (taggedCall false) takes prompts["turn/follow"] with the reply label', () => {
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Élodie' });
   const request = buildRequest(
     baseInput({
-      prompts: fakePrompts({ 'follow-up': FOLLOW_UP_TASK }),
+      prompts: fakePrompts({ 'turn/follow': FOLLOW_UP_TASK }),
       history: [trigger],
       trigger,
       triggerKind: 'reply',
@@ -110,7 +110,7 @@ test('buildRequest: an untagged reply (taggedCall false) takes prompts["follow-u
   assert.ok(!user.includes('Called by'));
 });
 
-test('buildRequest: a tagged reply, a reply without taggedCall, a mention and a name call keep reply.md', () => {
+test('buildRequest: a tagged reply, a reply without taggedCall, a mention and a name call keep turn/reply.md', () => {
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Élodie' });
   const cases = [
     { triggerKind: 'reply', taggedCall: true },
@@ -120,7 +120,7 @@ test('buildRequest: a tagged reply, a reply without taggedCall, a mention and a 
   ];
   for (const extra of cases) {
     const request = buildRequest(
-      baseInput({ prompts: fakePrompts({ 'follow-up': FOLLOW_UP_TASK }), history: [trigger], trigger, ...extra })
+      baseInput({ prompts: fakePrompts({ 'turn/follow': FOLLOW_UP_TASK }), history: [trigger], trigger, ...extra })
     );
     const user = contentText(request.messages[1].content);
     assert.ok(
@@ -133,11 +133,11 @@ test('buildRequest: a tagged reply, a reply without taggedCall, a mention and a 
   }
 });
 
-test('buildRequest: a follow-up in a private chat keeps reply.md', () => {
+test('buildRequest: a follow-up in a private chat keeps turn/reply.md', () => {
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Élodie' });
   const request = buildRequest(
     baseInput({
-      prompts: fakePrompts({ 'follow-up': FOLLOW_UP_TASK }),
+      prompts: fakePrompts({ 'turn/follow': FOLLOW_UP_TASK }),
       history: [trigger],
       trigger,
       triggerKind: 'followUp',
@@ -149,12 +149,12 @@ test('buildRequest: a follow-up in a private chat keeps reply.md', () => {
   assert.ok(!user.includes('FOLLOW_UP_TASK'));
 });
 
-test('buildRequest: without prompts["follow-up"] (missing or blank) a follow-up and an untagged reply use reply.md', () => {
+test('buildRequest: without prompts["turn/follow"] (missing or blank) a follow-up and an untagged reply use turn/reply.md', () => {
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Élodie' });
   for (const followUp of [undefined, '', '   ']) {
     for (const extra of [{ triggerKind: 'followUp' }, { triggerKind: 'reply', taggedCall: false }]) {
       const request = buildRequest(
-        baseInput({ prompts: fakePrompts({ 'follow-up': followUp }), history: [trigger], trigger, ...extra })
+        baseInput({ prompts: fakePrompts({ 'turn/follow': followUp }), history: [trigger], trigger, ...extra })
       );
       const user = contentText(request.messages[1].content);
       assert.ok(
@@ -182,12 +182,12 @@ test('usesFollowUpTask: a follow-up or an untagged reply in reply mode, never pr
 // An overheard turn: a line about the persona, said to someone else or to the room.
 const OVERHEARD_TASK = 'OVERHEARD_TASK: {{author}} {{trigger}} at {{target}}; you are {{name}}.';
 
-test('buildRequest: triggerKind "overheard" takes prompts.overheard as its task, every placeholder filled, no reply.md text', () => {
+test('buildRequest: triggerKind "overheard" takes prompts["turn/overheard"] as its task, every placeholder filled, no turn/reply.md text', () => {
   const m1 = makeMessage(1, NOW - 2 * MIN);
   const trigger = makeMessage(2, NOW - MIN, { authorName: 'Élodie' });
   const request = buildRequest(
     baseInput({
-      prompts: fakePrompts({ overheard: OVERHEARD_TASK }),
+      prompts: fakePrompts({ 'turn/overheard': OVERHEARD_TASK }),
       history: [m1, trigger],
       trigger,
       triggerKind: 'overheard',
@@ -195,10 +195,10 @@ test('buildRequest: triggerKind "overheard" takes prompts.overheard as its task,
   );
   const user = contentText(request.messages[1].content);
   assert.ok(user.includes(`OVERHEARD_TASK: Élodie ${labels.triggers.overheard} at #2; you are Nept.`));
-  assert.ok(!user.includes('Called by'), 'reply.md is not used on an overheard turn');
+  assert.ok(!user.includes('Called by'), 'turn/reply.md is not used on an overheard turn');
 });
 
-test('buildRequest: triggerKind "overheard" without prompts.overheard (missing or blank) uses the mode prompt with the overheard label', () => {
+test('buildRequest: triggerKind "overheard" without prompts["turn/overheard"] (missing or blank) uses the mode prompt with the overheard label', () => {
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Élodie' });
   for (const overheard of [undefined, '', '   ']) {
     const request = buildRequest(
@@ -215,25 +215,25 @@ test('buildRequest: triggerKind "overheard" without prompts.overheard (missing o
 // The turn a finished errand opens with no origin message (asked in an inner turn of hers).
 const ERRAND_TASK = 'ERRAND_TASK: you are {{name}}, your errand ended.';
 
-test('buildRequest: a task trigger kind without a trigger takes prompts.errand-result as its task; missing, the mode prompt; with a trigger, the reply task', () => {
+test('buildRequest: a task trigger kind without a trigger takes prompts["turn/errand"] as its task; missing, the mode prompt; with a trigger, the reply task', () => {
   const m1 = makeMessage(1, NOW - 2 * MIN);
   const own = (overrides: Record<string, unknown> = {}) =>
     contentText(
       buildRequest(baseInput({ mode: 'interject', history: [m1], trigger: null, triggerKind: 'errand', ...overrides }))
         .messages[1].content
     );
-  const withFile = own({ prompts: fakePrompts({ 'errand-result': ERRAND_TASK }) });
+  const withFile = own({ prompts: fakePrompts({ 'turn/errand': ERRAND_TASK }) });
   assert.ok(withFile.includes('ERRAND_TASK: you are Nept, your errand ended.'), withFile.slice(-300));
   assert.ok(!withFile.includes('INTERJECT'), "interject.md is not the task of her own errand's end");
   for (const missing of [undefined, '', '  ']) {
-    const user = own({ prompts: fakePrompts({ 'errand-result': missing }) });
+    const user = own({ prompts: fakePrompts({ 'turn/errand': missing }) });
     assert.ok(user.includes('INTERJECT'), `without the file the mode prompt applies (${JSON.stringify(missing)})`);
   }
   const trigger = makeMessage(2, NOW - MIN, { authorName: 'Élodie' });
   const answered = contentText(
     buildRequest(
       baseInput({
-        prompts: fakePrompts({ 'errand-result': ERRAND_TASK }),
+        prompts: fakePrompts({ 'turn/errand': ERRAND_TASK }),
         history: [m1, trigger],
         trigger,
         triggerKind: 'errand',
@@ -969,9 +969,9 @@ function gifSenses({
 // The owner on 2026-11-17: a GIF is never described from one frame.
 test('buildRequest: GIFs watched (video vision on, a watch prompt) -> senses.gifWatched', () => {
   for (const prompts of [
-    { 'describe-video': 'V' },
-    { 'describe-gif': 'G' },
-    { 'describe-video': 'V', 'describe-gif': 'G' },
+    { 'describe/video': 'V' },
+    { 'describe/gif': 'G' },
+    { 'describe/video': 'V', 'describe/gif': 'G' },
   ]) {
     const lines = gifSenses({ prompts });
     assert.ok(lines.includes(labels.senses.gifWatched), JSON.stringify(Object.keys(prompts)));
@@ -982,7 +982,7 @@ test('buildRequest: GIFs watched (video vision on, a watch prompt) -> senses.gif
 test('buildRequest: no <senses> line tells of a single GIF frame, GIFs watched or not', () => {
   const frameLine = 'STAND-IN: a GIF is one frame';
   const labelsOverride = { ...labels, senses: { ...labels.senses, gifDescribed: frameLine } };
-  for (const prompts of [{ 'describe-video': 'V' }, {}, { 'describe-video': '' }]) {
+  for (const prompts of [{ 'describe/video': 'V' }, {}, { 'describe/video': '' }]) {
     const lines = gifSenses({ prompts, labelsOverride });
     assert.ok(!lines.includes(frameLine), JSON.stringify(prompts));
   }
@@ -1444,7 +1444,7 @@ function privateScene(overrides: Record<string, unknown> = {}) {
     history: [trigger],
     trigger,
     triggerKind: 'private',
-    prompts: fakePrompts({ private: 'PRIVATE_TASK for {{name}} with {{author}}' }),
+    prompts: fakePrompts({ 'turn/private': 'PRIVATE_TASK for {{name}} with {{author}}' }),
     dmChat: { accountId: 'u1' },
     interlocutor: {
       id: 'u1',
@@ -1465,7 +1465,7 @@ function privateScene(overrides: Record<string, unknown> = {}) {
   });
 }
 
-test('buildRequest: dmChat appends the filled prompts.private after the mode prompt', () => {
+test('buildRequest: dmChat appends the filled prompts["turn/private"] after the mode prompt', () => {
   const user = contentText(buildRequest(privateScene()).messages[1].content);
   const task = user.slice(user.indexOf('<task>'));
   assert.ok(
@@ -1476,12 +1476,12 @@ test('buildRequest: dmChat appends the filled prompts.private after the mode pro
   assert.ok(task.indexOf('Called by Alice') < task.indexOf('PRIVATE_TASK'));
 });
 
-test('buildRequest: without dmChat prompts.private is never appended', () => {
+test('buildRequest: without dmChat prompts["turn/private"] is never appended', () => {
   const user = contentText(buildRequest(privateScene({ dmChat: null })).messages[1].content);
   assert.ok(!user.includes('PRIVATE_TASK'));
 });
 
-test('buildRequest: dmChat with no prompts.private leaves the task as the mode prompt alone', () => {
+test('buildRequest: dmChat with no prompts["turn/private"] leaves the task as the mode prompt alone', () => {
   const prompts = fakePrompts();
   const user = contentText(buildRequest(privateScene({ prompts })).messages[1].content);
   const task = /<task>\n([\s\S]*?)\n<\/task>/.exec(user)![1];
@@ -1500,14 +1500,23 @@ test('buildRequest: <senses> carries senses.dmChat in a private chat, never sens
 test('buildRequest: with context.memory.openPrivate on, the private wording is the open one in a private chat and a group', () => {
   // Bug: the switch opens her memory while the frame still orders her to keep each private chat out of every other place.
   const open = { context: { memory: { openPrivate: true } } };
-  const prompts = fakePrompts({ private: 'PRIVATE_TASK', 'private-open': 'OPEN_PRIVATE_TASK' });
-  const dm = buildRequest(privateScene({ config: fakeConfig(open), prompts }));
+  const dm = buildRequest(privateScene({ config: fakeConfig(open) }));
   const dmSenses = sensesOf(dm)!;
   assert.ok(dmSenses.includes(labels.senses.dmChatOpen) && !dmSenses.includes(labels.senses.dmChat));
-  const task = userText(dm);
-  assert.ok(task.includes('OPEN_PRIVATE_TASK') && !/(^|[^_])PRIVATE_TASK/.test(task));
+  // Changed: the task of a private chat is one prompt whatever the switch, so the open wording lives in the senses
+  // alone; the next test holds the task to `turn/private`.
   const group = sensesOf(buildRequest(baseInput({ config: fakeConfig({ ...open, dm: { enabled: true } }) })))!;
   assert.ok(group.includes(labels.senses.privateAwareOpen) && !group.includes(labels.senses.privateAware));
+});
+
+test('buildRequest: a private chat appends turn/private to its task with context.memory.openPrivate on and off', () => {
+  // Catches: the switch picking a second private file, so one setting gives a private chat two different tasks.
+  const prompts = fakePrompts({ 'turn/private': 'PRIVATE_TASK', 'private-open': 'OPEN_PRIVATE_TASK' });
+  for (const openPrivate of [true, false]) {
+    const config = fakeConfig({ context: { memory: { openPrivate } } });
+    const task = userText(buildRequest(privateScene({ config, prompts })));
+    assert.ok(task.includes('PRIVATE_TASK') && !task.includes('OPEN_PRIVATE_TASK'), `openPrivate ${openPrivate}`);
+  }
 });
 
 test('buildRequest: <senses> carries senses.privateAware outside a private chat only when dm.enabled is true', () => {

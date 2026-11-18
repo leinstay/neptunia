@@ -641,7 +641,7 @@ test('equivalence: her memory session reads the same scopes, batches and request
       triple.map((scope) => scope.key)
     );
     const config = { bot: { timezone: 'UTC' }, memoryDb: { session: { maxPeople: 12 } } };
-    const prompts = { 'system-prompt': 'S', 'memory-session': 'M', labels };
+    const prompts = { main: 'S', 'memory/session': 'M', labels };
     for (let i = 0; i < triple.length; i += 1) {
       const args = { cursor: 0, since: null, maxMessages: 200, settleBefore: NOW };
       const a = batchOf(env.db, triple[i].scope, args);

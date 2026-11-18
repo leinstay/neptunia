@@ -21,7 +21,7 @@ function hotOf({ enabled = true, writer = true }: { enabled?: boolean; writer?: 
         },
       },
     },
-    prompts: { 'humanizer-linter': LINTER, 'humanizer-writer': WRITER },
+    prompts: { 'humanizer/linter': LINTER, 'humanizer/editor': WRITER },
   };
 }
 

@@ -11,7 +11,7 @@
 //   sent as its Accept-Language). The excerpt is the page's own extracted text on one line,
 //   whole up to `LINK_EXCERPT_CHARS` and the summarizer's one retelling past it (src/behavior/summarize.ts, whole with
 //   no summarizer), cached as `preview:<link id>`.
-// - search: one web search whose numbered results are condensed through prompts/search-summary.md, sources kept; a
+// - search: one web search whose numbered results are condensed through prompts/summarize/search.md, sources kept; a
 //   note over `SEARCH_SUMMARY_CHARS` is retold once by the summarizer, and a retelling still over it is kept whole.
 //   `web.quickSearch.engine` picks the engine, and it has no default: `brave` (src/web/brave.ts) and `exa` (src/web/exa.ts) each
 //   need their service key, and `openrouter` (OpenRouter's web plugin, its engine `auto`: the summary request itself
@@ -104,7 +104,7 @@ const entryAt = (store: LookupDeps['store'], placeId: string, key: string): Cach
 
 /** What `createLookup` takes. */
 export type LookupDeps = {
-  hot: { config: LookupConfig; prompts?: { 'search-summary'?: string } };
+  hot: { config: LookupConfig; prompts?: { 'summarize/search'?: string } };
   store: {
     mediaEntry: (placeId: string, key: string) => object | undefined;
     putMediaEntry: (placeId: string, key: string, entry: unknown) => void;
@@ -532,7 +532,7 @@ export function createLookup(deps: LookupDeps): Lookup {
     const config = hot.config;
     const searchCfg: SearchSettings = config.web?.quickSearch ?? {};
     if (searchCfg.enabled === false) return null;
-    const promptText = hot.prompts?.['search-summary'];
+    const promptText = hot.prompts?.['summarize/search'];
     const asked = cleanQuery(query);
     if (!promptText || !asked) return null;
     const engine = engineOf(config);

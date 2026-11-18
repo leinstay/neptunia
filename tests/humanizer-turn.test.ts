@@ -16,7 +16,7 @@ import { runSplitTurn, splitHot, splitLlm, SPLIT_PARTS } from './fixtures/turn-s
 import { onWorld, world } from './fixtures/turn-world.ts';
 
 const route = (model: string) => [{ via: 'api', key: 'k', model, effort: null }];
-const PROMPTS = { 'humanizer-linter': 'Check the text of {{name}}.', 'humanizer-writer': 'Write {{name}} again.' };
+const PROMPTS = { 'humanizer/linter': 'Check the text of {{name}}.', 'humanizer/editor': 'Write {{name}} again.' };
 
 // 24 words each, so the two make a text over the 40 words.
 const LONG_A =
@@ -78,7 +78,7 @@ async function turnOf({
     answers,
     allowed: ['message.create'],
     inner,
-    prompts: { ...PROMPTS, ...(inner ? { inner: 'Do what the wake says.' } : {}) },
+    prompts: { ...PROMPTS, ...(inner ? { 'turn/inner': 'Do what the wake says.' } : {}) },
     config: inner ? { wakes: { mode: 'live', chatMessages: 2 } } : {},
     withHot: (hot) => {
       Object.assign(hot.config, { humanizer: { enabled } });
@@ -194,8 +194,8 @@ test("a diary post stores the writer's text as its entry", async () => {
       models: { routes: { 'linter': route('l/m'), 'editor': route('w/m') } },
     },
     prompts: {
-      'system-prompt': 'SYSTEM for {{name}}',
-      'character-card': 'CARD',
+      main: 'SYSTEM for {{name}}',
+      persona: 'CARD',
       format: 'FORMAT',
       diary: 'DIARY for {{name}}',
       'diary-planner': 'PLAN for {{name}}',

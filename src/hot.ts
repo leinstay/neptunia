@@ -133,13 +133,66 @@ function retiredKeysOf(
 }
 
 /**
+ * Prompt keys a deployment's own file may still sit under, each with the key read in its place. A file under one of
+ * them is not read: the load warns of it and `neptunia doctor` reports it.
+ */
+const RETIRED_PROMPT_KEYS: Readonly<Record<string, string>> = Object.freeze({
+  'system-prompt': 'main',
+  'character-card': 'persona',
+  'speech-prepare': 'speech',
+  reply: 'turn/reply',
+  'follow-up': 'turn/follow',
+  overheard: 'turn/overheard',
+  inner: 'turn/inner',
+  'errand-result': 'turn/errand',
+  private: 'turn/private',
+  'private-open': 'turn/private',
+  describe: 'describe/picture',
+  'describe-gif': 'describe/gif',
+  'describe-video': 'describe/video',
+  'describe-audio': 'describe/audio',
+  avatar: 'describe/avatar',
+  'rewatch-answer': 'describe/rewatch',
+  'memory-session': 'memory/session',
+  'description-draft': 'memory/draft',
+  'description-check': 'memory/check',
+  'description-merge': 'memory/merge',
+  'summarize-media': 'summarize/media',
+  'summarize-text': 'summarize/text',
+  'recall-summary': 'summarize/recall',
+  'search-summary': 'summarize/search',
+  address: 'classify/address',
+  merge: 'classify/merge',
+  missed: 'classify/missed',
+  split: 'classify/split',
+  'query-builder': 'classify/query',
+  'media-pick': 'classify/pick',
+  'humanizer-linter': 'humanizer/linter',
+  'humanizer-writer': 'humanizer/editor',
+});
+
+/** Whether `name`, a prompt key, is one of RETIRED_PROMPT_KEYS. */
+const isRetiredPrompt = (name: string): boolean => Object.hasOwn(RETIRED_PROMPT_KEYS, name);
+
+/**
+ * The prompt files under `localPromptsDir` at a key of RETIRED_PROMPT_KEYS, each as `{ file, use }`: its path and the
+ * path read in its place, both relative to that folder. The load's warning and the doctor's `local-layer` read it.
+ */
+export function retiredPromptFiles(localPromptsDir: string): Array<{ file: string; use: string }> {
+  return listPromptFiles(localPromptsDir)
+    .map((file) => file.slice(0, -'.md'.length))
+    .filter(isRetiredPrompt)
+    .map((name) => ({ file: `${name}.md`, use: `${RETIRED_PROMPT_KEYS[name]}.md` }));
+}
+
+/**
  * The live view `createHot` returns. `config` is the parsed settings and `prompts` the loaded prompt files, each
  * a JSON tree whose shape `config/` and src/config/schema.ts define and every reader checks as it reads, so
  * both are untyped here.
  */
 export type Hot = EventEmitter & {
   config: Untyped;
-  prompts: Record<string, Untyped> & { labels: Untyped; 'search-summary'?: string };
+  prompts: Record<string, Untyped> & { labels: Untyped; 'summarize/search'?: string };
   promptSources: Record<string, string>;
   promptsDir: string;
   localPromptsDir: string;
@@ -239,7 +292,10 @@ function computePromptFiles(
   for (const file of files) {
     const name = file.slice(0, -'.md'.length);
     const baseText = readMdFile(promptsDir, file);
-    const localText = readMdFile(localPromptsDir, file);
+    // A deployment file at a retired key is not read, and the key stays absent without a tracked file of that path.
+    const retired = isRetiredPrompt(name);
+    if (retired && baseText === null) continue;
+    const localText = retired ? null : readMdFile(localPromptsDir, file);
     const useLocal = Boolean(localText);
     const effective = useLocal ? localText : (baseText ?? '');
 
@@ -433,6 +489,19 @@ export function createHot({
     }
   };
   reportRetiredKeys();
+  // The deployment's prompt files at a retired key reported like the retired settings: one warning when a file
+  // appears, none while it stays.
+  const reportedPrompts = new Set<string>();
+  const reportRetiredPrompts = () => {
+    const found = retiredPromptFiles(localPromptsDir);
+    for (const file of reportedPrompts) if (!found.some((one) => one.file === file)) reportedPrompts.delete(file);
+    for (const { file, use } of found) {
+      if (reportedPrompts.has(file)) continue;
+      reportedPrompts.add(file);
+      log.warn('prompts: a file is no longer read', { file, use });
+    }
+  };
+  reportRetiredPrompts();
   // Initial load: an invalid JSON layer (labels, tools) throws so a broken deployment fails at startup.
   const initial = loadPromptLayers(rootDir, privateDir, {}, {});
   hot.prompts = initial.prompts;
@@ -501,6 +570,7 @@ export function createHot({
         prompts: Object.keys(mdPrompts),
         keptPrevious,
       });
+      reportRetiredPrompts();
       hot.emit('change', { what: 'prompts' });
       return true;
     } catch (err) {

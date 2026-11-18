@@ -118,7 +118,7 @@ test('sends no reminder in an inner turn', async () => {
     inner: wake,
     loop: inner,
     config: { wakes: { mode: 'live', chatMessages: 2, loop: inner }, ...ROOMY },
-    prompts: { inner: 'Do what the wake says.' },
+    prompts: { 'turn/inner': 'Do what the wake says.' },
     withHot: withMarker,
   });
   assert.equal(callsOf(run), 4, 'three reads and the request after the third');
