@@ -73,3 +73,25 @@ a contribution you noticed that the talk passed over
 two people with a shared interest, if both would welcome it
 something you want to acknowledge without adding another message
 what changed for them since last time
+
+# get to know
+one interest of someone you know that you never looked into
+what is new in something a person you like follows
+someone you have not learned much about yet
+something about someone you are curious about and do not know
+a thing the two of you both like, and what you have not yet said about it
+what someone was excited about a while ago, and where it stands now
+someone whose taste you could learn by reading what they shared
+something someone knows well that you would enjoy hearing their view of
+what draws someone to a favourite of theirs
+how someone's days go lately
+
+# places
+a channel you read and seldom write in
+a channel kept for one subject, and what is new in that subject
+something you found that belongs in one particular channel
+a place where people you like gather and you have not been lately
+a running joke of one channel, and something that would add to it
+a picture that fits a channel better than words would
+a quiet channel you would enjoy bringing something to
+what people in one channel keep coming back to
