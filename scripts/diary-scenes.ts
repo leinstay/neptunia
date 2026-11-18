@@ -25,7 +25,7 @@ import { CliError, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
 import { seededRng } from './lib/diary-day.ts';
 import { readOnlyMemory } from './lib/memory-read.ts';
 import { overlayPromptsHot } from './lib/prompt-layers.ts';
-import { routesText, scriptRouting, takeRoutes } from './lib/script-routes.ts';
+import { routedHot, routesText, scriptRouting, takeRoutes } from './lib/script-routes.ts';
 import { DEFAULT_HISTORY_POSTS } from '../src/behavior/diary.ts';
 import { SCENE_KINDS, SCENE_ROLES, buildScene, drawSceneSets, isSceneKind } from '../src/behavior/diary-scene.ts';
 import type { SceneLlm, SceneResult, SceneRole } from '../src/behavior/diary-scene.ts';
@@ -164,6 +164,8 @@ export async function main(
   const layered = args.prompts === null ? null : overlayPromptsHot(createHot, ROOT, args.prompts, { env });
   const hot = layered?.hot ?? createHot({ rootDir: ROOT, privateDir: dataDir });
   try {
+    // The helper reads its model from the config, so the config it sees carries the route a flag names.
+    const asked = routedHot(hot, taken.routes);
     const real = llmOf ? llmOf(hot) : await routedLlm(hot, env, taken.routes, args.role);
     // The tool's own requests, as a replay's: never counted against the day's cap.
     const llm: SceneLlm = {
@@ -179,7 +181,7 @@ export async function main(
       results[kind] = [];
       for (let run = 0; run < args.count; run += 1) {
         const sets = drawSceneSets({ seedsText: hot.prompts?.['diary-seeds'], posts, rng });
-        const result = await buildScene({ hot, llm, kind, sets, now: now(), timezone, role: args.role });
+        const result = await buildScene({ hot: asked, llm, kind, sets, now: now(), timezone, role: args.role });
         process.stderr.write(`${TOOL}: ${kind} ${run + 1}/${args.count} ${result.ok ? 'ok' : result.reason}\n`);
         results[kind].push(printedOf(result));
       }

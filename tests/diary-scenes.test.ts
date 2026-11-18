@@ -55,6 +55,17 @@ test('sends the prompt file as the system message and no character text, on the 
   }
 });
 
+test('asks for the model of the route a flag names, so two models can be compared', async () => {
+  // Bug: the flag replaces the route and the request still names the configured model, so the run tests the old one.
+  const { llm, run, done } = setup();
+  try {
+    await run(['--kinds', 'status', '--count', '1', '--seed', 'a', '--analyzer', 'helpers/vendor/other-model:medium']);
+    assert.equal(llm.calls[0].options.model, 'vendor/other-model');
+  } finally {
+    done();
+  }
+});
+
 test('prints count results per kind, each with eight sets, and the same sets for the same seed', async () => {
   // Bug: a kind or a run goes missing, or the seed does not fix the draw.
   const { run, done } = setup();
