@@ -564,6 +564,19 @@
       },
       "madeCount": "{count} {things}",
       "madeTail": ", and made {made}",
+      "acts": {
+        "message.edit": "edited a message",
+        "message.delete": "deleted a message",
+        "message.react.add": "reacted to a message",
+        "message.react.remove": "took back a reaction"
+      },
+      "actsMany": {
+        "message.edit": "edited {count} messages",
+        "message.delete": "deleted {count} messages",
+        "message.react.add": "reacted {count} times",
+        "message.react.remove": "took back {count} reactions"
+      },
+      "actedTail": ", and you {acted}",
       "intention": "[{time}] you carried out your intention \"{purpose}\" in {places}",
       "intentionDue": "[{time}] your intention \"{purpose}\" came due",
       "intentionSilent": "[{time}] your intention \"{purpose}\" came due and nothing went out",
