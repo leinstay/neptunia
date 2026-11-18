@@ -1504,7 +1504,7 @@ test('buildRequest: with context.memory.openPrivate on, the private wording is t
   const dm = buildRequest(privateScene({ config: fakeConfig(open), prompts }));
   const dmSenses = sensesOf(dm)!;
   assert.ok(dmSenses.includes(labels.senses.dmChatOpen) && !dmSenses.includes(labels.senses.dmChat));
-  const task = contentText(dm.messages[1].content);
+  const task = userText(dm);
   assert.ok(task.includes('OPEN_PRIVATE_TASK') && !/(^|[^_])PRIVATE_TASK/.test(task));
   const group = sensesOf(buildRequest(baseInput({ config: fakeConfig({ ...open, dm: { enabled: true } }) })))!;
   assert.ok(group.includes(labels.senses.privateAwareOpen) && !group.includes(labels.senses.privateAware));

@@ -394,11 +394,10 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `memory.archive.read [user] [kind] [n]`: the newest `n` (1..100, default 20) entries of the
-   * place's archive (src/memory/archive.ts), newest first: with a member, those scoped to them;
-   * without one, the server-level ones (no member scope). `kind` narrows to one item kind. Every direct chat's archive
-   * only with `context.memory.openPrivate`. One line each: the UTC day the item left, the event, the kind, the item id
-   * and its text (tokens resolved, cut to 160 characters). Read only; the
+   * `memory.archive.read [user] [kind] [n]`: the newest `n` (1..100, default 20) entries of the place's archive,
+   * newest first: with a member, those scoped to them; without one, the server-level ones (no member scope), and every
+   * direct chat's with `context.memory.openPrivate`. `kind` narrows to one item kind. One line each: the UTC day the
+   * item left, the event, the kind, the item id and its text (tokens resolved, cut to 160 characters). Read only; the
    * archive is streamed and only the newest `n` are kept. With no place: the persona's and every community's.
    */
   async function cmdMemoryArchive(args: Obj, context: OpContext) {

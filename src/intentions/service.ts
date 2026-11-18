@@ -119,13 +119,13 @@ const closedCode = (record: Intention): string => (isFiniteNumber(record.sleptAt
 
 /**
  * Whether `record` may be seen and moved where the caller is: a private chat's intention only in
- * that chat (`dmChatId`), any with `all` (an owner's command, the engine) or with `openPrivate`
- * (`context.memory.openPrivate`). Where an intention lands is its own and none of this.
+ * that chat (`dmChatId`), any with `all` (an owner's command, the engine) or with
+ * `context.memory.openPrivate` in `config`. Where an intention lands is its own and none of this.
  */
-function visibleTo(record: Intention, { dmChatId = null, all = false }: Where, openPrivate: boolean): boolean {
+function visibleTo(record: Intention, { dmChatId = null, all = false }: Where, config: unknown): boolean {
   return (
     all ||
-    openPrivate ||
+    opensPrivate(config) ||
     record?.provenance?.scope !== 'dm' ||
     (dmChatId !== null && dmChatId !== undefined && record.provenance?.placeId === String(dmChatId))
   );
@@ -335,7 +335,7 @@ export function createIntentionService({
     const store = storeOf();
     if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
     const current = store.get(id);
-    if (!current || !visibleTo(current, patch, opensPrivate(hot.config))) return { ok: false, code: CODE.NOT_FOUND };
+    if (!current || !visibleTo(current, patch, hot.config)) return { ok: false, code: CODE.NOT_FOUND };
     if (!isOpen(current.status)) return { ok: false, code: closedCode(current) };
     const by = patch.by ?? 'persona';
     const dropping = patch.state === 'dropped';
@@ -441,8 +441,7 @@ export function createIntentionService({
     const store = storeOf();
     if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
     const current = store.get(id);
-    if (current && !visibleTo(current, { dmChatId, all }, opensPrivate(hot.config)))
-      return { ok: false, code: CODE.NOT_FOUND };
+    if (current && !visibleTo(current, { dmChatId, all }, hot.config)) return { ok: false, code: CODE.NOT_FOUND };
     if (current && isFiniteNumber(current.sleptAt)) return { ok: false, code: CODE.SLEPT };
     const result = store.update(id, (record) => transition(record, 'cancelled', { now: now(), by, code: 'cancelled' }));
     if (result.ok) log.info('intentions: cancelled', { id: idText(id), by });
@@ -480,11 +479,7 @@ export function createIntentionService({
     const store = storeOf();
     if (!store) return [];
     sweepExpired(store);
-    return store
-      .list()
-      .filter(
-        (record) => (closed || isOpen(record.status)) && visibleTo(record, { dmChatId, all }, opensPrivate(hot.config))
-      );
+    return store.list().filter((r) => (closed || isOpen(r.status)) && visibleTo(r, { dmChatId, all }, hot.config));
   }
 
   /**

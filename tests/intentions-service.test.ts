@@ -430,7 +430,7 @@ test('with context.memory.openPrivate on, her intention in a DM is seen and move
       { text: 'ρώτα την για τις εξετάσεις' },
       hers(env, 'T1', { placeId: 'dm1', dmChat: true })
     );
-    const id = set.data.intention.id;
+    const { id } = set.data.intention;
     assert.deepEqual(
       intentions.view().map((r) => r.id),
       [id]

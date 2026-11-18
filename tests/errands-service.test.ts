@@ -516,8 +516,9 @@ test('errands service: with context.memory.openPrivate on, a dm errand carries i
   await errands.idle();
   const [dm] = client.runs as Array<{ context: { recent: unknown; memory?: Array<{ text: string }>; scope: string } }>;
   assert.deepEqual(dm.context.recent, [{ author: 'Ελένη', text: 'ιδιωτικό' }]);
+  const { memory: facts } = dm.context;
   assert.deepEqual(
-    dm.context.memory?.map((fact) => fact.text),
+    facts?.map((fact) => fact.text),
     ['ΓΕΓΟΝΟΣ']
   );
   assert.equal(dm.context.scope, 'dm');

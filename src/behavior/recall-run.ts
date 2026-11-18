@@ -471,6 +471,18 @@ function traceLine(trace: RecallTrace, out: Untyped) {
 
 export type { RecallStretch } from './recall-run-types.ts';
 
+/** The private vector searches of a recall: each direct chat `context.memory.openPrivate` opens, then the partner's layer. */
+function privateSearches(
+  placeId: string,
+  privatePlaces: Array<string>,
+  privateAccountId: Untyped
+): Array<[string, { privateAccountId?: string }]> {
+  return [
+    ...privatePlaces.filter((dm) => dm !== placeId).map((dm): [string, object] => [dm, {}]),
+    ...(privateAccountId ? [[placeId, { privateAccountId: String(privateAccountId) }] as [string, object]] : []),
+  ];
+}
+
 /**
  * The recall runner for the turn (task R2 wires it beside the web search).
  */
@@ -859,12 +871,7 @@ export function createRecall({
     let rows;
     try {
       rows = await vectors.search(placeId, vector, { ...range, k, filter: shared });
-      // Each direct chat `context.memory.openPrivate` opens, then the partner's private layer.
-      const privateSearches: Array<[string, { privateAccountId?: string }]> = [
-        ...privatePlaces.filter((dm) => dm !== placeId).map((dm): [string, object] => [dm, {}]),
-        ...(privateAccountId ? [[placeId, { privateAccountId: String(privateAccountId) }] as [string, object]] : []),
-      ];
-      for (const [place, layer] of privateSearches)
+      for (const [place, layer] of privateSearches(placeId, privatePlaces, privateAccountId))
         rows = [...rows, ...(await vectors.search(place, vector, { ...range, k, filter: unseen, ...layer }))];
     } catch (err) {
       return failed('search', err);
@@ -1370,7 +1377,7 @@ export function createRecall({
 
     // The pull rail toward this turn's channel and the private-owner rule (scopeOf).
     const scope = scopeOf({ config, snapshot, channel, partnerId, placeId });
-    const { judged, sourceOf, privateAccountId, privatePlaces, allowEntry, allowLine } = scope;
+    const { judged, sourceOf, allowEntry, allowLine, ...privacy } = scope;
     const recent = isRecentCue(server, { now: now(), recordDays: settings.recordDays });
     // A `when:` that only locates the event: it ranks, it bounds no local source (locatorOf).
     const locator = locatorOf(server, settings);
@@ -1389,8 +1396,7 @@ export function createRecall({
       candidate,
       lines: chatLines,
       server,
-      privateAccountId,
-      privatePlaces,
+      ...privacy,
       sourceOf,
       ownIds,
       signal: searchSignal,
@@ -1418,8 +1424,7 @@ export function createRecall({
       server,
       recent,
       allowEntry,
-      privateAccountId,
-      privatePlaces,
+      ...privacy,
       signal,
       meaning: meaning?.archive ?? [],
       locator,
@@ -1473,8 +1478,7 @@ export function createRecall({
       people,
       recent,
       allowLine,
-      privateAccountId,
-      privatePlaces,
+      ...privacy,
       ownIds,
       selfName,
       signal,

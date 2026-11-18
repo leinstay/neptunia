@@ -337,11 +337,12 @@ test('with context.memory.openPrivate on, a group, another partner and the diary
   await w.record.append(DM, [lineSaid('m-dm')]);
   await settled();
   const diary = () => w.memoryDb.issueContext({ kind: 'group', destination: null });
-  w.hot.config.context.memory.openPrivate = true;
+  const { hot } = w;
+  hot.config.context.memory.openPrivate = true;
   const group = w.memoryDb.issueContext({ kind: 'group', iface: 'discord', destination: GROUP });
   const other = w.memoryDb.issueContext({ kind: 'dm', iface: 'discord', person: OTHER_PERSON, place: OTHER_DM });
   for (const ctx of [group, other, diary()]) assert.equal(searched(w, ctx).includes(SECRET), true);
-  w.hot.config.context.memory.openPrivate = false;
+  hot.config.context.memory.openPrivate = false;
   for (const ctx of [w.contexts.group, w.contexts.other, diary()])
     assert.equal(searched(w, ctx).includes(SECRET), false);
 });
@@ -349,7 +350,8 @@ test('with context.memory.openPrivate on, a group, another partner and the diary
 test('with context.memory.openPrivate on, a DM line keeps the DM audience and a group line the group audience', async () => {
   // Bug: the open mark leaks into a write, so a line said alone is stored where a group reads it as its own.
   const w = world();
-  w.hot.config.context.memory.openPrivate = true;
+  const { hot } = w;
+  hot.config.context.memory.openPrivate = true;
   await w.record.append(DM, [lineSaid('m-dm')]);
   await w.record.append(GROUP, [lineSaid('m-group', GROUP)]);
   await settled();

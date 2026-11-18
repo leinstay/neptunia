@@ -515,12 +515,12 @@ test('publish: an open group context is bound to its origin chat exactly as a cl
   try {
     const context = (destination: string, open: boolean) =>
       issueContext({ iface: 'discord', kind: 'group', destination, open, now: () => NOW, newId: () => 'ctx:same' });
-    const open = context(GENERAL, true);
-    assert.equal(open.open, true);
-    assert.deepEqual(contextRow(open), contextRow(context(GENERAL, false)));
+    const opened = context(GENERAL, true);
+    assert.equal(opened.open, true);
+    assert.deepEqual(contextRow(opened), contextRow(context(GENERAL, false)));
     const attempt = (destination: string, producedIn: string) =>
       preparePublication(handle, {
-        context: open,
+        context: opened,
         rowKind: 'diary',
         rowId: 'entry-1',
         rendered: DRAFT,
