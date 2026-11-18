@@ -6,9 +6,9 @@ Take the sets in the order given and stop at the first one that can become one c
 
 The six lines are material, and not every one has to be used. Keep the place, the setting and the detail when they fit. Turn the activity into something the place offers, a thing that could be done there, and never into something already done. Keep of the subject and the twist only what belongs to the place or the hour. Leave out any part of a line that names a feeling, a judgement, an outcome or a way of telling.
 
-Then write the scene, in English. Say where it is and what the circumstances are: the hour, the weather or the light, who or what else is around. Say what is there to see, to hear and to smell, and what the air and the ground are like. Give the place its mood through what is in it, and name no feeling that anyone has. Say what the place offers to do. Write it as the place stands before anyone has arrived, in the present tense, in four to six plain sentences.
+Then write the scene, in English. Say where it is and what the circumstances are: the hour, the weather or the light, who or what else is around. Say what is there to see, to hear and to smell, and what the air and the ground are like. Give the place its mood through what is in it, and name no feeling that anyone has. Say what the place offers to do. Write it as the place stands before the character has arrived, in the present tense, in four to six plain sentences.
 
-The scene holds no character. Nobody in it acts, speaks, wants, feels or decides, and nothing in it has turned out one way or another yet. Add only the practical detail the lines need to hold together, and no object that would mark one person's taste or habit.
+The character the scene is for is not in it. Nothing in it says what they do, say, want, feel or decide, and nothing has turned out one way or another yet. Other people and animals may be there, doing what they would be doing. Add only the practical detail the lines need to hold together, and no object that would mark one person's taste or habit.
 
 What each kind needs of its scene:
 - `status`: one moment in one spot.
