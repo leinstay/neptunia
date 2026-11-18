@@ -87,6 +87,7 @@ const PASSED = [
   'gifBackfill',
   'archive',
   'journal',
+  'memoryDb',
   'llm',
   'embedder',
   'embedQueue',

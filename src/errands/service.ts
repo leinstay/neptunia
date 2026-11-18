@@ -167,7 +167,7 @@ function recentLinesOf(
   const count = Math.min(MAX_RECENT_ENTRIES, DEFAULT_RECENT_LINES);
   let lines: Array<{ author?: unknown; text?: unknown }>;
   try {
-    lines = memory.recentLines(chatId, count);
+    lines = memory.recentLines(chatId, count, scope);
   } catch (err) {
     log.warn('errands: recent lines unreadable', { code: errorCode(err) });
     return [];

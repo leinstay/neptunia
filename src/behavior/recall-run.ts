@@ -721,6 +721,7 @@ export function createRecall({
     recent,
     allowLine,
     privateAccountId,
+    privatePlaces,
     ownIds,
     selfName,
     signal,
@@ -745,6 +746,8 @@ export function createRecall({
       const source = {
         async *iterate(id: Untyped, query: Untyped) {
           yield* record.iterate(id, query);
+          // Each direct chat `context.memory.openPrivate` opens, then the partner's private record.
+          for (const place of privatePlaces.filter((dm) => dm !== id)) yield* record.iterate(place, query);
           if (privateAccountId) yield* record.iterate(id, { ...query, privateAccountId });
         },
       };
@@ -793,6 +796,7 @@ export function createRecall({
     lines,
     server,
     privateAccountId,
+    privatePlaces,
     sourceOf,
     ownIds,
     signal,
@@ -855,8 +859,13 @@ export function createRecall({
     let rows;
     try {
       rows = await vectors.search(placeId, vector, { ...range, k, filter: shared });
-      if (privateAccountId)
-        rows = [...rows, ...(await vectors.search(placeId, vector, { ...range, k, filter: unseen, privateAccountId }))];
+      // Each direct chat `context.memory.openPrivate` opens, then the partner's private layer.
+      const privateSearches: Array<[string, { privateAccountId?: string }]> = [
+        ...privatePlaces.filter((dm) => dm !== placeId).map((dm): [string, object] => [dm, {}]),
+        ...(privateAccountId ? [[placeId, { privateAccountId: String(privateAccountId) }] as [string, object]] : []),
+      ];
+      for (const [place, layer] of privateSearches)
+        rows = [...rows, ...(await vectors.search(place, vector, { ...range, k, filter: unseen, ...layer }))];
     } catch (err) {
       return failed('search', err);
     }
@@ -1381,6 +1390,7 @@ export function createRecall({
       lines: chatLines,
       server,
       privateAccountId,
+      privatePlaces,
       sourceOf,
       ownIds,
       signal: searchSignal,
@@ -1464,6 +1474,7 @@ export function createRecall({
       recent,
       allowLine,
       privateAccountId,
+      privatePlaces,
       ownIds,
       selfName,
       signal,

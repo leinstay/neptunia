@@ -81,8 +81,8 @@ import { createLookup } from './web/lookup.ts';
 import { createAdmin } from './admin.ts';
 import { createErrandClient } from './errands/client.ts';
 import { createErrandStores } from './errands/store.ts';
-import { groupsContext, internalContext } from './memory/db/scope.ts';
-import { opensPrivate } from './memory/open-private.ts';
+import { diaryReadContext, opensPrivate } from './memory/open-private.ts';
+import { directChatPlaceIds, directChatPlaceOf } from './memory/db/places-read.ts';
 import type { RetrievalInput } from './memory/retrieval-input.ts';
 import { createErrandService } from './errands/service.ts';
 import { SELF_PERSON, PERSONA_ID } from './memory/db/ids.ts';
@@ -180,7 +180,7 @@ import type { Drained, From, InterfaceState } from './interface/link.ts';
 import type { Principal } from './interface/principals.ts';
 import type { Envelope, Transport } from './protocol/wire.ts';
 import type { Hello } from './protocol/serve.ts';
-import type { ErrandRecord } from './errands/types.ts';
+import type { ErrandRecord, ErrandScope } from './errands/types.ts';
 import type { ErrandDoneEvent } from './errands/turns.ts';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply'];
@@ -946,11 +946,17 @@ async function buildCore(
     if (answer.status === 'ok' || answer.status === 'duplicate') taskStores.get()?.markDelivered(task.id);
     return answer;
   }
-  // A task's `context.recent`: the channel's newest lines from the memory database (her own under her name), oldest first.
-  function recentChannelLines(chatId: string, count: number) {
+  // A task's `context.recent`: the chat's newest lines from the memory database (her own under her name), oldest first.
+  // A direct chat is found by its chat id, a channel through the store.
+  function recentChannelLines(chatId: string, count: number, scope: ErrandScope) {
     const db = memoryDb.database();
     if (!db || !chatId || !(count > 0)) return [];
-    return errandRecentLines(db, placeOfChat(store, { id: String(chatId) }, identity.iface), count, {
+    const placeId =
+      scope === 'dm'
+        ? directChatPlaceOf(db, String(chatId))
+        : placeOfChat(store, { id: String(chatId) }, identity.iface);
+    if (!placeId) return [];
+    return errandRecentLines(db, placeId, count, {
       selfName: hot.config?.bot?.name ?? '',
       labels: hot.prompts.labels,
     });
@@ -1027,8 +1033,7 @@ async function buildCore(
     memoryReads: (args: Untyped) => memoryDb.recordTurnReads(args),
     // A diary post's stored facts, read through the one retrieval service under the diary's context: the groups, or
     // every audience with `context.memory.openPrivate`.
-    diaryFacts: (input: RetrievalInput) =>
-      memoryDb.retrieve(opensPrivate(hot.config) ? internalContext() : groupsContext(), input, { sources: false }),
+    diaryFacts: (input: RetrievalInput) => memoryDb.retrieve(diaryReadContext(hot.config), input, { sources: false }),
     journalDb: () => memoryDb.readHandle()?.db ?? null, // the records of <my_day> and <calls>, while the database is open
     // One execution context per turn for its memory reads (recorded while the database is open).
     memoryContext: (spec: Untyped) => memoryDb.issueContext({ iface: currentIface() ?? identity.iface, ...spec }),
@@ -1464,7 +1469,7 @@ async function buildCore(
       metrics,
       wakeClock: (name) => wakeClockOf(name, { now: clock(), inner, diary }),
       proxy,
-      chatLines: (chatId, count) => recentChannelLines(chatId, count),
+      chatLines: (chatId, count) => recentChannelLines(chatId, count, 'group'),
       now: Date.now,
       // `/mirror` (src/interface/commands/mirror.ts).
       mirrors,
@@ -1627,10 +1632,10 @@ async function buildCore(
    * The persona's skill calls and thinks of yesterday and today (the journal's skill operations and turn records), handed
    * to the turn runner so her chat keeps her calls and a turn keeps the previous think of its place across this start.
    */
-  async function seedCallMarks(placeId: string) {
+  async function seedCallMarks(placeId: string, dm = false) {
     const at = Date.now();
     const marks = await journal.callMarks(placeId, { days: [utcDay(at - DAY_MS), utcDay(at)] });
-    turns.seedCallMarks({ ...marks, placeId });
+    turns.seedCallMarks({ ...marks, placeId, dm });
     log.info('journal: call marks read', { placeId, calls: marks.calls.length });
   }
 
@@ -1638,6 +1643,13 @@ async function buildCore(
   async function eachServed(step: (placeId: string) => unknown): Promise<void> {
     const places = new Set([...servedPlaces(), ...store.topPlaces()]);
     for (const placeId of places) await step(placeId);
+  }
+
+  /** `eachServed`, then each direct chat with `context.memory.openPrivate`, whose journal any turn reads then. */
+  async function eachJournal(step: (placeId: string, dm?: boolean) => unknown): Promise<void> {
+    await eachServed(step);
+    const db = opensPrivate(hot.config) ? memoryDb.database() : null;
+    for (const placeId of db ? directChatPlaceIds(db) : []) await step(placeId, true);
   }
 
   /** Whether the journal is written now (features.journal exactly true, read now). */
@@ -1887,9 +1899,9 @@ async function buildCore(
 
   // The links of the persona's recent lines to the messages that started their turns, rebuilt from the journal.
   // Fire-and-forget: a turn before it is done only lacks the older links.
-  await startupStep('journal.triggerLinks', () => eachServed(seedTriggerLinks));
+  await startupStep('journal.triggerLinks', () => eachJournal(seedTriggerLinks));
   // The persona's recent skill calls, the same way.
-  await startupStep('journal.callMarks', () => eachServed(seedCallMarks));
+  await startupStep('journal.callMarks', () => eachJournal(seedCallMarks));
 
   // The missed-answer registry: data/places/<id>/missed.json, reconciled with the journal of the
   // last hour; a sweep armed where a candidate waits.

@@ -487,7 +487,11 @@ test('errands service: with context.memory.openPrivate on, a dm errand carries i
       context: { memory: { openPrivate: true } },
     },
   };
-  const memory = { recentLines: (chatId: string) => (chatId === 'dm1' ? [{ author: 'Ελένη', text: 'ιδιωτικό' }] : []) };
+  // The core finds a direct chat's place by its scope: a channel of the same id holds none of its lines.
+  const memory = {
+    recentLines: (chatId: string, _count: number, scope: string) =>
+      chatId === 'dm1' && scope === 'dm' ? [{ author: 'Ελένη', text: 'ιδιωτικό' }] : [],
+  };
   const client = fakeClient();
   const deferred: Array<() => void> = [];
   const stores = createErrandStores({

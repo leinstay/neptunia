@@ -16,6 +16,7 @@ import { reviewDescription } from '../src/memory/db/describe.ts';
 import { memoryQueryFor } from '../src/memory/retrieval-input.ts';
 import type { RetrievalInput } from '../src/memory/retrieval-input.ts';
 import { createDiary } from '../src/turn/diary.ts';
+import { diaryReadContext } from '../src/memory/open-private.ts';
 import { labels } from './fixtures/labels.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
@@ -209,54 +210,57 @@ test('an errand carries the facts of its goal, and a private errand none', async
   world.handle.close();
 });
 
-test('a diary plan is told the stored facts of group chats and no private one', async () => {
-  // Bug: the diary reads under an internal context and a mirror publishes a private fact.
-  const { world } = known();
-  const asked: Array<unknown> = [];
-  const { prepareDiary } = createDiary(
-    wrongly({
-      hot: { prompts: { labels, 'diary-planner': 'plan the entry', 'diary-seeds': '' } },
-      store: {
-        state: { data: {} },
-        getPlace: () => null,
-        getDiary: () => ({ posts: [] }),
-        topPlaces: () => [],
-        listChannels: () => [],
-        getLore: () => [],
-        listUserProfiles: () => [{ id: 'n1' }],
-        getUser: () => null,
-        personOfAccount: () => ALEX,
-      },
-      llm: {
-        complete: (messages: unknown) => {
-          asked.push(messages);
-          return Promise.resolve({ choices: [{ message: { content: '{}' } }] });
+for (const openPrivate of [false, true])
+  test(`a diary plan is told the stored facts of group chats, and a private one only with openPrivate (${openPrivate})`, async () => {
+    // Bug: the diary reads under an internal context and a mirror publishes a private fact while the switch is off, or
+    // stays blind to a direct chat when the owner turned it on.
+    const { world } = known();
+    const config = { context: { memory: { openPrivate } } };
+    const asked: Array<unknown> = [];
+    const { prepareDiary } = createDiary(
+      wrongly({
+        hot: { prompts: { labels, 'diary-planner': 'plan the entry', 'diary-seeds': '' } },
+        store: {
+          state: { data: {} },
+          getPlace: () => null,
+          getDiary: () => ({ posts: [] }),
+          topPlaces: () => [],
+          listChannels: () => [],
+          getLore: () => [],
+          listUserProfiles: () => [{ id: 'n1' }],
+          getUser: () => null,
+          personOfAccount: () => ALEX,
         },
-      },
-      calibrator: { apply: (tokens: number) => tokens },
-      rng: () => 0,
-      lookup: undefined,
-      images: null,
-      journalOp: () => null,
-      recentOfPlaces: () => ({ lines: null, audience: null }),
-      diaryFacts: (input: RetrievalInput) =>
-        retrieveMemory(world.db, world.contexts.groups, memoryQueryFor(input, BOUNDS), deps),
-    })
-  );
-  await wrongly<(input: object) => Promise<unknown>>(prepareDiary)({
-    config: { diary: {}, llm: { maxRequestTokens: 100000 }, bot: { timezone: 'UTC' } },
-    channel: { id: 'c1', rootId: null, permissions: {} },
-    selfName: 'Nep',
-    history: [],
-    now: START + 3_600_000,
-    params: {},
-    memoryOn: true,
-    // Slice 6: the plan request is built on the frame by the request step; this stand-in carries the stored facts the
-    // step read, so the assertions below still see what reached the planner.
-    planMessages: (parts: { facts: string }) => [{ role: 'user', content: parts.facts }],
-  }).catch(() => null);
-  const text = JSON.stringify(asked);
-  assert.ok(text.includes(FACT_TEXT), 'the plan request carries no stored fact');
-  assert.ok(!text.includes(SECRET));
-  world.handle.close();
-});
+        llm: {
+          complete: (messages: unknown) => {
+            asked.push(messages);
+            return Promise.resolve({ choices: [{ message: { content: '{}' } }] });
+          },
+        },
+        calibrator: { apply: (tokens: number) => tokens },
+        rng: () => 0,
+        lookup: undefined,
+        images: null,
+        journalOp: () => null,
+        recentOfPlaces: () => ({ lines: null, audience: null }),
+        diaryFacts: (input: RetrievalInput) =>
+          retrieveMemory(world.db, diaryReadContext(config), memoryQueryFor(input, BOUNDS), deps),
+      })
+    );
+    await wrongly<(input: object) => Promise<unknown>>(prepareDiary)({
+      config: { diary: {}, llm: { maxRequestTokens: 100000 }, bot: { timezone: 'UTC' } },
+      channel: { id: 'c1', rootId: null, permissions: {} },
+      selfName: 'Nep',
+      history: [],
+      now: START + 3_600_000,
+      params: {},
+      memoryOn: true,
+      // Slice 6: the plan request is built on the frame by the request step; this stand-in carries the stored facts the
+      // step read, so the assertions below still see what reached the planner.
+      planMessages: (parts: { facts: string }) => [{ role: 'user', content: parts.facts }],
+    }).catch(() => null);
+    const text = JSON.stringify(asked);
+    assert.ok(text.includes(FACT_TEXT), 'the plan request carries no stored fact');
+    assert.equal(text.includes(SECRET), openPrivate);
+    world.handle.close();
+  });

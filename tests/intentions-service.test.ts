@@ -7,6 +7,7 @@
 // everything. Candidates from her lines are anchored, de-duplicated, capped and expire.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { wakeOfDue } from '../src/behavior/inner/queue.ts';
 import path from 'node:path';
 
 import { runOp as runOperation } from '../src/tools/operations/index.ts';
@@ -438,6 +439,9 @@ test('with context.memory.openPrivate on, her intention in a DM is seen and move
     const record = present(present(intentions.store()).get(id));
     assert.equal(record.provenance.scope, 'dm');
     assert.equal(record.provenance.placeId, 'dm1');
+    // Its due turn still runs in the direct chat it was made in.
+    const wake = wakeOfDue({ intention: record, reason: 'due', at: 1 });
+    assert.deepEqual([wake.placeId, wake.dmChat], ['dm1', true]);
     Object.assign(hot.config, { context: { memory: { openPrivate: false } } });
     assert.deepEqual(intentions.view(), []);
   });

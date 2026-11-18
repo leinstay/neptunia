@@ -58,9 +58,10 @@ function fakeClient(): Partial<ErrandClient> & { end: (id: string, outcome: Part
 type Rig = { env: Env; client: ReturnType<typeof fakeClient>; errands: ErrandService; stores: ErrandStores };
 
 /** The ops of the errand tools over stores on `memoryDb` (null: the errands kept in memory only). */
-function makeEnv(memoryDb: MemoryDb | null): Rig {
+function makeEnv(memoryDb: MemoryDb | null, { openPrivate = false } = {}): Rig {
   const hot = {
     config: {
+      context: { memory: { openPrivate } },
       bot: { owners: [OWNER], access: {} },
       features: {},
       errands: { maxOpen: 3, resultMaxChars: 40 },
@@ -156,3 +157,21 @@ test('errand.cancel moves the board task to cancelled', async () => {
     assert.equal(taskOf(memoryDb, id).status, 'cancelled');
   });
 });
+
+for (const openPrivate of [true, false])
+  test(`errand.list of an errand asked in another person's direct chat ${openPrivate ? 'answers' : 'is not-found'} in a group with openPrivate ${openPrivate}`, async () => {
+    // Bug: the switch opens her memory, but her tool still hides an errand of a direct chat from a group turn.
+    await withCapturedLogs(async () => {
+      const { env, errands } = makeEnv(null, { openPrivate });
+      const added = errands.submit({
+        agent: 'scout',
+        goal: 'find the changelog',
+        requester: { accountId: '99', kind: 'member' },
+        origin: { placeId: 'dm-99', messageId: null },
+        scope: 'dm',
+      });
+      const id = added.errand?.id ?? '';
+      const answer = await ask(env, 'errand.list', { id });
+      assert.equal(answer.status === 'ok', openPrivate, answer.summary);
+    });
+  });

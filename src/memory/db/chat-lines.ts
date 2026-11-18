@@ -14,7 +14,7 @@ import { LINE_HOLDS_MEDIA, lineMedia, mediaMessageParts } from './media-store.ts
 import type { MediaRow } from './media-store.ts';
 import { replyMessageSql, routeMessageSql } from './message-locator.ts';
 import { CURRENT_REVISION, LINE_KIND, LINE_MOMENT, LINE_ROWID, SOURCE_DELETED } from './source-current.ts';
-import { internalContext } from './scope.ts';
+import { dmAudienceId, internalContext } from './scope.ts';
 import { asText } from './types.ts';
 import type { Db } from './types.ts';
 
@@ -168,10 +168,11 @@ export function placeLineNumbers(db: Db, placeId: string, newest: number): Place
 }
 
 /**
- * The newest lines of a group's place, newest first, each with the author's stored names: a task's recent context. Only
- * what the groups may read: a line of a DM that once landed under the same spelled place stays out.
+ * The newest lines of a place, newest first, each with the author's stored names: a task's recent context. Only what
+ * the groups or the place's own direct chat may read: a line of another DM that once landed under the same spelled
+ * place stays out.
  */
-export function recentGroupLines(
+export function recentPlaceLines(
   db: Db,
   placeId: string,
   count: number
@@ -186,10 +187,10 @@ export function recentGroupLines(
     .prepare(
       `SELECT s.id, s.kind, s.text, s.native_id, a.names FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
        WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND ${HOLDS_SOMETHING}
-         AND s.audience_id LIKE 'aud:group:%'
+         AND (s.audience_id LIKE 'aud:group:%' OR s.audience_id = ?)
        ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
     )
-    .all(placeId, count);
+    .all(placeId, dmAudienceId(placeId), count);
   const media = lineMedia(
     db,
     rows.map((row) => asText(row.id)),
@@ -216,7 +217,7 @@ function firstName(names: string | null): string {
 }
 
 /**
- * The newest `count` lines of a group's place as an errand agent is given them, oldest first: her lines under
+ * The newest `count` lines of a place as an errand agent is given them, oldest first: her lines under
  * `selfName`, a member's under the first name the account wrote under. A line's media follow its text as the memory
  * session renders them, a kind's marker with its text form; a custom emoji or a sticker stands under its stable name,
  * and the legend `<media>` of those names heads the oldest line's text.
@@ -227,7 +228,7 @@ export function errandRecentLines(
   count: number,
   { selfName, labels }: { selfName: string; labels: unknown }
 ): Array<{ author: string; text: string }> {
-  const rows = recentGroupLines(db, placeId, count).toReversed();
+  const rows = recentPlaceLines(db, placeId, count).toReversed();
   const messages = rows.map((row) => ({
     row,
     message: { content: row.text ?? '', ...mediaMessageParts(row.media ?? [], row.nativeId) },

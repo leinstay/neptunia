@@ -26,6 +26,8 @@ import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { makeAdmin, makeHot, makeHotWithMedia, makeRoot, mayRun, readLocal } from './fixtures/admin-rig.ts';
+import { addDmPlace } from './fixtures/memory-db/opaque-people.ts';
+import { present } from './fixtures/loose-types.ts';
 import { world } from './fixtures/turn-world.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { makeStore } from './fixtures/admin-store.ts';
@@ -2473,7 +2475,7 @@ const NO_PLACE_AT = Date.parse(`${NO_PLACE_DAY}T09:00:00.000Z`);
  * An admin over a real memory database, journal and archive, with one community the store knows as a top place
  * (noted the way an interface's hello notes its roots). `place` is that community's id.
  */
-async function memoryWithCommunity() {
+async function memoryWithCommunity({ openPrivate = false } = {}) {
   const mem = await openTestMemory();
   const log = { info() {}, warn() {}, error() {} };
   const appendStore = createAppendStore({ fsyncMs: 0, log });
@@ -2483,13 +2485,16 @@ async function memoryWithCommunity() {
   store.noteRoots('discord', [{ id: '900000000000000001', name: 'Λιμάνι' }]);
   await new Promise((resolve) => setImmediate(resolve));
   const place = placeOfRoot(store, '900000000000000001', 'discord');
-  const { admin } = makeAdmin(makeRoot(), { store, archive, journal });
+  const rootDir = makeRoot();
+  const hot = makeHot(rootDir);
+  hot.config.context = { ...(hot.config.context as object), memory: { openPrivate } };
+  const { admin } = makeAdmin(rootDir, { hot, store, archive, journal, memoryDb: mem.memoryDb });
   const close = async () => {
     await appendStore.close();
     await mem.close();
     fs.rmSync(mem.dataDir, { recursive: true, force: true });
   };
-  return { admin, store, archive, journal, place, close };
+  return { admin, store, archive, journal, place, close, db: mem.memoryDb.database() };
 }
 
 /** One archived detail whose text carries `marker`, filed with `scope`. */
@@ -2536,6 +2541,28 @@ test('memory.archive.read in a turn with no place lists the persona and communit
       [true, true, false],
       text
     );
+  } finally {
+    await close();
+  }
+});
+
+test('memory.archive.read in a turn with no place lists a private entry of a direct chat with openPrivate', async () => {
+  // Catches: the heartbeat's archive read keeps hiding a direct chat's archive when the switch opens her memory.
+  const { admin, archive, db, close } = await memoryWithCommunity({ openPrivate: true });
+  const dm = 'discord:dm:900000000000000077';
+  try {
+    addDmPlace(present(db), {
+      id: dm,
+      iface: 'discord',
+      authority: 'discord/global',
+      account: 'discord:77',
+      person: null,
+    });
+    await archive.append(dm, [archivedFact('marker-private-mystiko', { place: dm, private: true })]);
+
+    const text = await admin.run('memory.archive.read', {}, { placeId: null });
+
+    assert.equal(text.includes('marker-private-mystiko'), true, text);
   } finally {
     await close();
   }

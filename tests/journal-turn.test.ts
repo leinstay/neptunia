@@ -100,6 +100,7 @@ async function writeTurn(
     oldShape = false,
     call = false,
     placeId = 'c1',
+    journalPlace = 'g1',
   }: {
     startMs: number;
     postMs: number;
@@ -109,10 +110,11 @@ async function writeTurn(
     oldShape?: boolean;
     call?: boolean;
     placeId?: string;
+    journalPlace?: string;
   }
 ) {
   clock.ms = startMs;
-  const started = journal.start('g1', {
+  const started = journal.start(journalPlace, {
     placeId,
     mode: 'reply',
     trigger: { kind: 'mention', messageId: triggerId, authorId: '7' },
@@ -121,7 +123,7 @@ async function writeTurn(
   });
   await tick();
   clock.ms = postMs;
-  const op = journal.op('g1', {
+  const op = journal.op(journalPlace, {
     turnId: started.turnId,
     name: 'post',
     by: 'persona',
@@ -147,7 +149,7 @@ async function writeTurn(
     actions.push(skill.opId);
   }
   clock.ms = endMs;
-  await journal.turn('g1', {
+  await journal.turn(journalPlace, {
     turnId: started.turnId,
     attemptId: started.attemptId,
     startedAt: started.startedAt,
@@ -164,9 +166,10 @@ async function writeTurn(
 }
 
 /** An admin over the journal, the persona's own id `SELF`, the owner `OWNER`. */
-function makeAdmin(journal: Record<string, Untyped>) {
+function makeAdmin(journal: Record<string, Untyped>, { openPrivate = false } = {}) {
   const hot = {
     config: {
+      context: { memory: { openPrivate } },
       features: { tools: true, journal: true },
       tools: { safeMode: false },
       bot: { ownerPerson: OWNER_PERSON, access: {} },
@@ -362,6 +365,32 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
     }
   );
 });
+
+for (const openPrivate of [true, false])
+  test(`memory.journal.read: a link to a direct chat's message from a group ${openPrivate ? 'finds' : 'misses'} its turn with openPrivate ${openPrivate}`, async () => {
+    const clock = { ms: D };
+    const { journal } = journalAt(clock);
+    const postedId = idAt(D + 3000);
+    // The turn ran in the direct chat 333, whose journal is its own place's.
+    await writeTurn(journal, clock, {
+      startMs: D,
+      postMs: D + 3000,
+      endMs: D + 5000,
+      triggerId: idAt(D - 60_000),
+      postedId,
+      placeId: '333',
+      journalPlace: '333',
+    });
+    const read = admin(journal, openPrivate).run(
+      'memory.journal.read',
+      { messageId: `https://discord.com/channels/111/333/${postedId}` },
+      { placeId: 'g1', accountId: OWNER }
+    );
+    if (openPrivate) assert.ok(String(await read).includes(THINK));
+    else await assert.rejects(read, { code: 'not-found' });
+  });
+
+const admin = (journal: Record<string, Untyped>, openPrivate: boolean) => makeAdmin(journal, { openPrivate });
 
 test('memory.journal.read: the persona names her line #N; it resolves to the message id as message.edit does', async () => {
   const clock = { ms: D };

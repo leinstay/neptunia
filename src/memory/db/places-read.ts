@@ -244,6 +244,16 @@ export function placeDetail(
 }
 
 /** The ids of every live direct chat place, in id order. */
+/** The live direct chat place an interface names by its chat id, null for none. */
+export function directChatPlaceOf(db: Db, chatId: string): string | null {
+  const row = db
+    .prepare(
+      "SELECT id FROM places WHERE native_id = ? AND (kind = 'dm' OR chat = 'dm') AND retired_at IS NULL ORDER BY generation DESC"
+    )
+    .get(chatId);
+  return typeof row?.id === 'string' ? row.id : null;
+}
+
 export function directChatPlaceIds(db: Db): Array<string> {
   return db
     .prepare("SELECT id FROM places WHERE (kind = 'dm' OR chat = 'dm') AND retired_at IS NULL ORDER BY id")

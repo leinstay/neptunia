@@ -406,7 +406,7 @@ export function createTurnRunner({
    * Her thinks of yesterday and today in the place journal's `turn` records, into the store, and what those turns raised,
    * into the seed ring (seedsOfRecords); a failed read is logged.
    */
-  async function seedThinks(placeId: string): Promise<void> {
+  async function seedThinks(placeId: string, isDm: boolean): Promise<void> {
     // The core's journal (src/memory/journal.ts#createJournal) as far as its `read` goes.
     const reader = journal as { read?: (placeId: string, query: object) => Promise<Array<unknown>> } | null;
     if (typeof reader?.read !== 'function') return;
@@ -414,7 +414,7 @@ export function createTurnRunner({
       const at = clock();
       for (const day of [utcDay(at - DAY_MS), utcDay(at)]) {
         const records = await reader.read(placeId, { day, kind: 'turn', n: Number.MAX_SAFE_INTEGER });
-        thinks.seed(records, { isDm: false });
+        thinks.seed(records, { isDm });
         for (const turn of seedsOfRecords(records)) seedRing.note(turn.placeId, turn.turnId, turn.refs);
       }
     } catch (error) {
@@ -779,10 +779,13 @@ export function createTurnRunner({
     runTurn: runTurn as (params: Parameters<typeof runTurn>[0]) => Promise<ReportedTurn>,
     seedTriggerLinks,
     // The journal's marks at start name their place: its `turn` records of yesterday and today seed her thinks too.
-    seedCallMarks: (marks: { calls?: unknown; postedFrom?: unknown; placeId?: unknown } | null | undefined) => {
+    // A direct chat's (`dm`) thinks stay its own unless `context.memory.openPrivate` opens them at the read.
+    seedCallMarks: (
+      marks: { calls?: unknown; postedFrom?: unknown; placeId?: unknown; dm?: boolean } | null | undefined
+    ) => {
       seedCallMarks(marks);
       if (typeof marks?.placeId === 'string') void seedLookups(marks.placeId);
-      if (typeof marks?.placeId === 'string') void seedThinks(marks.placeId);
+      if (typeof marks?.placeId === 'string') void seedThinks(marks.placeId, marks.dm === true);
     },
     waitingParts,
     addToPart,

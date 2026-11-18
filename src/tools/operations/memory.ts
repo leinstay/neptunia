@@ -4,7 +4,9 @@
 
 import { internalContext } from '../../memory/db/scope.ts';
 import type { MemoryDbService } from '../../memory/db/service.ts';
-import { accountOf, personOfMember, placeOfChat } from '../../memory/addresses.ts';
+import { accountOf, personOfMember, placeOfChat, sharedPlaceOf } from '../../memory/addresses.ts';
+import { opensPrivate } from '../../memory/open-private.ts';
+import { directChatPlaceIds } from '../../memory/db/places-read.ts';
 import { readAffinityChanges, AFFINITY_CHANGES_DEFAULT } from '../../memory/affinity-changes.ts';
 import type { AffinityChange } from '../../memory/affinity-changes.ts';
 import {
@@ -54,6 +56,7 @@ import type { Env } from './env.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
+import type { Db } from '../../memory/db/types.ts';
 import { MEMORY_LIMITS } from '../../memory/text-limits.ts';
 
 /** The list sections of `memory show` (aliases, interests, details): the profile field, the config keys and the line. */
@@ -167,11 +170,40 @@ function archiveHolderOf(
 
 /**
  * Whether the archive list leaves an entry out: a member's item unless that member was asked for, and a private item
- * anywhere but in the DM it belongs to, so a group's read and a member's name never reach one.
+ * anywhere but in the DM it belongs to, so a group's read and a member's name never reach one. `open`
+ * (`context.memory.openPrivate`) shows a private item everywhere.
  */
-function leftOutOfList(entry: Untyped, accountId: string | null, placeId: string | null): boolean {
-  if (entry?.scope?.private === true) return entry.scope.place !== placeId;
+function leftOutOfList(entry: Untyped, accountId: string | null, placeId: string | null, open: boolean): boolean {
+  if (entry?.scope?.private === true) return !open && entry.scope.place !== placeId;
   return !accountId && typeof entry?.scope?.user === 'string';
+}
+
+/**
+ * The archives `memory.archive.read` reads: the place's, or every community's with none, then each direct chat's with
+ * `context.memory.openPrivate`, then the persona's.
+ */
+function archiveHolders(
+  store: { topPlaces: () => Array<string> },
+  placeId: string | null,
+  config: unknown,
+  memoryDb: { database(): Db | null } | null | undefined
+) {
+  const db = opensPrivate(config) ? memoryDb?.database() : null;
+  const directChats = db ? directChatPlaceIds(db).filter((dm) => dm !== placeId) : [];
+  return [...(placeId ? [placeId] : store.topPlaces()), ...directChats, null];
+}
+
+/**
+ * The journal a message's turn is looked for in: the place's, or with `iface` (`context.memory.openPrivate`) the
+ * journal of the chat a link names.
+ */
+function turnJournalOf(
+  store: unknown,
+  placeId: string | null,
+  linked: string | null | undefined,
+  iface: string | null | undefined
+) {
+  return linked && iface !== null ? sharedPlaceOf(store, { id: linked }, iface) : placeId;
 }
 
 const handlers = perEnv((env) => {
@@ -364,9 +396,9 @@ const handlers = perEnv((env) => {
   /**
    * `memory.archive.read [user] [kind] [n]`: the newest `n` (1..100, default 20) entries of the
    * place's archive (src/memory/archive.ts), newest first: with a member, those scoped to them;
-   * without one, the server-level ones (no member scope). `kind` narrows to one item kind. The
-   * private archives are never read here. One line each: the UTC day the item left, the event,
-   * the kind, the item id and its text (tokens resolved, cut to 160 characters). Read only; the
+   * without one, the server-level ones (no member scope). `kind` narrows to one item kind. Every direct chat's archive
+   * only with `context.memory.openPrivate`. One line each: the UTC day the item left, the event, the kind, the item id
+   * and its text (tokens resolved, cut to 160 characters). Read only; the
    * archive is streamed and only the newest `n` are kept. With no place: the persona's and every community's.
    */
   async function cmdMemoryArchive(args: Obj, context: OpContext) {
@@ -380,12 +412,12 @@ const handlers = perEnv((env) => {
     const n = typeof asked === 'number' && Number.isInteger(asked) ? Math.min(100, Math.max(1, asked)) : 20;
     const accountId = args.accountId ? accountOf(store, idText(args.accountId)) : null;
     const newest: Array<Untyped> = [];
-    for (const holder of placeId ? [placeId, null] : [...store.topPlaces(), null])
+    for (const holder of archiveHolders(store, placeId, hot.config, env.memoryDb))
       for await (const entry of archive.iterate(holder, {
         scope: accountId ? { user: accountId } : null,
         kinds: kind ? [kind] : null,
       })) {
-        if (leftOutOfList(entry, accountId, placeId)) continue;
+        if (leftOutOfList(entry, accountId, placeId, opensPrivate(hot.config))) continue;
         newest.push(entry);
         if (newest.length > n) newest.shift();
       }
@@ -451,7 +483,8 @@ const handlers = perEnv((env) => {
       chatId !== null && reads && port ? await reads.fetchMessages({ iface: port.iface, chatId }, [messageId]) : null;
     const at = fetched?.messages.at(0)?.event?.message.at ?? null;
     if (at === null) throw invalid(`no message ${messageId} to date its turn by`, CODE.UNKNOWN_MESSAGE);
-    const found = typeof journal.findTurn === 'function' ? await journal.findTurn(placeId, { messageId, at }) : null;
+    const where = turnJournalOf(store, placeId, ref.placeId, opensPrivate(hot.config) ? port?.iface : null);
+    const found = typeof journal.findTurn === 'function' ? await journal.findTurn(where, { messageId, at }) : null;
     if (!found)
       throw invalid(
         `no turn of the persona posted message ${messageId} (searched ${utcDay(at)} and ${utcDay(at + DAY_MS)})`,

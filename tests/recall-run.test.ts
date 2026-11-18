@@ -67,6 +67,8 @@ function scene({
   record = null,
   vectors = null,
   embed = null,
+  openPrivate = false,
+  memoryDb = null,
 }: Record<string, Untyped> = {}) {
   const calls: Array<{ route: string; query: Record<string, Untyped>; signal: AbortSignal }> = [];
   let inFlight = 0;
@@ -173,8 +175,14 @@ function scene({
       return { text: answer };
     },
   };
+  const settings = config({ features, recall: { ...recall }, llm: { analyzerTimeoutMs: 30000 } });
+  const memorySettings: Record<string, unknown> = {
+    ...(settings.context?.memory as object),
+    openPrivate: openPrivate === true,
+  };
+  settings.context = { ...settings.context, memory: memorySettings };
   const hot = {
-    config: config({ features, recall: { ...recall }, llm: { analyzerTimeoutMs: 30000 } }),
+    config: settings,
     prompts: { 'recall-summary': PROMPT, labels },
   };
   const recaller = createRecall({
@@ -190,6 +198,7 @@ function scene({
     record,
     vectors,
     embed,
+    memoryDb: memoryDb as object | null,
     ...(timers ? { timers } : {}),
   } as unknown as Parameters<typeof createRecall>[0]);
   const history = [
@@ -1829,6 +1838,44 @@ test("recall-run: a private turn searches its partner's private layer and the ro
   const user = s.llmCalls[0].messages[1].content;
   assert.ok(user.includes('the dm memory') && user.includes('he made the whole story up'), user);
 });
+
+for (const openPrivate of [true, false])
+  test(`recall-run: a group turn ${openPrivate ? 'reads' : 'skips'} the record and vectors of a direct chat with openPrivate ${openPrivate}`, async () => {
+    // A direct chat dm9 of u7, with no partner in this turn: its record line and its vector row.
+    const dmLine = recLine('d-far', MEANT_AT, 'the far dm memory', { placeId: 'dm9', by: 'u7', owner: 'u7' });
+    const rootRecord = rangedSource(MEANING_RECORD);
+    const record = {
+      async *iterate(placeId: string, query: Record<string, Untyped> = {}) {
+        if (placeId === 'dm9') yield dmLine;
+        else yield* rootRecord.iterate(placeId, query);
+      },
+    };
+    const rootVectors = fakeVectors(MEANING_ROWS);
+    const vectors = {
+      async search(placeId: string, query: unknown, opts: Record<string, Untyped> = {}) {
+        if (placeId !== 'dm9') return rootVectors.search(placeId, query, opts);
+        const row = vrow('d-far', MEANT_AT, 0.99, { placeId: 'dm9' });
+        const keep = opts.filter as ((meta: unknown) => boolean) | undefined;
+        return typeof keep !== 'function' || keep(row.meta) ? [row] : [];
+      },
+    };
+    const memoryDb = { database: () => ({ prepare: () => ({ all: () => [{ id: 'dm9' }] }) }) };
+    const s = scene({
+      features: { meaningSearch: true },
+      recall: { recordDays: 3, recordContext: 1, maxClusters: 4 },
+      profiles: MEMORY_PROFILES,
+      record,
+      archive: fakeSource(MEANING_ARCHIVE),
+      vectors,
+      embed: fakeEmbed(),
+      openPrivate,
+      memoryDb,
+    });
+    await withCapturedLogs(() => s.recaller.run({ ...s.args, server: MEANING_SERVER }));
+    const [{ messages }] = s.llmCalls;
+    const user = messages[1].content;
+    assert.equal(user.includes('the far dm memory'), openPrivate, user);
+  });
 
 // ---- a when: that only locates (when-role) ---------------------------------------------------
 

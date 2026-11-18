@@ -294,7 +294,7 @@ export type ErrandServiceOptions = {
   stores: ErrandStores;
   hot: { readonly config?: unknown };
   memory?: {
-    recentLines: (chatId: string, count: number) => Array<{ author?: unknown; text?: unknown }>;
+    recentLines: (chatId: string, count: number, scope: ErrandScope) => Array<{ author?: unknown; text?: unknown }>;
   } | null;
 
   /** The stored facts of an errand's goal through the one retrieval service, under a group context (open with `context.memory.openPrivate`). */

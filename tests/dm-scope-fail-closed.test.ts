@@ -4,8 +4,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { partnerOfDelivery } from '../src/behavior/inner/deliveries.ts';
 import { personaJournal, personaRecord } from '../src/behavior/inner/persona-sources.ts';
-import { recentGroupLines } from '../src/memory/db/chat-lines.ts';
+import { recentPlaceLines } from '../src/memory/db/chat-lines.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
+import { directChatPlaceOf } from '../src/memory/db/places-read.ts';
+import { addDmPlace } from './fixtures/memory-db/opaque-people.ts';
 import { SCOPE_INTERNAL, groupScope, scopeColumns } from '../src/memory/db/scope.ts';
 import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import type { Db } from '../src/memory/db/types.ts';
@@ -95,8 +97,33 @@ test("a channel's recent lines leave out a line that is not the group's", (t) =>
   add.run('s1', 'seen', 'n1', at, 'for the room', 'group', 'discord', 'aud:group:discord');
   add.run('s2', 'said', 'n2', at, 'for one person', 'internal', null, 'aud:internal');
   assert.deepEqual(
-    recentGroupLines(db, 'discord:channel:c1', 10).map((row) => row.text),
+    recentPlaceLines(db, 'discord:channel:c1', 10).map((row) => row.text),
     ['for the room']
+  );
+});
+
+test("a direct chat's recent lines are its own lines, found by its chat id", (t) => {
+  // Bug: an errand asked in a direct chat reads the channel place of the chat's id and gets no line.
+  const { db, add } = linesRig(t);
+  addDmPlace(db, {
+    id: 'discord:dm:n1',
+    iface: 'discord',
+    authority: 'discord/global',
+    account: 'discord:n1',
+    person: null,
+  });
+  db.prepare("UPDATE places SET native_id = 'dm-chat-1' WHERE id = 'discord:dm:n1'").run();
+  db.exec(
+    "INSERT INTO audiences (id, kind, iface, place_id) VALUES ('aud:dm:discord:dm:n1', 'dm', 'discord', 'discord:dm:n1')"
+  );
+  const at = '2026-11-05T00:00:00.000Z';
+  add.run('s1', 'seen', 'n1', at, 'for one person', 'dm', 'discord', 'aud:dm:discord:dm:n1');
+  db.prepare("UPDATE sources SET place_id = 'discord:dm:n1' WHERE id = 's1'").run();
+  const place = directChatPlaceOf(db, 'dm-chat-1');
+  assert.equal(place, 'discord:dm:n1');
+  assert.deepEqual(
+    recentPlaceLines(db, String(place), 10).map((row) => row.text),
+    ['for one person']
   );
 });
 
