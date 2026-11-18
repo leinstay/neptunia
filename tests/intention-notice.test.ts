@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { roleModel } from '../src/llm/roles.ts';
 import { noticeText } from '../src/turn/intention-notice.ts';
-import type { PastAct } from '../src/memory/db/past-acts.ts';
+import type { PastAct, PastRun } from '../src/memory/db/past-acts.ts';
 import { quantize } from '../src/memory/vectors.ts';
 import { chainsOnDefaults } from './fixtures/chains.ts';
 import { addLine } from './fixtures/memory-db/mind-world.ts';
@@ -199,4 +199,45 @@ test('a closed intention no run names says the record holds no turn, and an open
   assert.ok(noRunNotice('done').includes('NO-RECORD'));
   assert.ok(!noRunNotice('done').includes('NOT-YET'));
   assert.ok(noRunNotice('pending').includes('NOT-YET'));
+});
+
+/** The notice of one done intention carried by `runs`, under labels that mark each clause and its count. */
+function runsNotice(runs: Array<PastRun>): string {
+  const act: PastAct = { kind: 'intention', id: 'i1', score: 0.9, at: TURN_NOW, status: 'done', purpose: 'Π', runs };
+  const notice = {
+    intention: '{state}',
+    run: 'SENT {sent} {date}',
+    runs: 'SENT {sent} {date} x{count}',
+    runSilent: 'SILENT {date}',
+    runsSilent: 'SILENT {date} x{count}',
+    noAnswer: 'NA',
+    dayQuiet: 'DQ',
+    answers: 'A',
+    answersUnnamed: 'A',
+    dayLines: 'DL',
+  };
+  return noticeText([act], {
+    id: 'notice-1',
+    labels: { heartbeat: { notice } },
+    timezone: 'UTC',
+    placeName: (id) => id,
+    personName: () => null,
+  });
+}
+
+test('two silent runs of one day are one clause that names two turns', () => {
+  // Bug: the line repeats "the turn that carried it out on that day sent nothing" once per run.
+  const silent: PastRun = { at: TURN_NOW, status: 'succeeded', sent: 0, placeIds: [], after: null };
+  const notice = runsNotice([silent, { ...silent, at: TURN_NOW + 60_000 }]);
+  assert.equal(notice.split('SILENT').length - 1, 1, notice);
+  assert.ok(notice.includes('x2'), notice);
+});
+
+test('a silent run and a run that sent a line stay two clauses in their order', () => {
+  // Bug: runs that differ are folded into one clause and one of them is lost.
+  const silent: PastRun = { at: TURN_NOW, status: 'succeeded', sent: 0, placeIds: [], after: null };
+  const after = { answers: 0, answeredBy: [], lines: 0, direct: false, people: 0 };
+  const notice = runsNotice([silent, { ...silent, at: TURN_NOW + 60_000, sent: 1, placeIds: ['c1'], after }]);
+  assert.ok(notice.indexOf('SILENT') >= 0 && notice.indexOf('SILENT') < notice.indexOf('SENT 1'), notice);
+  assert.ok(!notice.includes(' x'), notice);
 });
