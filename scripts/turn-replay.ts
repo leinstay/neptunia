@@ -23,8 +23,8 @@
 // its provider while `--answers-dir` is set. With `--answers-dir` the default is `off`, without it `live`.
 // `--compare` builds the first request only and compares it, part by part, with the row the live turn archived in
 // `--oracle` (default `/opt/neptunia/data/memory.db`, opened read only): one line per part on stdout, sizes and
-// offsets only. A diary turn's compare covers its planner request too: the planner is answered with the answer the
-// live turn archived, and the writer's first request is compared after it. Otherwise each sample's report goes to `<out>/<turnId>/sample-<n>.json` (default `out` beside the
+// offsets only. A diary turn's compare covers its director request too: the director is answered with the answer the
+// live turn archived, and the turn's first request is compared after it. Otherwise each sample's report goes to `<out>/<turnId>/sample-<n>.json` (default `out` beside the
 // copy) and a short table to stderr.
 //
 // THE REPORT FILE HOLDS HER WORDS AND MEMORY ABOUT REAL PEOPLE: it is private, like the copy. Nothing she says goes
@@ -314,46 +314,49 @@ function writePrivate(file: string, value: unknown): void {
 }
 
 /**
- * The first request of the turn built again and compared with the archived one. A diary turn's planner request is
- * compared first and answered with the live answer, so the writer's first request is built on the live plan.
+ * The first request of the turn built again and compared with the archived one. A diary turn's director request is
+ * compared first and answered with the live answer, so the turn's first request is built on the live scene.
  */
 async function compareRun(input: RunInput, outDir: string, oracle: string): Promise<string> {
-  const planner = archivedPlanner(input, oracle);
+  const director = archivedDirector(input, oracle);
   const llm =
-    planner === null
+    director === null
       ? input.llm
       : {
           ...input.llm,
           complete: (messages: unknown, options?: unknown) =>
-            (options as { purpose?: unknown } | undefined)?.purpose === 'diary-planner'
-              ? Promise.resolve({ text: planner.text ?? '', toolCalls: [] })
+            (options as { purpose?: unknown } | undefined)?.purpose === 'diary-scene'
+              ? Promise.resolve({ text: director.text ?? '', toolCalls: [] })
               : input.llm.complete(messages, options),
         };
   const run = await runOnce({ ...input, llm, stopAt: 'reply' });
   const { turnId } = run.turn;
   const first: KeptRequest | undefined = run.requests.find((request) => request.purpose === 'reply');
-  const planned = run.requests.find((request) => request.purpose === 'diary-planner');
+  const directed = run.requests.find((request) => request.purpose === 'diary-scene');
   // The rebuilt requests beside the reports, private as they are, for a reader who must see the difference.
   writePrivate(path.join(outDir, turnId, 'first-request.json'), {
-    ...(planned === undefined ? {} : { planner: { messages: planned.messages } }),
+    ...(directed === undefined ? {} : { director: { messages: directed.messages } }),
     messages: first?.messages ?? null,
     tools: first?.tools ?? null,
     memoryReads: run.carried,
   });
   const lines: Array<string> = [];
-  if (planner !== null) {
-    if (planned === undefined) throw new CliError(`${TOOL}: the turn ended before its planner request`);
-    lines.push('diary-planner:', compareText(partsOf(planned.messages, planned.tools), planner.parts));
+  if (director !== null) {
+    if (directed === undefined) throw new CliError(`${TOOL}: the turn ended before its director request`);
+    lines.push('diary-scene:', compareText(partsOf(directed.messages, directed.tools), director.parts));
   }
   if (first === undefined)
     throw new CliError(`${TOOL}: the turn ended ${String(run.result.outcome)} before its first request`);
   const writer = compareText(partsOf(first.messages, first.tools), archivedOf(oracle, turnId, 'reply').parts);
-  lines.push(...(planner === null ? [writer] : ['reply:', writer]));
+  lines.push(...(director === null ? [writer] : ['reply:', writer]));
   return lines.join('\n');
 }
 
-/** The planner request the live diary turn archived in `oracle`, null for a turn of the copy that is no diary turn. */
-function archivedPlanner(input: RunInput, oracle: string): { parts: RequestParts; text: string | null } | null {
+/**
+ * The director request the live diary turn archived in `oracle`, null for a turn of the copy that is no diary turn.
+ * A diary turn of a kind with no scene archived none, and reading it fails as any missing archived request does.
+ */
+function archivedDirector(input: RunInput, oracle: string): { parts: RequestParts; text: string | null } | null {
   const copy = new DatabaseSync(path.join(input.dataDir, 'memory.db'), { readOnly: true });
   const turn = (() => {
     try {
@@ -362,7 +365,7 @@ function archivedPlanner(input: RunInput, oracle: string): { parts: RequestParts
       copy.close();
     }
   })();
-  return turn.mode === 'diary' ? archivedOf(oracle, turn.turnId, 'diary-planner') : null;
+  return turn.mode === 'diary' ? archivedOf(oracle, turn.turnId, 'diary-scene') : null;
 }
 
 /** The turn run whole `samples` times, one private report file each. */

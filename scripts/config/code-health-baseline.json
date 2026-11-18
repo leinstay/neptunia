@@ -169,7 +169,7 @@
       "repeated": 0
     },
     "tests/diary-turn.test.ts": {
-      "deep": 27,
+      "deep": 21,
       "repeated": 0
     },
     "tests/diary.test.ts": {
@@ -1131,7 +1131,7 @@
     },
     "scripts/lib/replay-args.ts": {
       "parseArgs": {
-        "complexity": 211
+        "complexity": 210
       }
     },
     "scripts/lib/vision-compare.ts": {
@@ -1172,7 +1172,7 @@
         "complexity": 27
       },
       "runDiaryDay": {
-        "complexity": 31
+        "complexity": 30
       },
       "runInner": {
         "complexity": 41

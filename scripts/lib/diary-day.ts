@@ -6,18 +6,32 @@
 // "fake" one answers a fixture PNG through the real client's own request path; the "live" one
 // stops at `--max-pictures`), the short description of an avatar reference, and the report.
 // Exists so the drawing calls of a whole diary day can be recorded before and after a change and
-// diffed. Not for one diary brief (`--diary`).
+// diffed. `--diary-kind` runs one entry of a named kind instead, `--samples` times: `diaryKindSample` reads what one
+// sample made.
 
 import { createHash } from 'node:crypto';
 import { mulberry32 } from './search-compare.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import type { DayPlan } from '../../src/behavior/diary.ts';
+import { sceneOf } from './turn-report.ts';
+import type { DiaryScene } from './turn-report.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
 
-/** How `--draw` makes the pictures: the fixture PNG (default) or the real image client. */
-export const DRAW_MODES = Object.freeze(['fake', 'live']);
+/**
+ * How `--draw` makes the pictures: the fixture PNG (default), the real image client, or the fixture PNG that the
+ * persona is told was not drawn (`none`, `--diary-kind` only), so a text is calibrated without the drawing model.
+ */
+export const DRAW_MODES = Object.freeze(['fake', 'live', 'none']);
+
+/** What the persona is told it sees in a picture of a `--draw none` run, in the place of a description of it. */
+export const NOT_DRAWN = 'The picture was not drawn in this run: there is nothing to see in it.';
+
+/** The look at a picture of a `--draw none` run (src/turn/draw-gif.ts#DescribePicture): NOT_DRAWN, no request. */
+export function notDrawnLook(): Promise<string> {
+  return Promise.resolve(NOT_DRAWN);
+}
 /** The pictures a `--draw live` day makes at most without `--max-pictures`. */
 export const DEFAULT_LIVE_PICTURES = 2;
 /** The largest `--max-pictures`. */
@@ -108,7 +122,7 @@ export function diaryDayEstimate({
   const pictures = draw === 'live' && slots > 0 ? maxPictures : 0;
   const estimateUsd = Math.round((requests * usdPerRequest + pictures * USD_PER_PICTURE) * 10000) / 10000;
   const detail =
-    `${slots} slot(s), ${requestsPerSlot} request(s) each (the plan and the compose) at ~${usdPerRequest} USD` +
+    `${slots} slot(s), ${requestsPerSlot} request(s) each (a scene and the entry) at ~${usdPerRequest} USD` +
     (draw === 'live' ? `, up to ${pictures} live picture(s) at ~${USD_PER_PICTURE} USD` : ', pictures faked');
   return { requests, pictures, estimateUsd, detail };
 }
@@ -172,12 +186,53 @@ export type DiarySlot = {
   local?: string;
   outcome?: string;
   reason?: string;
-  plan?: unknown;
+  kind?: unknown;
+  scenes?: Array<DiaryScene>;
+  answers?: Array<DiaryAnswer>;
   messages?: Array<string>;
   attachments?: number;
   draws?: Array<DrawCall>;
   [field: string]: Untyped;
 };
+
+/** One answer of the persona in a diary turn: its text and the calls it made, each by name with its arguments. */
+export type DiaryAnswer = { text: string | null; calls: Array<{ name: unknown; args: unknown }> };
+
+/**
+ * What one diary turn made, from its `result` and the requests it recorded (`calls` of scripts/replay.ts#recordingLlm):
+ * its outcome, its kind, its scenes with their seed lines, the persona's answers with their calls, and the messages of
+ * the entry. The director's requests are left out of the answers.
+ */
+export function diaryKindSample(
+  result: unknown,
+  calls: ReadonlyArray<Record<string, unknown>>
+): Record<string, unknown> {
+  type Field = Record<string, unknown>;
+  const made = (result ?? {}) as { outcome?: unknown; reason?: unknown; diary?: Field | null };
+  const diary = made.diary ?? null;
+  const entry = (diary?.entry ?? null) as Field | null;
+  const answers: Array<DiaryAnswer> = calls
+    .filter((call) => call.purpose !== 'diary-scene')
+    .map((call) => ({
+      text: typeof call.text === 'string' ? call.text : null,
+      calls: (Array.isArray(call.toolCalls) ? (call.toolCalls as Array<Field>) : []).map((one) => ({
+        name: one.name ?? null,
+        args: one.args ?? one.arguments ?? null,
+      })),
+    }));
+  const scenes: Array<DiaryScene> = Array.isArray(diary?.scenes) ? (diary.scenes as Array<unknown>).map(sceneOf) : [];
+  const messages: Array<string> = Array.isArray(entry?.messages)
+    ? (entry.messages as Array<unknown>).filter((one): one is string => typeof one === 'string')
+    : [];
+  return {
+    outcome: made.outcome ?? null,
+    ...(made.reason ? { reason: made.reason } : {}),
+    kind: diary?.kind ?? null,
+    scenes,
+    answers,
+    messages,
+  };
+}
 
 /**
  * An image client over `images` (createImageGen's shape) whose `generate()` records every call
@@ -252,6 +307,18 @@ function cell(text: string) {
     .replace(/\r?\n/g, ' ');
 }
 
+/** The kind, the scenes with their seed lines and the persona's calls of one slot, as lines of the report. */
+function diaryKindLines(slot: DiarySlot): Array<string> {
+  const lines = typeof slot.kind === 'string' ? [`- kind: ${slot.kind}`] : [];
+  for (const [i, one] of (slot.scenes ?? []).entries()) {
+    lines.push(`- scene ${i + 1}: ${one.scene === null ? `none (${one.failure ?? '-'})` : cell(one.scene)}`);
+    lines.push(`  - seed lines: ${cell(one.seeds.join('; '))}`, `  - kept: ${cell(one.used.join('; '))}`);
+  }
+  for (const [i, answer] of (slot.answers ?? []).entries())
+    for (const call of answer.calls) lines.push(`- call in answer ${i + 1}: \`${cell(JSON.stringify(call))}\``);
+  return lines;
+}
+
 /**
  * The report's markdown: the day's plan, then per slot its outcome, its plan, her messages and
  * every drawing call (the whole prompt in a block, the reference's description, the member it
@@ -282,7 +349,7 @@ export function renderDiaryDayReport(report: {
   for (const slot of report.slots) {
     lines.push(`## Slot ${slot.n}: ${slot.local ?? slot.at}`, '');
     lines.push(`- outcome: ${slot.outcome ?? '-'}${slot.reason ? ` (${slot.reason})` : ''}`);
-    if (slot.plan) lines.push(`- plan: \`${cell(JSON.stringify(slot.plan))}\``);
+    lines.push(...diaryKindLines(slot));
     for (const [i, text] of (slot.messages ?? []).entries()) lines.push(`- message ${i + 1}: ${cell(text)}`);
     if (slot.attachments) lines.push(`- files posted: ${slot.attachments}`);
     for (const [i, draw] of (slot.draws ?? []).entries()) {

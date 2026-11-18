@@ -84,24 +84,33 @@ test('keeps the first request of the purpose it stops at and sends it nowhere', 
   );
 });
 
-test('reports the planner answer and the messages of a diary post', () => {
+test('reports the kind, the scene with its seed lines and the messages of a diary entry', () => {
+  // Bug: the report shows no scene, or the seed lines of another set than the one the director took.
   const report = turnReport({
     turnId: 't-2',
     sample: 1,
-    requests: [
-      request({
-        purpose: 'diary-planner',
-        text: '{"kind":"status","brief":"Μια βόλτα","search":"","picture":false,"seed":2}',
-      }),
-      request({ text: '<msg>Βγήκα έξω</msg>' }),
-    ],
+    requests: [request({ text: '<msg>Βγήκα έξω</msg>' })],
     writes: [],
     keptCalls: [],
-    result: { outcome: 'spoke', diary: { kind: 'status', entry: { id: 'diary:1', messages: ['Βγήκα έξω'] } } },
+    result: {
+      outcome: 'spoke',
+      diary: {
+        kind: 'story',
+        scenes: [
+          { ok: true, sets: [['a roof'], ['a pier', 'fog']], set: 2, used: ['a pier'], scene: 'Ένας μώλος.' },
+          { ok: false, sets: [['a field']], reason: 'not-json' },
+        ],
+        entry: { id: 'diary:1', messages: ['Βγήκα έξω'] },
+      },
+    },
     estimate: (messages) => messages.length,
   });
   assert.deepEqual(report.diary, {
-    plan: { kind: 'status', brief: 'Μια βόλτα', seed: 2 },
+    kind: 'story',
+    scenes: [
+      { seeds: ['a pier', 'fog'], used: ['a pier'], scene: 'Ένας μώλος.', failure: null },
+      { seeds: [], used: [], scene: null, failure: 'not-json' },
+    ],
     messages: ['Βγήκα έξω'],
   });
 });
