@@ -41,7 +41,7 @@ In the chat, `/status` shows the core and its connections. Ordinary text talks t
 
 ## Make it your persona
 
-Copy only the prompt files you want to replace into `data/prompts/`, keeping their names. Start with `character-card.md` and `rules.md`. A nonempty personal file replaces its default. `rules.md` is the prompt of the rules block and holds no rule. The rules are rows of the memory table `rules`, added with `/rules add` and removed with `/rules remove`. With one or more rules the block is `rules.md` followed by one line per rule, and with none the request carries no block. A `- ` line in `rules.md` is part of the prompt and is never read as a rule. Settings in `data/config/config.json` merge over the shipped defaults, with arrays replaced whole. Both layers reload while the core runs.
+Copy only the prompt files you want to replace into `data/prompts/`, keeping their paths relative to `prompts/`. Start with `character-card.md` and `rules.md`. A nonempty personal file replaces the default of the same path, and a file in a folder below works the same way. `rules.md` is the prompt of the rules block and holds no rule. The rules are rows of the memory table `rules`, added with `/rules add` and removed with `/rules remove`. With one or more rules the block is `rules.md` followed by one line per rule, and with none the request carries no block. A `- ` line in `rules.md` is part of the prompt and is never read as a rule. Settings in `data/config/config.json` merge over the shipped defaults, with arrays replaced whole. Both layers reload while the core runs.
 
 Use [the prompt contract](prompt-contract.md) when editing files with placeholders or output tags. Keep engine defaults unchanged so an engine update does not overwrite your persona.
 
