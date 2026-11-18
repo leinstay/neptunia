@@ -474,7 +474,7 @@ export type { RecallStretch } from './recall-run-types.ts';
 /** The private vector searches of a recall: each direct chat `context.memory.openPrivate` opens, then the partner's layer. */
 function privateSearches(
   placeId: string,
-  privatePlaces: Array<string>,
+  privatePlaces: ReadonlyArray<string>,
   privateAccountId: Untyped
 ): Array<[string, { privateAccountId?: string }]> {
   return [

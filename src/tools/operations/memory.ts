@@ -182,28 +182,22 @@ function leftOutOfList(entry: Untyped, accountId: string | null, placeId: string
  * The archives `memory.archive.read` reads: the place's, or every community's with none, then each direct chat's with
  * `context.memory.openPrivate`, then the persona's.
  */
-function archiveHolders(
-  store: { topPlaces: () => Array<string> },
-  placeId: string | null,
-  config: unknown,
-  memoryDb: { database(): Db | null } | null | undefined
-) {
-  const db = opensPrivate(config) ? memoryDb?.database() : null;
+function archiveHolders(store: unknown, placeId: string | null, config: unknown, memoryDb: unknown) {
+  // The tool environment holds the store and the memory service untyped.
+  const places = store as { topPlaces: () => Array<string> };
+  const service = memoryDb as { database(): Db | null } | null | undefined;
+  const db = opensPrivate(config) ? service?.database() : null;
   const directChats = db ? directChatPlaceIds(db).filter((dm) => dm !== placeId) : [];
-  return [...(placeId ? [placeId] : store.topPlaces()), ...directChats, null];
+  return [...(placeId ? [placeId] : places.topPlaces()), ...directChats, null];
 }
 
 /**
  * The journal a message's turn is looked for in: the place's, or with `iface` (`context.memory.openPrivate`) the
  * journal of the chat a link names.
  */
-function turnJournalOf(
-  store: unknown,
-  placeId: string | null,
-  linked: string | null | undefined,
-  iface: string | null | undefined
-) {
-  return linked && iface !== null ? sharedPlaceOf(store, { id: linked }, iface) : placeId;
+function turnJournalOf(store: unknown, placeId: string | null, linked: unknown, iface: string | null | undefined) {
+  // The link's place comes from the untyped arguments of the tool call.
+  return typeof linked === 'string' && linked && iface !== null ? sharedPlaceOf(store, { id: linked }, iface) : placeId;
 }
 
 const handlers = perEnv((env) => {
