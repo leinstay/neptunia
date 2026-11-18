@@ -3,6 +3,7 @@
 // runner with createDrawGif; the act and her calls call its functions.
 
 import { accountOf, personOfMember, placeOfChat } from '../memory/addresses.ts';
+import { handleOf } from '../behavior/handles.ts';
 import { SELF_PERSON } from '../memory/db/ids.ts';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -90,7 +91,7 @@ type DrawResult = {
     descriptionFailed?: true;
     /** The marks of her picture as she reads them back (src/format.ts#mediaMarkTags). */
     made?: 'self';
-    depicted?: Array<{ self: boolean; name: string }>;
+    depicted?: Array<{ self: boolean; handle?: string }>;
   };
   /** The marks of a posted picture, for her `said` line (src/turn/skill-calls.ts). */
   marks?: { self: boolean; accounts: Array<string> };
@@ -203,18 +204,19 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     describePicture,
   } = ctx;
 
-  /** The marks of her picture as she reads them back: made by her, and whom it shows by the names they go by. */
+  /**
+   * The marks of her picture as she reads them back: made by her, and whom it shows, each member by `@` and the handle
+   * of their person, or of their account when the store links no person.
+   */
   function marksShown(
     self: boolean,
-    accounts: ReadonlyArray<string>,
-    selfName: string
-  ): { made: 'self'; depicted: Array<{ self: boolean; name: string }> } {
-    const nameOf = (id: string): string | null => store.getUser?.(accountOf(store, id))?.names?.[0] ?? null;
-    const others = accounts.flatMap((id) => {
-      const name = nameOf(id);
-      return name === null ? [] : [{ self: false, name }];
-    });
-    return { made: 'self', depicted: [...(self ? [{ self: true, name: selfName }] : []), ...others] };
+    accounts: ReadonlyArray<string>
+  ): { made: 'self'; depicted: Array<{ self: boolean; handle?: string }> } {
+    const others = accounts.map((id) => ({
+      self: false,
+      handle: `@${handleOf(personOfMember(store, id) ?? accountOf(store, id))}`,
+    }));
+    return { made: 'self', depicted: [...(self ? [{ self: true }] : []), ...others] };
   }
 
   /**
@@ -306,7 +308,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     const self = args?.self === true;
     // The members the picture shows besides her: account ids, resolved from her handles (src/tools/executors.ts#resolveCall).
     const accounts = Array.isArray(args?.people) ? (args.people as Array<unknown>).filter(isId) : [];
-    const shown = marksShown(self, accounts, selfName);
+    const shown = marksShown(self, accounts);
     // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's argument may be any JSON value, read as text
     const scene = String(args?.text ?? '');
     const asked = askedFor(trigger, triggerKind);

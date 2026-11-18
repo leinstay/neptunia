@@ -9,7 +9,7 @@ import type { Db } from './types.ts';
 
 /**
  * One stored entry as a request shows it: when, its kind and gist, its picture and the plan it was written from, and the
- * marks of its first picture when she drew it (`made`, `depicted` with the people's current names).
+ * marks of its first picture when she drew it (`made`, `depicted` each person by handle).
  */
 export type PastEntry = {
   id: string;
@@ -61,7 +61,7 @@ function firstPictureMarks(db: Db, entryId: string): Partial<MediaMarks> {
        WHERE l.owner_kind = 'diary' AND l.owner_id = ? AND m.kind = 'image' ORDER BY l.position LIMIT 1`
     )
     .get(entryId);
-  return marksOf(db, parseExtra(row?.extra)) ?? {};
+  return marksOf(parseExtra(row?.extra)) ?? {};
 }
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');

@@ -5,6 +5,7 @@
 // the owner's browser (src/memory/db/domain-read.ts#domainDetail). Audience holds in each. Synthetic content; no model.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { handleOfPerson } from '../src/memory/db/direct-chats.ts';
 import { formatTranscript } from '../src/format.ts';
 import { chatLines, recentGroupLines } from '../src/memory/db/chat-lines.ts';
 import { domainDetail } from '../src/memory/db/domain-read.ts';
@@ -380,7 +381,7 @@ test('owner browser: a media row opens with a link to each line that shows it', 
   }
 });
 
-test('session batch: a picture she made is followed by the made mark and the people it shows by current name', () =>
+test('session batch: a picture she made is followed by the made mark and the people it shows by handle', () =>
   withLine(KINDS[0], 'full', (env) => {
     const alice = String(env.db.prepare('SELECT person_id FROM accounts WHERE native_id = ?').get(ALICE)?.person_id);
     env.db
@@ -397,5 +398,6 @@ test('session batch: a picture she made is followed by the made mark and the peo
     };
     const batch = sessionBatch(env, 'group', labels);
     assert.ok(batch.includes('[MADE]'), batch);
-    assert.ok(batch.includes('[SHOWS HERSELF, Alice]'), batch);
+    // The owner's ruling (2026-11-18): a person is written by the handle she can pass to a tool, never by a name.
+    assert.ok(batch.includes(`[SHOWS HERSELF, @${handleOfPerson(alice)}]`), batch);
   }));

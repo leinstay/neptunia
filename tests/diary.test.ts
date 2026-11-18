@@ -26,6 +26,7 @@ import {
 } from '../src/behavior/diary.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { fill } from '../src/format.ts';
+import { handleOf } from '../src/behavior/handles.ts';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from '../src/time.ts';
 import { labels } from './fixtures/labels.ts';
 import { createStore } from '../src/memory/store.ts';
@@ -551,16 +552,14 @@ test('renderDiaryBlock: a picture she drew carries the made mark and the people 
       gist: 'on the pier',
       picture: 'a pier at dusk',
       made: 'self',
-      depicted: [
-        { self: true, name: 'Self' },
-        { self: false, name: 'Alice' },
-      ],
+      depicted: [{ self: true }, { self: false, handle: `@${handleOf('person-alice')}` }],
     },
   ];
   const [, line] = renderDiaryBlock(posts, marked, { timezone: 'UTC', max: 3 }).split('\n');
   assert.ok(line?.includes('[picture: a pier at dusk]'), line);
   assert.ok(line?.includes('[MADE]'), line);
-  assert.ok(line?.includes('[SHOWS HERSELF, Alice]'), line);
+  // The owner's ruling (2026-11-18): a person is written by the handle she can pass to a tool, never by a name.
+  assert.ok(line?.includes(`[SHOWS HERSELF, @${handleOf('person-alice')}]`), line);
 });
 
 test('renderDiaryBlock: a cut to max keeps the newest posts, not the first ones given', () => {

@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ImageGenError } from '../src/llm/images.ts';
 import { CODE } from '../src/tools/codes.ts';
+import { handleOf } from '../src/behavior/handles.ts';
 import { labels } from './fixtures/labels.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { appended, contentText } from './fixtures/turn-harness.ts';
@@ -208,5 +209,7 @@ test('the caption she gets back of her drawing carries the made mark and the peo
   );
   const result = drawResult(run);
   assert.ok(result.includes('[MADE]'), result);
-  assert.ok(result.includes('[SHOWS HERSELF, Alice]'), result);
+  // The owner's ruling (2026-11-18): a person is written by the handle she can pass to a tool, never by a name.
+  // The stand-in store links no person, so Alice's handle is cut from her account, as every block of a request does.
+  assert.ok(result.includes(`[SHOWS HERSELF, @${handleOf('u1')}]`), result);
 });
