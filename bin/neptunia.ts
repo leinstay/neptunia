@@ -105,6 +105,7 @@ import { accountRequest } from '../src/interface/commands/subharness.ts';
 import { ROOT_DIR, deepMerge, readConfig, resolveEnvRefs } from '../src/config.ts';
 import { checkConfig as checkSettings } from '../src/config/check.ts';
 import { unknownRoleKeys } from '../src/llm/openrouter.ts';
+import { retiredPromptFiles } from '../src/hot.ts';
 import {
   localConfigPath,
   localFiles,
@@ -1047,9 +1048,15 @@ function checkConfig(where: { rootDir: string; privateDir: string }): Check {
   return { name: 'config', status: 'ok', detail: `the shipped config/config.json and the local ${file} read` };
 }
 
+/** The local layer: `fail` when it is missing, `warn` naming each of its prompt files at a retired path and its new one. */
 function checkLocalLayer(where: { privateDir: string }): Check {
   if (!fs.existsSync(where.privateDir))
     return { name: 'local-layer', status: 'fail', detail: `${where.privateDir} does not exist` };
+  const retired = retiredPromptFiles(path.join(where.privateDir, 'prompts'));
+  if (retired.length > 0) {
+    const moves = retired.map(({ file, use }) => `prompts/${file} is not read, move it to prompts/${use}`);
+    return { name: 'local-layer', status: 'warn', detail: moves.join('; ') };
+  }
   const prompts = fs.existsSync(path.join(where.privateDir, 'prompts'));
   return {
     name: 'local-layer',
