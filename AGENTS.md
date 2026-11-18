@@ -41,8 +41,8 @@ The engine's words, for anyone naming something in the code, the database, a doc
 | `dm` | A one-to-one chat. |
 | `group` | The scope of a place people share. A place's scope is `group` or `dm`. |
 | `person` | One human as the persona knows them, across every interface. A person holds one or more accounts. |
-| `account` | One identity of a person on one interface, such as a Discord user or the command line's owner. |
-| `owner` | The person who runs the deployment and holds every right in it. |
+| `account` | One identity of a person on one interface, such as a Discord user or the account of the command line. |
+| `admin` | The main account of a deployment. The persona trusts it with every right. |
 | `audience` | The people a memory row may be shown to: the members of a group or the two sides of a `dm`. |
 
 ### What the persona does
@@ -51,15 +51,15 @@ The engine's words, for anyone naming something in the code, the database, a doc
 |---|---|
 | `event` | What arrives from an interface. |
 | `turn` | One run of the persona. |
-| `turn frame` | The facts of one turn, fixed before any block of its request: its kind, why she is awake, whom she answers, where she is and which blocks it holds. |
+| `turn frame` | The facts of one turn, fixed before any block of its request: its kind, its reason, whom it answers, its place and its blocks. |
 | `turn kind` | Which of the frame's lists of blocks a turn takes. |
 | `wake` | A row of the queue of turns the engine starts itself. |
 | `service` | One of the two scheduled mechanics: `heartbeat`, `diary`. |
-| `heartbeat` | The service that wakes her every few hours with no chat and no place, so she can notice what goes on and decide whether to act or stay silent. `heartbeat.schedule` sets the interval, default `every 3h`, and `heartbeat.jitterMinutes` its spread, default 60. |
-| `diary` | The service that turns selected experience into her dated entries, each with an optional illustration and a copy to a `mirror`, and those entries as a store. |
+| `heartbeat` | The service that starts a turn every few hours with no chat and no place. In that turn the persona looks at what goes on and acts or stays silent. `heartbeat.schedule` sets the interval, default `every 3h`, and `heartbeat.jitterMinutes` its spread, default 60. |
+| `diary` | The service that turns selected experience into dated entries of the persona, each with an optional illustration and a copy to a `mirror`, and those entries as a store. |
 | `mirror` | A place a stored entry of `diary` is copied to. |
 | `intention` | Something the persona decided to do later. It is no service. |
-| `humanizer` | The optional step that checks her text before it is posted and writes it again when it reads as composed. |
+| `humanizer` | The optional step that checks the persona's text before it is posted and writes it again when it reads as composed. |
 | `tool` | Code with a schema that the model calls. |
 | `skill` | A prose procedure over tools. |
 | `command` | What a person types in the CLI. |
@@ -73,7 +73,7 @@ The engine's words, for anyone naming something in the code, the database, a doc
 | Word | Meaning |
 |---|---|
 | `memory` | What the persona keeps between turns. |
-| `labels` | The wording of what code inserts into a prompt, and the strings the owner sees. |
+| `labels` | The wording of what code inserts into a prompt, and the strings the admin sees. |
 | `lease` | A time-limited claim on a resource. |
 | `profile` | What memory holds about one account or person: names, claims and descriptions. |
 | `episode` | A remembered stretch of conversation, kept as one memory item with its messages. |
@@ -124,6 +124,9 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Every claim carries its evidence: a file and line, a number you measured, a command you ran. No "significantly", "robust", "seamless", "leverage". No claim you did not check.
 - Concrete words. "The turn runner", not "the relevant component". The engine's words from the Glossary, one word per thing, no synonym.
 - Describe the present. No history in docs or comments ("now", "was", "no longer", "moved from"): the git log holds it. No chat context in a file.
+- Call the persona "the persona" or "it", never "she" or "he". Name it once in a paragraph, and do not repeat the word in every sentence.
+- No tracked file names or quotes the person behind a decision. A comment gives the reason, and the git log keeps who decided. The word "owner" is not used: the role is `admin`.
+- A document or a comment holds no date and names no plan or spec. It reads as if the code had always been as it is.
 - Sentences carry one thought each and vary in length. Do not start consecutive sentences with the same word. No "Additionally", "Furthermore", "Moreover". Active voice when the actor matters. Positive form: "the variance was small", not "not large".
 - Punctuation: commas and full stops. No em dashes, no semicolons between clauses, no parenthetical asides, no "Label: explanation" rows, no slash lists ("and" or "or" instead).
 - Formatting: bold only for a term the reader must find again, headings as plain phrases, code and paths and keys in backticks, no emoji.
@@ -167,7 +170,7 @@ Tests are written by agents, so the quality lives in the method, not in a review
 - A fix extends the test that covers the behaviour. Write a new test only when no test covers it.
 - Prove each test before you keep it. Break the code the way the bug would, and check that this test fails. Delete a test that no such break fails.
 - Never change an existing test's expectation to make a run pass. When an expectation is wrong, the change says why in a comment on the test. Never weaken, skip or delete a test to get to green; report real counts.
-- A change that can alter what the persona sends to a model is checked with the identity replay: `scripts/replay.ts` with `--answers-dir` builds her requests from one copy of a data folder on the base commit and on the head, answering every model call from files, and the two sets of requests are compared byte for byte. They are identical, or the pull request names each request that differs and why.
+- A change that can alter what the persona sends to a model is checked with the identity replay: `scripts/replay.ts` with `--answers-dir` builds those requests from one copy of a data folder on the base commit and on the head, answering every model call from files, and the two sets of requests are compared byte for byte. They are identical, or the pull request names each request that differs and why.
 - No snapshots, no test of a label's wording or a document's text, no test for what nothing sane could break. A test whose failure would catch no real bug is deleted, not kept for coverage.
 - Run only the tests of the module you changed, with the `dot` reporter. The whole suite runs in CI. On a failure, rerun that one file with `--test-reporter=spec` and read the first failing trace. Pipe long output through `tail`; never paste a test log into a commit, an issue or a document.
 
@@ -177,7 +180,7 @@ Tests are written by agents, so the quality lives in the method, not in a review
 
 | Path | What goes there |
 |---|---|
-| `.agents/AGENTS.md` | The rules of this deployment: its server, its owner's decisions, what differs from this file. Read first when it exists. |
+| `.agents/AGENTS.md` | The rules of this deployment: its server, its admin's decisions, what differs from this file. Read first when it exists. |
 | `.agents/memory/MEMORY.md` | The index of the agents' memory, one line per file; one fact per file beside it, with a frontmatter (`name`, `description`, `metadata.type`: user, feedback, project, reference). |
 | `.agents/docs/` | The deployment's documents. Its root holds the living ones kept current, named without a date, such as the changelog and the bug tracker. Plans go to `plans/`, the rest to `specs/`, `reports/`, `notes/` and `proposals/`, each file `<YYYY-MM-DD>-<topic>.md` and opening with a frontmatter of `date`, `title` and `status`: `draft` while it awaits the owner's word, `active` for the plan a working session carries out now (one per session), `done`, or `superseded` with `superseded_by` naming its replacement. |
 | `.agents/scratch/<YYYY-MM-DD>-<task>/` | Intermediate files of one task; deleted once the result is in a document. |
