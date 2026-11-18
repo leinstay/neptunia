@@ -7,7 +7,6 @@ import type { MediaEntryWrite } from './db/media-store.ts';
 import type { GifLibraryWrite } from './db/gif-library.ts';
 import type { MediaNamesWrite } from './db/media-names.ts';
 import type { RulesWrite } from './db/rules.ts';
-import type { GifVectorWrite } from './db/gif-vectors.ts';
 import type { ErrandWrite } from './db/errand-write.ts';
 import type { AccountProfileWrite } from './db/account-profile.ts';
 import type { ProseVersionsWrite } from './db/prose-versions.ts';
@@ -88,7 +87,6 @@ export type MemoryDb = {
   writeDiary?: (write: DiaryWrite) => Promise<unknown>;
   writeMediaEntry?: (write: MediaEntryWrite) => Promise<unknown>;
   writeGifLibrary?: (write: GifLibraryWrite) => Promise<unknown>;
-  writeGifVector?: (write: GifVectorWrite) => Promise<unknown>;
   writeMediaNames?: (write: MediaNamesWrite) => Promise<unknown>;
   writeRules?: (write: RulesWrite) => Promise<unknown>;
   writeErrand?: (write: ErrandWrite) => Promise<unknown>;

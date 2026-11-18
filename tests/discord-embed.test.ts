@@ -41,7 +41,10 @@ test('classifyEmbed: a video-site embed keeps kind "link" but carries the thumbn
   assert.equal(item.thumbnailUrl, 'https://i.ytimg.com/vi/xyz/hq.jpg');
 });
 
-test('classifyEmbed: a tenor gifv embed carries its video as animationUrl, the proxy URL preferred', () => {
+// The expectation is reversed on the measurement of 2026-11-18 (report gif-direct-address-lifetime): the provider's own
+// `video.url` is unsigned and downloads from messages up to 74 days old, while the lifetime of Discord's `video.proxyURL`
+// is unknown. The animation address is stored as the library GIF's `fileUrl`, so the provider's address comes first.
+test("classifyEmbed: a tenor gifv embed carries its video as animationUrl, the provider's own URL preferred", () => {
   const embed = {
     url: 'https://tenor.com/view/x',
     provider: { name: 'Tenor' },
@@ -54,7 +57,16 @@ test('classifyEmbed: a tenor gifv embed carries its video as animationUrl, the p
       proxyURL: 'https://images-ext-1.discordapp.net/external/v/x.mp4',
     },
   };
-  assert.equal(classifyEmbed(embed).animationUrl, 'https://images-ext-1.discordapp.net/external/v/x.mp4');
+  assert.equal(classifyEmbed(embed).animationUrl, 'https://media.tenor.com/x/AAAPo/x.mp4');
+  const proxied = classifyEmbed({
+    ...embed,
+    video: { proxyURL: 'https://images-ext-1.discordapp.net/external/v/x.mp4' },
+  });
+  assert.equal(
+    proxied.animationUrl,
+    'https://images-ext-1.discordapp.net/external/v/x.mp4',
+    'the proxy only without one'
+  );
   const bare = classifyEmbed({ ...embed, video: { url: 'https://media.tenor.com/x/AAAPo/x.mp4' } });
   assert.equal(bare.animationUrl, 'https://media.tenor.com/x/AAAPo/x.mp4');
   assert.equal(
@@ -178,7 +190,8 @@ test('classifyEmbed: a gifv embed is a gif whatever its provider: the page to po
   const item = classifyEmbed(pickerEmbed());
   assert.equal(item.kind, 'gif');
   assert.equal(item.url, 'https://gifs.example.net/gifs/dancing-cat');
-  assert.equal(item.animationUrl, 'https://images-ext-1.discordapp.net/external/v/loop.mp4');
+  // The provider's own address first, on the ruling of 2026-11-18 (report gif-direct-address-lifetime).
+  assert.equal(item.animationUrl, 'https://static.gifs.example.net/x/loop.mp4');
   assert.equal(item.thumbnailUrl, 'https://images-ext-1.discordapp.net/external/t/still.webp');
   assert.equal(item.site, 'Gifland');
 });
@@ -187,7 +200,8 @@ test('classifyEmbed: the embed type is read off a discord.js Embed too (its `dat
   const { type, ...fields } = pickerEmbed();
   const item = classifyEmbed({ ...fields, data: { type } });
   assert.equal(item.kind, 'gif');
-  assert.equal(item.animationUrl, 'https://images-ext-1.discordapp.net/external/v/loop.mp4');
+  // The provider's own address first, on the ruling of 2026-11-18 (report gif-direct-address-lifetime).
+  assert.equal(item.animationUrl, 'https://static.gifs.example.net/x/loop.mp4');
 });
 
 test('classifyEmbed: a klipy page is a gif by its host, with or without a type or a provider name', () => {
@@ -199,7 +213,8 @@ test('classifyEmbed: a klipy page is a gif by its host, with or without a type o
   assert.equal(bare.url, 'https://klipy.com/gifs/dancing-cat');
   const picker = classifyEmbed(pickerEmbed({ url: 'https://klipy.com/gifs/dancing-cat', provider: { name: 'Klipy' } }));
   assert.equal(picker.kind, 'gif');
-  assert.equal(picker.animationUrl, 'https://images-ext-1.discordapp.net/external/v/loop.mp4');
+  // The provider's own address first, on the ruling of 2026-11-18 (report gif-direct-address-lifetime).
+  assert.equal(picker.animationUrl, 'https://static.gifs.example.net/x/loop.mp4');
 });
 
 test('classifyEmbed: tenor and giphy stay gifs exactly as before; an embed of another type stays a link', () => {

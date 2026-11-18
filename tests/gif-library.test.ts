@@ -12,7 +12,6 @@ import {
   rankGifs,
   resetGifCounts,
   searchGifs,
-  withGifDescribed,
   withGifFile,
 } from '../src/memory/gifs.ts';
 
@@ -205,30 +204,37 @@ test('past storeMax the lowest global rank is evicted and its handle is never re
 
 // The candidate search.
 
-/** A library of entries with these texts, held as each entry's `description`, and vectors; `g1` is the most used. */
-function captioned(items: Array<{ caption?: string; vector?: Array<number> | null }>) {
+/**
+ * A library of entries with these texts, held as each entry's `description`, and the vectors the store's reader returns
+ * by item id (the ordinary media vector of each row); `g1` is the most used.
+ */
+function captioned(items: Array<{ caption?: string; vector?: Array<number> }>) {
   const entries: Record<string, object> = {};
+  const vectors = new Map<string, Array<number>>();
   items.forEach((item, index) => {
+    const itemId = `item-${index + 1}`;
     entries[`k${index + 1}`] = {
       id: `g${index + 1}`,
       kind: 'link',
       url: `https://tenor.com/view/${index + 1}`,
+      itemId,
+      nativeIds: [itemId],
       count: items.length - index,
       last: T0,
       firstSeen: T0,
       // The owner on 2026-11-17: a GIF is stored as one text.
-      ...(item.vector === undefined ? {} : { vector: item.vector }),
       ...(item.caption === undefined ? {} : { description: item.caption }),
     };
+    if (item.vector) vectors.set(itemId, item.vector);
   });
-  return { nextId: items.length + 1, entries };
+  return { gifs: { nextId: items.length + 1, entries }, vectors };
 }
 
 const handles = (found: ReturnType<typeof searchGifs>) => found.map(({ entry }) => entry.id);
 
 test('the search returns at most the cap, ordered by score', () => {
-  const gifs = captioned(Array.from({ length: 10 }, (_, index) => ({ caption: `γάτα χορεύει ${index}` })));
-  const found = searchGifs(gifs, { words: 'γάτα', vector: null, cap: 3 });
+  const { gifs, vectors } = captioned(Array.from({ length: 10 }, (_, index) => ({ caption: `γάτα χορεύει ${index}` })));
+  const found = searchGifs(gifs, { words: 'γάτα', vector: null, cap: 3, vectors });
   assert.equal(found.length, 3);
   const scores = found.map(({ score }) => score);
   assert.deepEqual(
@@ -238,64 +244,52 @@ test('the search returns at most the cap, ordered by score', () => {
 });
 
 test('a caption that matches by words and by vector comes before one that matches by either', () => {
-  const gifs = captioned([
+  const { gifs, vectors } = captioned([
     { caption: 'σκύλος τρέχει', vector: [0.6, 0.8] },
     { caption: 'γάτα κοιμάται', vector: [0, 1] },
     { caption: 'γάτα χορεύει', vector: [1, 0] },
   ]);
-  assert.equal(handles(searchGifs(gifs, { words: 'γάτα', vector: [1, 0], cap: 5 }))[0], 'g3');
+  assert.equal(handles(searchGifs(gifs, { words: 'γάτα', vector: [1, 0], cap: 5, vectors }))[0], 'g3');
 });
 
 test('a query word matches a caption in any case', () => {
-  const gifs = captioned([{ caption: 'ΓΆΤΑ χορεύει' }]);
-  assert.deepEqual(handles(searchGifs(gifs, { words: 'γάτα', vector: null, cap: 5 })), ['g1']);
+  const { gifs, vectors } = captioned([{ caption: 'ΓΆΤΑ χορεύει' }]);
+  assert.deepEqual(handles(searchGifs(gifs, { words: 'γάτα', vector: null, cap: 5, vectors })), ['g1']);
 });
 
 test('a vector alone finds a caption that shares no word', () => {
-  const gifs = captioned([
+  const { gifs, vectors } = captioned([
     { caption: 'σκύλος', vector: [0, 1] },
     { caption: 'γατάκι', vector: [1, 0] },
   ]);
-  assert.deepEqual(handles(searchGifs(gifs, { words: 'χαρά', vector: [1, 0], cap: 5 })), ['g2']);
+  assert.deepEqual(handles(searchGifs(gifs, { words: 'χαρά', vector: [1, 0], cap: 5, vectors })), ['g2']);
 });
 
 test('an entry with neither a word nor a similar vector is no candidate', () => {
-  const gifs = captioned([{ caption: 'σκύλος', vector: [0, 1] }]);
-  assert.deepEqual(searchGifs(gifs, { words: 'γάτα', vector: [1, 0], cap: 5 }), []);
+  const { gifs, vectors } = captioned([{ caption: 'σκύλος', vector: [0, 1] }]);
+  assert.deepEqual(searchGifs(gifs, { words: 'γάτα', vector: [1, 0], cap: 5, vectors }), []);
 });
 
 test('a GIF without a caption is never a candidate', () => {
-  const gifs = captioned([{ vector: [1, 0] }]);
-  assert.deepEqual(searchGifs(gifs, { words: 'γάτα', vector: [1, 0], cap: 5 }), []);
+  const { gifs, vectors } = captioned([{ vector: [1, 0] }]);
+  assert.deepEqual(searchGifs(gifs, { words: 'γάτα', vector: [1, 0], cap: 5, vectors }), []);
 });
 
 test('equal scores go to the GIF used more', () => {
-  const gifs = captioned([{ caption: 'γάτα' }, { caption: 'γάτα' }]);
-  assert.deepEqual(handles(searchGifs(gifs, { words: 'γάτα', vector: null, cap: 5 })), ['g1', 'g2']);
+  const { gifs, vectors } = captioned([{ caption: 'γάτα' }, { caption: 'γάτα' }]);
+  assert.deepEqual(handles(searchGifs(gifs, { words: 'γάτα', vector: null, cap: 5, vectors })), ['g1', 'g2']);
 });
 
 test('a vector of another dimension counts as no vector', () => {
   // Bug: a change of embedding model leaves old vectors in the library, and a comparison across lengths answers NaN.
-  const gifs = captioned([{ caption: 'γάτα', vector: [1, 0, 0] }]);
-  const found = searchGifs(gifs, { words: 'γάτα', vector: [1, 0], cap: 5 });
+  const { gifs, vectors } = captioned([{ caption: 'γάτα', vector: [1, 0, 0] }]);
+  const found = searchGifs(gifs, { words: 'γάτα', vector: [1, 0], cap: 5, vectors });
   assert.deepEqual(handles(found), ['g1']);
   assert.ok(Number.isFinite(found[0].score));
 });
 
 test('an empty query or a cap of 0 finds nothing', () => {
-  const gifs = captioned([{ caption: 'γάτα', vector: [1, 0] }]);
-  assert.deepEqual(searchGifs(gifs, { words: ' ', vector: null, cap: 5 }), []);
-  assert.deepEqual(searchGifs(gifs, { words: 'γάτα', vector: null, cap: 0 }), []);
-});
-
-test('a description and its vector written on an entry make it findable, and an unknown key changes nothing', () => {
-  const gifs = library([linkMessage('m1', A, T0)]);
-  const key = Object.keys(normalizeGifs(gifs).entries)[0];
-  const described = withGifDescribed(gifs, key, { description: 'γάτα χορεύει', vector: [1, 0] });
-  assert.equal(searchGifs(described, { words: 'γάτα', vector: null, cap: 5 }).length, 1);
-  assert.equal(searchGifs(described, { words: 'χαρά', vector: [1, 0], cap: 5 }).length, 1);
-  assert.deepEqual(
-    normalizeGifs(withGifDescribed(gifs, 'nobody', { description: 'x', vector: null })),
-    normalizeGifs(gifs)
-  );
+  const { gifs, vectors } = captioned([{ caption: 'γάτα', vector: [1, 0] }]);
+  assert.deepEqual(searchGifs(gifs, { words: ' ', vector: null, cap: 5, vectors }), []);
+  assert.deepEqual(searchGifs(gifs, { words: 'γάτα', vector: null, cap: 0, vectors }), []);
 });

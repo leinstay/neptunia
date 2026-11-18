@@ -309,11 +309,61 @@ test("gif backfill run: the describer gets each GIF's whole picture item, so a l
     const byId: Record<string, Untyped> = new Map(
       describer.calls[0].items.map((item: Record<string, Untyped>) => [item.itemId, item])
     );
-    assert.equal(byId.get('1001#e0').animationUrl, `${TENOR_A}/proxy.mp4`, 'the gifv mp4 travels with the item');
+    // The provider's own address first, on the measurement of 2026-11-18 (report gif-direct-address-lifetime).
+    assert.equal(byId.get('1001#e0').animationUrl, `${TENOR_A}/loop.mp4`, 'the gifv mp4 travels with the item');
     assert.equal(byId.get('1001#e0').source, 'embed');
     assert.equal(byId.get('1001#e0').url, `${TENOR_A}/proxy.png`, 'the still frame stays the fallback');
     assert.equal(byId.get('555').source, 'attachment', 'an attached .gif is its own animation');
     assert.equal(byId.get('555').url, 'https://cdn.discordapp.com/attachments/1/555/r.gif');
+  });
+});
+
+// Spec 2026-11-18, the library without the keeper: the history read describes every GIF it finds, with no limit of
+// twenty, and downloads each file once from its direct address. Bug: the old limit of 20 left the rest undescribed.
+function manyAttached(count: number) {
+  return [
+    fakeChannel(
+      'c1',
+      Array.from({ length: count }, (_, i) => rawMessage(i + 1, { gifFile: String(5000 + i) }))
+    ),
+  ];
+}
+
+test('gif backfill run: describes every GIF it finds, past twenty', async () => {
+  await withStore(async (store: GifStore) => {
+    const describer: Record<string, Untyped> = fakeDescriber();
+    const backfill = createGifBackfill(
+      wrongly({ ...depsOf(fakeClient(manyAttached(25))), hot: fakeHot(), store, describer, log: fakeLog() })
+    );
+    const result: Record<string, Untyped> = await backfill.run(placeOfRoot(backfill, 'g1'));
+    assert.equal(result.described, 25);
+  });
+});
+
+test('gif backfill run: downloads the file of every GIF it finds from its direct address', async () => {
+  await withStore(async (store: GifStore, dir: string) => {
+    const asked: Array<string> = [];
+    const fetchBytes = (url: string) => {
+      asked.push(url);
+      return Promise.resolve({ bytes: new TextEncoder().encode(url), contentType: 'image/gif' });
+    };
+    const backfill = createGifBackfill(
+      wrongly({
+        ...depsOf(fakeClient(manyAttached(25))),
+        hot: fakeHot(),
+        store,
+        describer: fakeDescriber(),
+        dataDir: dir,
+        fetchBytes,
+        log: fakeLog(),
+      })
+    );
+    await backfill.run(placeOfRoot(backfill, 'g1'));
+    const filed = () => Object.values(store.getGifs().entries).filter((entry) => entry.file).length;
+    for (let i = 0; i < 2000 && filed() < 25; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(filed(), 25);
+    assert.equal(new Set(asked).size, 25);
+    assert.ok(asked.every((url) => url.startsWith('https://cdn.discordapp.com/attachments/1/')));
   });
 });
 

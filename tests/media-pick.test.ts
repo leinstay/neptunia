@@ -112,6 +112,7 @@ type RigOptions = {
   embedQuery?: (text: string) => Promise<ArrayLike<number> | null>;
   pickConfig?: object;
   prompt?: string | null;
+  gifMediaVectors?: ReadonlyMap<string, ArrayLike<number>>;
 };
 
 function rig({
@@ -121,6 +122,7 @@ function rig({
   embedQuery,
   pickConfig = {},
   prompt = 'Pick for {{name}}.',
+  gifMediaVectors,
 }: RigOptions = {}) {
   const calls: Array<{ messages: Array<{ role: string; content: unknown }>; options: Record<string, unknown> }> = [];
   const hot = {
@@ -137,6 +139,7 @@ function rig({
     store: {
       mediaNameOf: noMediaNames,
       getGifs: () => library,
+      ...(gifMediaVectors ? { gifMediaVectors: () => gifMediaVectors } : {}),
       getEmojiRails: (placeId: string) => rails.get(placeId) ?? null,
       setEmojiRails: (placeId: string, state: unknown) => {
         rails.set(placeId, state);
@@ -312,9 +315,11 @@ test('her recent posts are told by the place they went to', async () => {
 
 test('the query vector finds a caption that shares no word, asked once', async () => {
   let asked = 0;
-  const library = libraryOf(gifEntry('g1', 'γατάκι χορεύει', { vector: [1, 0] }));
+  // The vector is the ordinary media vector of the library row, by item id (spec 2026-11-18).
+  const library = libraryOf(gifEntry('g1', 'γατάκι χορεύει'));
   const { pick, calls } = rig({
     library,
+    gifMediaVectors: new Map([['item-g1', [1, 0]]]),
     embedQuery: () => {
       asked += 1;
       return Promise.resolve([1, 0]);

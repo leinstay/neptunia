@@ -1,7 +1,16 @@
 // The text form of a media row (src/memory/db/media-store.ts): what a line's media written again keeps of it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mediaItemsOf, sourceLine, writeLineMedia, writeMediaEntry } from '../src/memory/db/media-store.ts';
+import {
+  mediaItemsOf,
+  pendingMediaEmbeds,
+  sourceLine,
+  writeLineMedia,
+  writeMediaEntry,
+} from '../src/memory/db/media-store.ts';
+import { writeGifLibrary } from '../src/memory/db/gif-library.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { freshMemoryDb } from './fixtures/memory-db-copy.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import type { Db } from '../src/memory/db/types.ts';
 
@@ -32,4 +41,24 @@ test('keeps a watched video retelling when its line is read again', (t) => {
   const row = db.prepare("SELECT extra FROM media WHERE kind = 'video'").get();
   const extra = JSON.parse(typeof row?.extra === 'string' ? row.extra : '{}') as { textOrigin?: unknown };
   assert.equal(extra.textOrigin, 'retelling');
+});
+
+// Spec 2026-11-18, the library without the keeper: a library row that no line links still gets its ordinary media
+// vector, since the media pick reads that one. Bug: the embedding took only rows a line links.
+test('a described library row that no line links waits for its media vector', () => {
+  const handle = freshMemoryDb();
+  try {
+    const db = dbOf(handle);
+    const entry = { id: 'g1', kind: 'link', url: 'https://gifs.example/view/1', count: 1 };
+    writeGifLibrary(db, { put: { k1: entry } }, { iface: 'discord', at: Date.UTC(2026, 10, 18) });
+    // The describer's cache writes the row's one text; a library write never does.
+    db.prepare("UPDATE media SET description = 'a cat waves' WHERE writer = 'gifs'").run();
+    const row = db.prepare("SELECT id FROM media WHERE writer = 'gifs'").get();
+    assert.deepEqual(
+      pendingMediaEmbeds(db).map((pending) => pending.id),
+      [row?.id]
+    );
+  } finally {
+    handle.close();
+  }
 });

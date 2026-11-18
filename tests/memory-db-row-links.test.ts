@@ -10,7 +10,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { createJournal } from '../src/memory/journal.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { placeCollection } from '../src/memory/db/unit-keys.ts';
-import { readGifVectors } from '../src/memory/db/gif-vectors.ts';
 import { unitsOf } from '../src/memory/db/session-size.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
@@ -67,8 +66,8 @@ test("a database from before step 57 reads each memory line's own attitude after
   }
 });
 
-test('a database from before step 57 keeps its lorebook entry ids and its GIF vectors after the step', async () => {
-  // Bug: entries that lose their id read back without one, and GIF vectors without a kind are no longer found.
+test('a database from before step 57 keeps its lorebook entry ids after the step', async () => {
+  // Bug: entries that lose their id read back without one.
   const dataDir = tempDataDir();
   const lore = [
     { id: 'k3x9', title: 'The pier', keys: ['pier'], text: 'Boats tie up at the north end.', always: false },
@@ -78,7 +77,6 @@ test('a database from before step 57 keeps its lorebook entry ids and its GIF ve
   let written: unknown;
   try {
     await first.memoryDb.writePlaceLore({ placeId: ROOT, value: lore });
-    await first.memoryDb.writeGifVector({ itemId: 'gif-wave', model: 'm-1', vector: [0.5, -0.25, 1] });
     written = unitValue(dbOf(first.memoryDb.readHandle()!), placeCollection('lore', ROOT));
   } finally {
     await first.close();
@@ -88,7 +86,6 @@ test('a database from before step 57 keeps its lorebook entry ids and its GIF ve
   try {
     const db = dbOf(second.memoryDb.readHandle()!);
     assert.deepEqual(unitValue(db, placeCollection('lore', ROOT)), written);
-    assert.deepEqual([...readGifVectors(db).keys()], ['gif-wave']);
   } finally {
     await second.close();
   }

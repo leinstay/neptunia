@@ -21,7 +21,7 @@ type Reads = {
   personOfAccount(id: string): string;
   topPlaces(): Array<string>;
   liveRules(): Array<unknown>;
-  setGifDescribed(...args: Array<unknown>): unknown;
+  setGifFile(...args: Array<unknown>): unknown;
 };
 
 function stores() {
@@ -47,7 +47,7 @@ test('the read-only store answers the read of her rules, which every reply reque
 
 test('the read-only store still refuses a write', () => {
   const { wrapped } = stores();
-  assert.throws(() => wrapped.setGifDescribed('gif-1', 'a cat'), /read-only here/);
+  assert.throws(() => wrapped.setGifFile('gif-1', { hash: 'h1', file: 'media/gifs/h1.gif' }), /read-only here/);
 });
 
 test('the read-only store names a root custom emoji without writing: a held name stays, a new one is issued in memory', async () => {

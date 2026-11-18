@@ -10,8 +10,8 @@
 // (resetGifCounts), so handles survive it; an entry left at 0 everywhere ranks below every used one. The persona's own
 // posts are kept apart (markOwnGif: `ownLast`, `ownUses`, per place and in total), never counted into `count` and never
 // reset. `description` is the GIF's one text, the describer's text form of its row, which the candidate search
-// (searchGifs) reads with its vector, kept apart;
-// `file` is the cached file under the data folder (src/media/gif-files.ts), because an attachment's link expires.
+// (searchGifs) reads with its row's media vector, kept in the database; `fileUrl` is a link GIF's direct media address
+// and `file` the stored file under the data folder (src/media/gif-files.ts), because an attachment's link expires.
 //
 // Shape: `{ nextId, entries: { [key]: GifEntry }, backfill, backfills }`. `messageId`/`placeId` point at the latest
 // message carrying the GIF, so the poster can re-fetch an attachment's fresh URL. `backfills` holds the history
@@ -82,10 +82,11 @@ export type GifEntry = {
   nativeIds: Array<string>;
   links: Array<string>;
   places: Record<string, GifPlace>;
+  /** The direct media address of a link GIF's file, its embed's animation address. An attachment's signed address expires and is never kept. */
+  fileUrl?: string;
   hash?: string;
   file?: string;
   description?: string;
-  vector?: Array<number>;
 };
 
 /** The library. */
@@ -137,12 +138,11 @@ function withTotals(entry: GifEntry): GifEntry {
 /** The optional fields of a stored entry that hold a usable value. */
 function optionalFields(entry: Record<string, unknown>): Partial<GifEntry> {
   const out: Partial<GifEntry> = {};
-  for (const field of ['site', 'name', 'hash', 'file'] as const) {
+  for (const field of ['site', 'name', 'fileUrl', 'hash', 'file'] as const) {
     const value = entry[field];
     if (typeof value === 'string' && value) out[field] = value;
   }
   if (typeof entry.description === 'string' && entry.description.trim()) out.description = entry.description;
-  if (isVector(entry.vector)) out.vector = entry.vector;
   if (isFiniteNumber(entry.ownLast) && entry.ownLast > 0) out.ownLast = entry.ownLast;
   if (isFiniteNumber(entry.ownUses) && entry.ownUses >= 1) out.ownUses = Math.floor(entry.ownUses);
   return out;
@@ -180,11 +180,6 @@ function normalizeEntry(key: string, entry: unknown): GifEntry | null {
     places: storedPlaces(entry.places),
     ...optionalFields(entry),
   });
-}
-
-/** A non-empty list of finite numbers. */
-function isVector(value: unknown): value is Array<number> {
-  return Array.isArray(value) && value.length > 0 && value.every((item) => isFiniteNumber(item));
 }
 
 /**
@@ -486,8 +481,33 @@ function libraryIndex(entries: Record<string, GifEntry>): {
 /** A GIF item of a message, as collectGifItems gives it. */
 type GifItem = ReturnType<typeof collectGifItems>[number];
 
+/**
+ * The direct media address of each GIF embed of `message` by its key: its animation address. An embed without one has
+ * none, since its page link answers a page and never the file. An attachment has none, since its signed address expires.
+ */
+function gifFileUrls(message: StoredRecord): Map<string, string> {
+  type Item = { kind?: unknown; id?: unknown; animationUrl?: unknown };
+  type Part = { links?: unknown };
+  const itemsOf = (value: unknown): Array<Item> => (Array.isArray(value) ? (value as Array<Item>) : []);
+  const found = new Map<string, string>();
+  const keep = (item: Item, address: unknown) => {
+    if (item?.kind !== 'gif' || (typeof item.id !== 'string' && typeof item.id !== 'number')) return;
+    if (typeof address === 'string' && address) found.set(String(item.id), address);
+  };
+  for (const part of mediaParts(message) as Array<Part | null>) {
+    for (const link of itemsOf(part?.links)) keep(link, link?.animationUrl);
+  }
+  return found;
+}
+
 /** The entry after one more sighting of `item` at `ts`, on the counter of the place the message was in. */
-function counted(before: GifEntry | undefined, item: GifItem, ts: number, handle: string): GifEntry {
+function counted(
+  before: GifEntry | undefined,
+  item: GifItem,
+  ts: number,
+  handle: string,
+  fileUrl: string | undefined
+): GifEntry {
   const { key: itemKey, ...fresh } = item;
   const counter = before?.places[item.placeId] ?? { count: 0, last: 0 };
   const places = {
@@ -496,12 +516,24 @@ function counted(before: GifEntry | undefined, item: GifItem, ts: number, handle
   };
   if (!before) {
     const links = item.kind === 'link' ? [item.url] : [];
-    return withTotals({ id: handle, ...fresh, count: 1, last: ts, firstSeen: ts, nativeIds: [itemKey], links, places });
+    const file = fileUrl ? { fileUrl } : {};
+    return withTotals({
+      id: handle,
+      ...fresh,
+      ...file,
+      count: 1,
+      last: ts,
+      firstSeen: ts,
+      nativeIds: [itemKey],
+      links,
+      places,
+    });
   }
   const newer = ts >= before.last;
   return withTotals({
     ...before,
     ...(newer ? { url: item.url, messageId: item.messageId, placeId: item.placeId } : {}),
+    ...(fileUrl && (newer || !before.fileUrl) ? { fileUrl } : {}),
     count: before.count + 1,
     last: newer ? ts : before.last,
     firstSeen: Math.min(before.firstSeen, ts),
@@ -533,6 +565,7 @@ export function mergeGifs(
     if (!message || message.self) continue;
     const ts = isFiniteNumber(message.ts) ? message.ts : 0;
     const seen = new Set();
+    const fileUrls = gifFileUrls(message);
     for (const item of collectGifItems(message)) {
       const key =
         matchGifKey(
@@ -544,7 +577,7 @@ export function mergeGifs(
       if (seen.has(held)) continue;
       seen.add(held);
       const before = next.entries[held];
-      const entry = counted(before, item, ts, `g${next.nextId}`);
+      const entry = counted(before, item, ts, `g${next.nextId}`, fileUrls.get(item.key));
       if (!before) next.nextId += 1;
       // Re-inserted so a just-used GIF sits last: an exact rank tie keeps it (see sortRanked).
       delete next.entries[held];
@@ -598,8 +631,8 @@ function joinEntries(one: GifEntry, two: GifEntry): GifEntry {
   const [older, younger] = handleNumber(one) <= handleNumber(two) ? [one, two] : [two, one];
   const newest = older.last >= younger.last ? older : younger;
   const links = [...new Set([...older.links, ...younger.links])];
-  // What only one of them holds comes along: its description, its vector, its file.
-  const { description, vector, hash, file } = { ...younger, ...older };
+  // What only one of them holds comes along: its description, its media address, its file.
+  const { description, fileUrl, hash, file } = { ...younger, ...older };
   return withTotals({
     ...older,
     // A link posts again for good, so an entry holding one is a link entry.
@@ -614,7 +647,7 @@ function joinEntries(one: GifEntry, two: GifEntry): GifEntry {
     links,
     places: joinPlaces(older.places, younger.places),
     ...(description ? { description } : {}),
-    ...(vector ? { vector } : {}),
+    ...(fileUrl ? { fileUrl } : {}),
     ...(hash ? { hash } : {}),
     ...(file ? { file } : {}),
   });
@@ -633,26 +666,6 @@ export function withGifFile(gifs: unknown, key: string, { hash, file }: { hash: 
   const other = held === hash ? undefined : next.entries[hash];
   delete next.entries[held];
   next.entries[hash] = other ? joinEntries(other, entry) : entry;
-  return next;
-}
-
-/**
- * `gifs` with the entry under `key` (its library key or a native id) described: its description, the text its row holds,
- * and that text's vector (null: none, the search then reads the words alone). An unknown key leaves the library as it is. Never
- * mutates `gifs`.
- */
-export function withGifDescribed(
-  gifs: unknown,
-  key: string,
-  { description, vector }: { description: string; vector: ArrayLike<number> | null }
-): GifLibrary {
-  const next = withGifDescription(gifs, key, description) ?? normalizeGifs(gifs);
-  const held = keyOfEntry(next.entries, key);
-  if (held === null) return next;
-  const entry = { ...next.entries[held] };
-  if (vector) entry.vector = Array.from(vector);
-  else delete entry.vector;
-  next.entries[held] = entry;
   return next;
 }
 
@@ -705,7 +718,7 @@ function similarity(
 
 /**
  * The candidates of a query, best score first, at most `cap`: described entries scored by the share of the query's words
- * their description holds plus the similarity of their vector to the query's (a similarity under the floor counts nothing).
+ * their description holds plus the similarity of their media vector in `vectors` to the query's (a similarity under the floor counts nothing).
  * An entry that scores nothing is no candidate, and neither is one `accept` refuses. Equal scores go to the GIF used
  * more, then to the one used last. A vector of another dimension counts as no vector. Pure.
  * @param gifs  A stored library (normalised here).
@@ -722,7 +735,7 @@ export function searchGifs(
     words: string;
     vector: ArrayLike<number> | null;
     cap: number;
-    /** The descriptions' vectors by item id, kept outside the library's JSON (src/memory/db/gif-vectors.ts). */
+    /** The media vectors of the library's rows by item id (src/memory/db/gif-library.ts#gifMediaVectors). */
     vectors?: ReadonlyMap<string, ArrayLike<number>> | null;
     accept?: (entry: GifEntry & { key: string }) => boolean;
   }
@@ -736,7 +749,7 @@ export function searchGifs(
     const text = wordsOf(entry.description);
     const shared = wanted.filter((word) => text.has(word)).length;
     const wordScore = wanted.length > 0 ? shared / wanted.length : 0;
-    const close = similarity(vector, vectors?.get(entry.itemId) ?? entry.vector) ?? 0;
+    const close = similarity(vector, vectors?.get(entry.itemId)) ?? 0;
     const score = wordScore + (close >= MIN_SIMILARITY ? close : 0);
     if (score > 0) found.push({ entry: { key, ...entry }, score });
   }

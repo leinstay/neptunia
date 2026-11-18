@@ -134,7 +134,8 @@ export function createMessageHandler({
   selfId: selfIdOf = () => '',
   turns: turnRunner,
   memory,
-  gifKeeper = null,
+  dataDir = null,
+  fetchGifBytes = null,
   tagHistory,
   isServedRoot,
   rootsOf,
@@ -164,7 +165,10 @@ export function createMessageHandler({
   selfId?: () => string;
   turns: ReturnType<typeof createTurnRunner>;
   memory: ReturnType<typeof createMemoryUpdater>;
-  gifKeeper?: EditsDeps['gifKeeper'];
+  /** The data folder the library GIFs' files go under (src/media/gif-files.ts); absent with `fetchGifBytes`: none. */
+  dataDir?: string | null;
+  /** The download of a library GIF's file from its direct media address (src/media/gif-files.ts#createGifFetcher). */
+  fetchGifBytes?: MediaPrefillDeps['fetchBytes'];
   tagHistory: ReturnType<typeof createTagHistory>;
   llm?: PipelineLlm;
   /** A root some connected interface serves. */
@@ -213,6 +217,9 @@ export function createMessageHandler({
     describer: describer as MediaPrefillDeps['describer'],
     lookup: lookup as MediaPrefillDeps['lookup'],
     now,
+    store,
+    dataDir,
+    fetchBytes: fetchGifBytes,
   });
 
   // Attention loads its saved times back here, before anything else is built.
@@ -392,7 +399,6 @@ export function createMessageHandler({
     record,
     now,
     warmMediaCache,
-    gifKeeper,
     observeLine,
     deleteLine,
   });

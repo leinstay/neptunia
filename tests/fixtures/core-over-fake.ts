@@ -96,6 +96,8 @@ export type RigOptions = {
   answers?: ReadonlyArray<unknown>;
   /** What the address classifier answers, as its strict JSON's `answer`; `yes` when absent. */
   addressAnswer?: string;
+  /** Prepares the data folder before the core starts, such as rows its memory database already holds. */
+  prepare?: (dataDir: string) => void;
 };
 
 export async function withFakeCore<T>(
@@ -109,6 +111,7 @@ export async function withFakeCore<T>(
   const privateDir = dataDir;
   mkdirSync(join(privateDir, 'config'), { recursive: true });
   writeFileSync(join(privateDir, 'config', 'config.json'), JSON.stringify(merged(BASE_CONFIG, options.config ?? {})));
+  options.prepare?.(dataDir);
   const requests: Array<unknown> = [];
   const llm = {
     // Plan 2026-11-04-cli-and-memory B1: the door asks the address classifier first; it says yes and is not recorded.

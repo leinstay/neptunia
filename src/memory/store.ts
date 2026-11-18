@@ -77,7 +77,6 @@ import {
   markOwnGif,
   mergeGifs,
   stampGifBackfill,
-  withGifDescribed,
   withGifDescription,
   captionOfCached,
   withGifFile,
@@ -85,7 +84,7 @@ import {
   resetGifCounts,
 } from './gifs.ts';
 import type { GifLibrary } from './gifs.ts';
-import { readGifVectors } from './db/gif-vectors.ts';
+import { gifMediaVectors } from './db/gif-library.ts';
 import { emptyRecent, mergeRecent, normalizeRecent } from './recent.ts';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, expireEpisodes, normalizeParticipation } from './participation.ts';
 import { ITEM_ID_PREFIX, archiveEntry, archiveRevision } from './archive.ts';
@@ -1617,13 +1616,6 @@ function buildStore({
     return known(file);
   }
 
-  let gifVectors: Map<string, { model: string | null; vector: Float32Array }> | null = null;
-  /** The GIF vectors as this store knows them, read from the database once. */
-  function heldGifVectors() {
-    gifVectors ??= seam.run(() => readGifVectors(seam.db())) ?? new Map();
-    return gifVectors;
-  }
-
   /** Whether a member has a private file, in use or stored (no side effects on the cache). */
   function hasPrivate(accountId: string) {
     const file = privateFile(accountId);
@@ -2433,32 +2425,6 @@ function buildStore({
     },
 
     /**
-     * The describer's description of the entry under `key` (a library key or a native id). Its vector, when it has one, goes
-     * to the `vectors` table by the entry's item id (src/memory/db/gif-vectors.ts), never into the library's JSON.
-     */
-    setGifDescribed(
-      key: string,
-      {
-        description,
-        vector,
-        model = null,
-      }: { description: string; vector: ArrayLike<number> | null; model?: string | null }
-    ) {
-      const library = withGifDescribed(gifs.library(), key, { description, vector: null });
-      gifs.set(library);
-      const entries: GifLibrary['entries'] = library.entries;
-      const entry = Object.entries(entries).find(([held, one]) => held === key || one.nativeIds.includes(key));
-      if (!vector || !entry) return;
-      const { itemId } = entry[1];
-      const values = Array.from(vector);
-      heldGifVectors().set(itemId, { model, vector: Float32Array.from(values) });
-      if (typeof memoryDb.writeGifVector !== 'function') return;
-      void Promise.resolve(memoryDb.writeGifVector({ itemId, model, vector: values })).catch((error: unknown) =>
-        log.warn('store: gif vector write failed', { error })
-      );
-    },
-
-    /**
      * The roots an interface's hello named, written as their server places through the one writer, with the
      * names the hello says of the interface itself (src/memory/db/roots.ts). A failed write is logged; the next
      * hello writes them again.
@@ -2491,13 +2457,12 @@ function buildStore({
       ).catch((error: unknown) => log.warn('store: place address write failed', { error }));
     },
 
-    /** The description vectors of the library's entries by item id, those of `model` alone when it is named. */
-    getGifVectors(model?: string | null): Map<string, Float32Array> {
-      const found = new Map<string, Float32Array>();
-      for (const [itemId, held] of heldGifVectors()) {
-        if (model === undefined || model === null || held.model === model) found.set(itemId, held.vector);
-      }
-      return found;
+    /**
+     * The media vectors of the library's rows by item id (src/memory/db/gif-library.ts), read now: those of `model` or
+     * of no recorded model when `model` is named, as recall reads media vectors.
+     */
+    gifMediaVectors(model?: string | null): Map<string, Float32Array> {
+      return seam.run(() => gifMediaVectors(seam.db(), model ?? null)) ?? new Map();
     },
 
     /** The emoji rails of a place (src/behavior/media-pick.ts), null before its first counted reply. */

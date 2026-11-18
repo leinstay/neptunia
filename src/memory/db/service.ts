@@ -69,8 +69,7 @@
 //     participation-episodes.ts, recent-lines.ts): a place's whole lorebook, participation or recent lines.
 //   - `writeDiary(write)` (diary-entries.ts): her whole diary, or one appended post.
 //   - `writeMediaEntry(write)` (media-store.ts): one entry of the describer's cache put on its row, or one key dropped.
-//   - `writeGifLibrary(write)` (gif-library.ts): the entries of the GIF library a change put and dropped, and its rest;
-//     `writeGifVector(write)` (gif-vectors.ts): the description vector of one entry.
+//   - `writeGifLibrary(write)` (gif-library.ts): the entries of the GIF library a change put and dropped, and its rest.
 //   - `writeMediaNames(write)` (media-names.ts): the stable names of custom emoji and stickers a store issued or saw renamed.
 //   - `writeRules(write)` (rules.ts): the owner's rules a store added and removed.
 //   - `writeErrand(write)` (errand-write.ts): an errand on the task board, with the closing journal line of its end.
@@ -126,7 +125,6 @@ import type { MediaEntryWrite } from './media-store.ts';
 import type { GifLibraryWrite } from './gif-library.ts';
 import type { MediaNamesWrite } from './media-names.ts';
 import type { RulesWrite } from './rules.ts';
-import type { GifVectorWrite } from './gif-vectors.ts';
 import type { ErrandWrite } from './errand-write.ts';
 import type { ParticipationWrite } from './participation-episodes.ts';
 import type { RecentLinesWrite } from './recent-lines.ts';
@@ -581,8 +579,6 @@ export type MemoryDbService = {
   writeMediaEntry(write: MediaEntryWrite): Promise<unknown>;
   /** The entries of the GIF library a change put and dropped, and its rest (gif-library.ts): resolves the rows it wrote and retired. */
   writeGifLibrary(write: GifLibraryWrite): Promise<unknown>;
-  /** The description vector of one GIF library entry (gif-vectors.ts). */
-  writeGifVector(write: GifVectorWrite): Promise<unknown>;
   /** The stable names of custom emoji and stickers a store issued or saw renamed (media-names.ts). */
   writeMediaNames(write: MediaNamesWrite): Promise<unknown>;
   /** The owner's rules a store added and removed (rules.ts). */
@@ -1798,8 +1794,6 @@ export function createMemoryDb({
       write(withLiveIface({ ...entry, kind: 'media-entry', now: now() }, iface)),
     writeGifLibrary: (library: GifLibraryWrite) =>
       write(withLiveIface({ ...library, kind: 'gif-library', now: now() }, iface)),
-    writeGifVector: (vector: GifVectorWrite) =>
-      write(withLiveIface({ ...vector, kind: 'gif-vector', now: now() }, iface)),
     writeMediaNames: (names: MediaNamesWrite) => write({ ...names, kind: 'media-names', now: now() }),
     writeRules: (rules: RulesWrite) => write({ ...rules, kind: 'rules', now: now() }),
     writeErrand: (errand: ErrandWrite) => write(withLiveIface({ ...errand, kind: 'errand', now: now() }, iface)),

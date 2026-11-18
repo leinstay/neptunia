@@ -463,6 +463,12 @@ const RULES = `CREATE TABLE IF NOT EXISTS rules (
     added_at TEXT NOT NULL
   );`;
 
+/**
+ * Version 66: the description vectors of the GIF library leave, the `vectors` rows of kind `gif` under
+ * `gif:<item id>`. A library row's vector is its ordinary media vector.
+ */
+const NO_GIF_VECTORS = `DELETE FROM vectors WHERE kind = 'gif' AND chunk_key GLOB 'gif:*';`;
+
 /** The steps above the baseline, version 57 first. */
 export const MIGRATIONS: Array<Migration> = [
   rowLinks,
@@ -474,6 +480,7 @@ export const MIGRATIONS: Array<Migration> = [
   MEDIA_NAMES,
   UNIQUE_MEDIA_LINKS,
   RULES,
+  NO_GIF_VECTORS,
 ];
 
 /** The tables that carry a scope and its `audience_id`. */

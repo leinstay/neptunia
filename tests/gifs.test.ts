@@ -231,6 +231,38 @@ test('mergeGifs: everyone but her, one count per gif per message, handles assign
   assert.equal(gifs.backfill, null);
 });
 
+// Spec 2026-11-18, the library without the keeper: the direct media address is kept on the entry beside the page link,
+// so a download that failed is tried again from it. Bug: only the page link was kept, and a GIF site's page link
+// answers a page or a refusal, never the file.
+test('mergeGifs: a GIF embed keeps its animation address as fileUrl beside the page link', () => {
+  const embed = { ...gifLink('m1#e0'), animationUrl: 'https://media.gifs.example/cat.mp4' };
+  const { gifs }: Record<string, Untyped> = mergeGifs(undefined, [msg({ links: [embed] })]);
+  const entry = normalizeGifs(gifs).entries['m1#e0'];
+  assert.equal(entry.url, TENOR);
+  assert.equal(entry.fileUrl, 'https://media.gifs.example/cat.mp4');
+});
+
+// The measurement of 2026-11-18 (report gif-direct-address-lifetime): an attachment's address is signed and expired in 9
+// of 9 cases older than a week, so it serves no later retry and is not stored.
+test('mergeGifs: an attached GIF stores no fileUrl', () => {
+  const { gifs }: Record<string, Untyped> = mergeGifs(undefined, [msg({ attachments: [gifAttachment('a1')] })]);
+  assert.equal(normalizeGifs(gifs).entries.a1.fileUrl, undefined);
+});
+
+test('mergeGifs: a GIF embed with no animation address keeps no fileUrl, never the page link', () => {
+  const { gifs }: Record<string, Untyped> = mergeGifs(undefined, [msg({ links: [gifLink('m1#e0')] })]);
+  assert.equal(normalizeGifs(gifs).entries['m1#e0'].fileUrl, undefined);
+});
+
+test('mergeGifs: a later sighting with an animation address gives an entry without one its fileUrl', () => {
+  const first: Record<string, Untyped> = mergeGifs(undefined, [msg({ id: 'm1', links: [gifLink('m1#e0')] })]);
+  const embed = { ...gifLink('m2#e0'), animationUrl: 'https://media.gifs.example/cat.mp4' };
+  const { gifs }: Record<string, Untyped> = mergeGifs(first.gifs, [msg({ id: 'm2', ts: T0 + DAY, links: [embed] })]);
+  const entries = Object.values(normalizeGifs(gifs).entries);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].fileUrl, 'https://media.gifs.example/cat.mp4');
+});
+
 test('mergeGifs: handles are stable across merges; a reposted link counts on its first entry', () => {
   const first: Record<string, Untyped> = mergeGifs(undefined, [
     msg({ id: 'm1', ts: T0, links: [gifLink('m1#e0')] }),
@@ -474,6 +506,18 @@ test('store.recordGifs: persists its unit; getGifs/findGif read it back after a 
   const reopened = createStore({ dataDir: dir, memoryDb });
   assert.equal(wrongly<Untyped>(present(reopened.findGif('g1'))).url, TENOR);
   assert.equal(reopened.findGif('g2'), null);
+});
+
+test('store.recordGifs: the fileUrl of an entry reads back after a restart', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
+  const g1 = placeOfRoot(store, 'g1');
+  const embed = { ...gifLink('m1#e0'), animationUrl: 'https://media.gifs.example/cat.mp4' };
+  store.recordGifs(g1, [msg({ links: [embed] })], { storeMax: 300 });
+  store.flush();
+  await store.flushSettled({});
+  const reopened = createStore({ dataDir: dir, memoryDb });
+  assert.equal(wrongly<Untyped>(present(reopened.findGif('g1'))).fileUrl, 'https://media.gifs.example/cat.mp4');
 });
 
 test('store.getGifs: a hand-broken unit is normalised on read, never wiped by reading', async () => {

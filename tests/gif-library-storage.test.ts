@@ -1,10 +1,12 @@
 // Where the shared GIF library keeps a file and a vector: a `media` row's `path` is null or a file under `media/`, the link
-// sits in `extra.url`, and a vector lives in the `vectors` table, outside the library's JSON. Plan
+// sits in `extra.url`, and the row's vector is its ordinary media vector in the `vectors` table. Plan
 // 2026-11-04-cli-and-memory, stage B7, the owner's structure of one media store.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gifLibraryValue, writeGifLibrary } from '../src/memory/db/gif-library.ts';
 import { dbOf } from '../src/memory/db/types.ts';
+import { applyMediaEmbed } from '../src/memory/db/media-store.ts';
+import { quantize } from '../src/memory/vectors.ts';
 import { createStore } from '../src/memory/store.ts';
 import { present } from './fixtures/loose-types.ts';
 import { memDataDir } from './fixtures/store-kit.ts';
@@ -67,52 +69,25 @@ function rig() {
   return { dir, memoryDb, store, key };
 }
 
-test('a flush of the library writes no vector bytes', async () => {
-  // Bug: 1024 numbers per entry in the unit's JSON made each flush about 2 MB at a full library.
+// Spec 2026-11-18, the library without the keeper: the media pick reads the ordinary media vector of a library row, the
+// one the media embedding writes under `media:<row id>`, by the entry's item id.
+test("the library's media vectors are read by item id from the ordinary media vector of each row", async () => {
   const { memoryDb, store, key } = rig();
-  const sent: Array<string> = [];
-  const write = memoryDb.writeGifLibrary.bind(memoryDb);
-  memoryDb.writeGifLibrary = (update) => {
-    sent.push(JSON.stringify(update));
-    return write(update);
-  };
-  store.setGifDescribed(key, { description: 'μια γάτα', vector: [0.6, 0.8], model: 'm/one' });
-  store.flush();
-  await store.flushSettled({});
-  const values = sent;
-  assert.ok(values.length > 0, 'the library was flushed');
-  for (const text of values) assert.ok(!text.includes('vector'), text.slice(0, 200));
-  const db = dbOf(present(memoryDb.readHandle()));
-  const row = db.prepare("SELECT extra FROM media WHERE kind = 'gif'").get();
-  assert.ok(!String(row?.extra).includes('vector'));
-  assert.ok(!String(row?.extra).includes('0.6'));
-});
-
-test('a vector reads back from the vectors table after a restart, with the audience of its library row', async () => {
-  const { dir, memoryDb, store, key } = rig();
-  store.setGifDescribed(key, { description: 'μια γάτα', vector: [0.6, 0.8], model: 'm/one' });
-  store.flush();
-  await store.flushSettled({});
-  const db = dbOf(present(memoryDb.readHandle()));
-  const row = db.prepare("SELECT model, dims, audience_id FROM vectors WHERE chunk_key LIKE 'gif:%'").get();
-  const media = db.prepare("SELECT audience_id FROM media WHERE kind = 'gif'").get();
-  assert.deepEqual([row?.model, row?.dims], ['m/one', 2]);
-  assert.ok(row?.audience_id);
-  assert.equal(row?.audience_id, media?.audience_id);
-  const again = createStore({ dataDir: dir, memoryDb });
-  const vector = again.getGifVectors('m/one').get(again.getGifs().entries[key].itemId);
-  assert.ok(vector);
-  assert.ok(Math.abs(vector[0] - 0.6) < 0.01 && Math.abs(vector[1] - 0.8) < 0.01, String(vector));
-});
-
-test('a vector of another model is none, and the key an entry moves to keeps it', () => {
-  const { store, key } = rig();
   const { itemId } = store.getGifs().entries[key];
-  store.setGifDescribed(key, { description: 'μια γάτα', vector: [0.6, 0.8], model: 'm/one' });
-  assert.equal(store.getGifVectors('m/two').size, 0);
-  store.setGifFile(key, { hash: 'h1', file: 'media/gifs/h1.gif' });
-  assert.equal(store.getGifs().entries.h1.itemId, itemId);
-  assert.ok(store.getGifVectors('m/one').has(itemId));
+  store.putMediaEntry(PLACE, itemId, { text: 'μια γάτα χορεύει', ts: T0 });
+  store.flush();
+  await store.flushSettled({});
+  const db = dbOf(present(memoryDb.database()));
+  const row = db.prepare("SELECT id, description FROM media WHERE writer = 'gifs'").get();
+  assert.ok(row?.description, 'the library row holds the description');
+  const { bytes, scale, norm } = quantize(Float32Array.from([0.6, 0.8]));
+  applyMediaEmbed(present(memoryDb.database()), {
+    rows: [{ mediaId: row.id, bytes, scale, norm, dims: 2, model: 'm/one', description: row.description, now: T0 }],
+  });
+  const vector = store.gifMediaVectors('m/one').get(itemId);
+  assert.ok(vector, 'the row is found by its item id');
+  assert.ok(Math.abs(vector[0] - 0.6) < 0.02 && Math.abs(vector[1] - 0.8) < 0.02, String(vector));
+  assert.equal(store.gifMediaVectors('m/two').size, 0, 'a vector of another model is none');
 });
 
 // A write of the GIF library when two of its own rows spell one item reference (media-store.ts, adoptSameItem).

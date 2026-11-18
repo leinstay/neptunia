@@ -6,12 +6,16 @@
 // into the library at once (src/memory/gifs.ts), starting from counts reset to
 // 0 (entries and handles kept, so a GIF keeps its handle across a recount),
 // then stamps `{ at, channels, messages }` for this place so it never
-// counts the same history twice. The top `BACKFILL_DESCRIBE` GIFs without
-// a cached description are then sent to the media describer (real requests,
-// counted against the daily cap), so the list the persona picks from says
-// what each GIF shows. Runs once at startup (`startIfNeeded`).
+// counts the same history twice. Every GIF it found without a cached
+// description is then sent to the media describer (real requests, counted
+// against the daily cap), so the list the persona picks from says what each
+// GIF shows, and the file of each is downloaded from its direct media address
+// in the background (src/media/gif-files.ts#fileGifs). Runs once at startup
+// (`startIfNeeded`).
 
 import { collectPictures } from '../media/classify.ts';
+import { fileGifs } from '../media/gif-files.ts';
+import type { GifBytes } from '../media/gif-files.ts';
 import { readMemberHistory } from './emoji-backfill.ts';
 import { GIF_HALF_LIFE_DAYS, gifOpts, rankGifs } from './gifs.ts';
 import { log as defaultLog } from '../log.ts';
@@ -19,7 +23,6 @@ import type { Reads } from '../interface/reads.ts';
 import type { StoreView } from './store.ts';
 import type { Log, StoredRecord } from './types.ts';
 import type { Describer, MediaItem } from './describe.ts';
-import type { GifKeeper } from './gif-keeper.ts';
 
 /** How many messages one `store.recordGifs` call takes. */
 const CHUNK = 500;
@@ -27,22 +30,23 @@ const CHUNK = 500;
 // Production values, config cut of 2026-10-31.
 /** The messages read per channel. */
 const BACKFILL_MESSAGES = 500;
-/** The GIFs without a description sent to the describer after a count. */
-const BACKFILL_DESCRIBE = 20;
 
 function buildGifBackfill({
   store,
   reads,
   iface,
   describer = null,
-  keeper = null,
+  dataDir = null,
+  fetchBytes = null,
   log = defaultLog,
 }: {
   store: StoreView;
   reads: Reads;
   iface: () => string;
   describer?: Pick<Describer, 'describeMany'> | null;
-  keeper?: Pick<GifKeeper, 'keepPictures'> | null;
+  /** The data folder the GIFs' files go under; absent with `fetchBytes`: no file is downloaded. */
+  dataDir?: string | null;
+  fetchBytes?: ((url: string) => Promise<GifBytes>) | null;
   log?: Log;
 }) {
   let running = false;
@@ -59,15 +63,15 @@ function buildGifBackfill({
   }
 
   /**
-   * Describe the top `limit` library entries (rank order) that have no
-   * cached description: one describer item per entry -- the GIF's picture item
+   * Describe every library entry (rank order) that has no cached
+   * description: one describer item per entry -- the GIF's picture item
    * read this run (src/media/classify.ts#collectPictures: an attachment's
    * file, an embed's thumbnail and its animation, so the describer can watch
    * it), under the entry's `itemId`; an entry without one is skipped.
    * Returns how many got a description.
    */
-  async function describeTop(placeId: string, pictures: Map<string, MediaItem>, limit: number) {
-    if (!describer || typeof describer.describeMany !== 'function' || limit <= 0) return 0;
+  async function describeAll(placeId: string, pictures: Map<string, MediaItem>) {
+    if (!describer || typeof describer.describeMany !== 'function') return 0;
     const ranked = rankGifs(store.getGifs(), GIF_HALF_LIFE_DAYS);
     const cache = store.mediaEntries(
       placeId,
@@ -75,7 +79,6 @@ function buildGifBackfill({
     );
     const items: Array<MediaItem> = [];
     for (const entry of ranked) {
-      if (items.length >= limit) break;
       const cached = cache?.[entry.itemId];
       if (cached && !cached.miss && typeof cached.text === 'string' && cached.text.trim()) continue;
       const picture = pictures.get(entry.itemId);
@@ -148,10 +151,19 @@ function buildGifBackfill({
             pictures.set(picture.itemId, picture);
         }
       }
-      const described = isPaused() ? 0 : await describeTop(placeId, pictures, BACKFILL_DESCRIBE);
+      const described = isPaused() ? 0 : await describeAll(placeId, pictures);
       if (described > 0) store.flush();
-      // Their descriptions and files go on the entries in the background: the owner's run does not wait for the downloads.
-      void keeper?.keepPictures(placeId, [...pictures.values()]);
+      // Their files in the background: the owner's run does not wait for the downloads.
+      if (dataDir && fetchBytes)
+        void fileGifs({
+          store,
+          dataDir,
+          fetchBytes,
+          // An attached GIF's address read now is its file; a link GIF's entry holds its own.
+          items: [...pictures.values()].map((picture) =>
+            picture.source === 'attachment' ? { itemId: picture.itemId, url: picture.url } : { itemId: picture.itemId }
+          ),
+        }).catch((err: unknown) => log.warn('gif-backfill: files failed', { error: err }));
 
       const counts = { channels, messages: members.length, gifs, described };
       log.info('gif-backfill: done', counts);
@@ -191,6 +203,8 @@ export type GifBackfill = ReturnType<typeof buildGifBackfill>;
  * @param deps.iface  The interface's name, read when a run starts.
  * @param [deps.describer]  From createDescriber() (src/memory/describe.ts): `describeMany`.
  *   Absent -> nothing is described.
+ * @param [deps.dataDir]  The data folder, and [deps.fetchBytes] the download (src/media/gif-files.ts#createGifFetcher):
+ *   both present, the file of every GIF found is downloaded. Absent -> none.
  * @param [deps.log]      src/log.js-shaped logger.
  */
 export function createGifBackfill(deps: Parameters<typeof buildGifBackfill>[0]): GifBackfill {
