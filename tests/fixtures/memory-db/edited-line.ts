@@ -1,7 +1,7 @@
-// Stored lines of one place for the tests of an edited line, in the two shapes the readers meet: an edit that keeps the
-// moment of the line it changed (what a platform reports) and the rows production holds from the command line, where the
-// edit's row carries the moment of the edit, 93 minutes after the line was said. Rows go in through `insertRows`, so
-// every reader sees what the writers leave. Synthetic text.
+// Stored lines of one place for the tests of an edited line, as the writer and schema step 67 leave them: an edit's row
+// carries the moment of the line it changed, and its `recorded_at` the moment the edit arrived, 93 minutes after the
+// line was said for the edits production holds from the command line. Rows go in through `insertRows`, so every reader
+// sees what the writers leave. Synthetic text.
 import { insertRows } from '../../../src/memory/db/rows.ts';
 import type { Db } from '../../../src/memory/db/types.ts';
 
@@ -22,6 +22,8 @@ export type Revision = {
   text: string;
   /** The moment the row says the message was written. */
   at: number;
+  /** The moment the row was recorded, `at` when not given. */
+  recordedAt?: number;
   revision?: number;
   /** `said` for her own new line, `seen` for the rest and for every edit, as the observation writes them. */
   kind: 'said' | 'seen';
@@ -31,7 +33,7 @@ export type Revision = {
 
 /** `revision` as a row of `place` on `iface`, recorded at its own moment. */
 export function storeRevision(db: Db, { iface, place }: { iface: string; place: string }, revision: Revision): void {
-  const { native, text, at, kind, by, revision: given } = revision;
+  const { native, text, at, recordedAt = at, kind, by, revision: given } = revision;
   const hers = by === 'her';
   const moment = iso(at);
   const number = given ?? 1;
@@ -48,7 +50,7 @@ export function storeRevision(db: Db, { iface, place }: { iface: string; place: 
         author_account: hers ? null : `${iface}:member`,
         author_kind: hers ? 'self' : 'account',
         occurred_at: moment,
-        recorded_at: moment,
+        recorded_at: iso(recordedAt),
         text,
         scope_kind: 'group',
         scope_iface: iface,
@@ -60,7 +62,8 @@ export function storeRevision(db: Db, { iface, place }: { iface: string; place: 
 
 /**
  * A chat of four lines, `owner-1`, `hers-1`, `owner-2` and `hers-2`, one minute apart from `T0`, then the edit of
- * `hers-1` stored the way production holds it: revision 2, kind `seen`, her as the author, at the moment of the edit.
+ * `hers-1` stored the way production holds it: revision 2, kind `seen`, her as the author, at the line's moment and
+ * recorded at the moment of the edit.
  */
 export function storeProductionEdit(db: Db, where: { iface: string; place: string }): void {
   storeRevision(db, where, { native: 'owner-1', text: 'first words', at: minute(0), kind: 'seen', by: 'someone' });
@@ -70,7 +73,8 @@ export function storeProductionEdit(db: Db, where: { iface: string; place: strin
   storeRevision(db, where, {
     native: 'hers-1',
     text: 'the kettle is on',
-    at: minute(1) + EDIT_DELAY_MS,
+    at: minute(1),
+    recordedAt: minute(1) + EDIT_DELAY_MS,
     revision: 2,
     kind: 'seen',
     by: 'her',

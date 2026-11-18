@@ -37,7 +37,7 @@ import { SELF_PERSON } from './ids.ts';
 import { profileAccountsOf } from './meta-person.ts';
 import { interestClaimsOf, storedAvatarOf, usualNameOf } from './person-fields.ts';
 import type { PersonAccount, ProfileAccount } from './meta-person.ts';
-import { IS_WRITTEN_ROW, LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND, LINE_MOMENT } from './source-current.ts';
+import { IS_WRITTEN_ROW, LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND } from './source-current.ts';
 import { loadStemmer } from './stems.ts';
 import { interfaceNouns, matchName, normalName, phrasesOf, namesIn } from './names.ts';
 import type { NameHitRow, NameMatch, NodeRef } from './names.ts';
@@ -506,7 +506,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
     const where = aud('s');
     return all(
       'line',
-      `SELECT s.id, ${LINE_AUTHOR_ACCOUNT} AS author_account, ${LINE_AUTHOR_KIND} AS author_kind, s.place_id, ${LINE_MOMENT} AS occurred_at, s.text FROM sources s
+      `SELECT s.id, ${LINE_AUTHOR_ACCOUNT} AS author_account, ${LINE_AUTHOR_KIND} AS author_kind, s.place_id, s.occurred_at AS occurred_at, s.text FROM sources s
        WHERE s.id = ? AND s.retired_at IS NULL AND ${where.sql}`,
       [sourceId, ...where.params]
     )[0];
@@ -522,7 +522,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
       out.push(
         ...all(
           'seen',
-          `SELECT s.id, ${LINE_AUTHOR_ACCOUNT} AS author_account, ${LINE_AUTHOR_KIND} AS author_kind, s.place_id, ${LINE_MOMENT} AS occurred_at FROM sources s
+          `SELECT s.id, ${LINE_AUTHOR_ACCOUNT} AS author_account, ${LINE_AUTHOR_KIND} AS author_kind, s.place_id, s.occurred_at AS occurred_at FROM sources s
            WHERE s.id IN (${chunk.map(() => '?').join(', ')}) AND s.retired_at IS NULL AND ${where.sql}`,
           [...chunk, ...where.params]
         )

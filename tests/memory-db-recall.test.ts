@@ -13,6 +13,7 @@ import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts'
 import { memorySearchText, runMemorySearch } from '../src/tools/tools.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { search, window, quotesOf, dbSettings } from '../src/memory/db/recall.ts';
+import { observe } from '../src/memory/db/observe.ts';
 import { loadStemmer, stemsOf } from '../src/memory/db/stems.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
@@ -2011,7 +2012,8 @@ const EDIT_DELAY = 93 * MINUTE;
 
 /**
  * Her line `e` said at minute 1 of a chat of ten lines, `a` before it and `l1` to `l8` after it, and edited 93 minutes
- * later, the edit stored `seen` at that moment. Returns the moment `e` was written.
+ * later, the edit stored `seen` at the line's moment, as the writer and schema step 67 store it. Returns the moment `e`
+ * was written.
  */
 function editedLineChat(env: ReturnType<typeof fixture>): number {
   const at = NOW - DAY;
@@ -2019,7 +2021,7 @@ function editedLineChat(env: ReturnType<typeof fixture>): number {
   env.say({ native: 'e', at: at + MINUTE, text: 'παλιο σπιτι', kind: 'said', author: ALICE });
   for (let n = 1; n <= 8; n += 1)
     env.say({ native: `l${n}`, at: at + (n + 1) * MINUTE, text: `γραμμή ${n}`, author: BOB });
-  env.say({ native: 'e', at: at + MINUTE + EDIT_DELAY, text: 'νεο σπιτι', revision: 2, author: ALICE });
+  env.say({ native: 'e', at: at + MINUTE, text: 'νεο σπιτι', revision: 2, author: ALICE });
   env.stem();
   return at + MINUTE;
 }
@@ -2053,6 +2055,143 @@ test('recall: a hit that was edited later is dated by the moment it was written'
     assert.deepEqual(
       found.hits.map((hit) => [hit.messageId, hit.ts]),
       [['e', written]]
+    );
+  } finally {
+    env.done();
+  }
+});
+
+// ---------- the lines around an edited hit, on the place-and-time index ----------
+
+const CHAT_START = NOW - DAY;
+
+/** One line of the channel `room` observed the way a chat interface hands it in; `edit` hands it in as an edit of a stored line. */
+function observeLine(env: ReturnType<typeof fixture>, key: string, at: number, text: string, edit = false): void {
+  const native = edit
+    ? { kind: 'message', key, subtype: 'seen' }
+    : { kind: 'message', key, subtype: 'seen', revision: 1 };
+  const done = observe(
+    env.handle,
+    {
+      v: 1,
+      iface: 'discord',
+      authority: 'discord/global',
+      native,
+      ...(edit ? { edited: true } : {}),
+      place: { authority: 'discord/global', key: 'channel:room', kind: 'channel', chat: 'group' },
+      author: { kind: 'account', key: BOB, account_kind: 'user' },
+      occurredAt: new Date(at).toISOString(),
+      observedAt: new Date(at).toISOString(),
+      text,
+      mentions: [],
+      direct: false,
+      relations: [],
+    },
+    { now: () => NOW }
+  );
+  assert.equal(done.ok, true);
+}
+
+/**
+ * `lines` lines of the channel `room` a minute apart, `l0` first, with `l<edited>` saying `παλιο σπιτι` and edited 93 minutes later
+ * to `νεο σπιτι`, both through the observation.
+ */
+function observedChat(env: ReturnType<typeof fixture>, lines: number, edited: number): void {
+  for (let n = 0; n < lines; n += 1)
+    observeLine(env, `l${n}`, CHAT_START + n * MINUTE, n === edited ? 'παλιο σπιτι' : `γραμμή ${n}`);
+  observeLine(env, `l${edited}`, CHAT_START + edited * MINUTE + EDIT_DELAY, 'νεο σπιτι', true);
+  env.stem();
+}
+
+/** `db` with every statement it runs kept as its SQL and parameters. */
+function planRecording(db: Db): { db: Db; ran: Array<{ sql: string; params: Array<unknown> }> } {
+  const ran: Array<{ sql: string; params: Array<unknown> }> = [];
+  const prepare = (sql: string): Statement => {
+    const statement = db.prepare(sql);
+    const note = (params: Array<unknown>): void => {
+      ran.push({ sql, params });
+    };
+    return {
+      get: (...params) => (note(params), statement.get(...params)),
+      all: (...params) => (note(params), statement.all(...params)),
+      run: (...params) => (note(params), statement.run(...params)),
+      iterate: (...params) => (note(params), statement.iterate(...params)),
+    };
+  };
+  return { db: { prepare, exec: (sql) => db.exec(sql) }, ran };
+}
+
+/** The plan lines SQLite gives for each statement that ran. */
+const plansOf = (db: Db, ran: ReadonlyArray<{ sql: string; params: Array<unknown> }>): Array<Array<string>> =>
+  ran.map(({ sql, params }) =>
+    db
+      .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+      .all(...params)
+      .map((row) => String(row.detail))
+  );
+
+/** A search of a place's rows that `sources_place_time` bounds by a range of `occurred_at`. */
+const PLACE_TIME_RANGE = /^SEARCH s USING (COVERING )?INDEX sources_place_time \(place_id=\? AND occurred_at[<>]/;
+/** A walk of every row of a place, or of every row of `sources`. */
+const WHOLE_PLACE = /^SEARCH s USING (COVERING )?INDEX sources_place_time \(place_id=\?\)$|^SCAN (s|t|sources)\b/;
+
+test('recall: a window paged from a line before an edited line gives it at its place with the new text', () => {
+  // Bug (production, 2026-11-12): an edit stored at the moment of the edit made a page of the chat skip the line or put it
+  // after the lines written later.
+  const env = fixture();
+  try {
+    observedChat(env, 8, 3);
+    const down = window(env.db, { ctx: group, anchor: 'l2', move: 'down', messages: 3 });
+    assert.deepEqual(
+      down.windows.flatMap((one) => one.messages).map((message) => [message.id, message.content]),
+      [
+        ['l3', 'νεο σπιτι'],
+        ['l4', 'γραμμή 4'],
+        ['l5', 'γραμμή 5'],
+      ]
+    );
+  } finally {
+    env.done();
+  }
+});
+
+test('recall: the lines around a hit are read on a range of the place-and-time index, never a walk of the place', () => {
+  // Bug (report 2026-11-18-reply-latency): the neighbours read filtered and sorted on the first revision's moment, an
+  // expression the index cannot serve, so each call read every line of the place: 7 s of one search in production.
+  const env = fixture();
+  try {
+    observedChat(env, 120, 60);
+    const { db, ran } = planRecording(env.db);
+    const settings = { ...dbSettings({})!, recordContext: 2, followMessages: 0 };
+    const found = search(db, { ctx: group, plan: plan(['σπιτι']), now: NOW, settings });
+    assert.deepEqual(
+      found.windows.flatMap((one) => one.messages).map((message) => message.id),
+      ['l58', 'l59', 'l60', 'l61', 'l62']
+    );
+    const plans = plansOf(env.db, ran);
+    assert.equal(plans.filter((one) => one.some((line) => PLACE_TIME_RANGE.test(line))).length > 0, true);
+    assert.deepEqual(
+      plans.flat().filter((line) => WHOLE_PLACE.test(line)),
+      []
+    );
+  } finally {
+    env.done();
+  }
+});
+
+test('recall: a window paged from an anchor is read on a range of the place-and-time index, never a walk of the place', () => {
+  // Bug (report 2026-11-18-reply-latency): the memory window tool runs the same neighbours read within a reply turn.
+  const env = fixture();
+  try {
+    observedChat(env, 120, 60);
+    const { db, ran } = planRecording(env.db);
+    for (const move of ['up', 'down']) window(db, { ctx: group, anchor: 'l60', move, messages: 3 });
+    window(db, { ctx: group, anchor: 'l60', move: 'down', minutes: 5 });
+    const plans = plansOf(env.db, ran);
+    assert.equal(plans.filter((one) => one.some((line) => PLACE_TIME_RANGE.test(line))).length >= 3, true);
+    assert.deepEqual(
+      plans.flat().filter((line) => WHOLE_PLACE.test(line)),
+      []
     );
   } finally {
     env.done();

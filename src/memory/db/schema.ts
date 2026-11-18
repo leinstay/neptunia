@@ -469,6 +469,26 @@ const RULES = `CREATE TABLE IF NOT EXISTS rules (
  */
 const NO_GIF_VECTORS = `DELETE FROM vectors WHERE kind = 'gif' AND chunk_key GLOB 'gif:*';`;
 
+/**
+ * Version 67: every stored edit of a chat line takes the moment of the line's first revision, as `observe` stores a new
+ * edit, so a read orders and bounds lines by `occurred_at` on `sources_place_time`. The moment an edit arrived stays in
+ * its `recorded_at`. One statement over the rows of a revision above 1.
+ */
+const EDIT_MOMENTS = `UPDATE sources AS s SET occurred_at = (SELECT t.occurred_at FROM sources t
+    WHERE t.native_id IS s.native_id AND t.iface IS s.iface AND t.place_id IS s.place_id
+      AND COALESCE(t.authority_id, t.iface || '/global') IS COALESCE(s.authority_id, s.iface || '/global')
+      AND COALESCE(t.native_kind, 'message') IS COALESCE(s.native_kind, 'message')
+      AND COALESCE(t.generation, 1) IS COALESCE(s.generation, 1)
+      AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision < s.revision
+    ORDER BY t.revision, t.rowid LIMIT 1)
+  WHERE s.revision > 1 AND s.kind IN ('seen', 'said') AND EXISTS (SELECT 1 FROM sources t
+    WHERE t.native_id IS s.native_id AND t.iface IS s.iface AND t.place_id IS s.place_id
+      AND COALESCE(t.authority_id, t.iface || '/global') IS COALESCE(s.authority_id, s.iface || '/global')
+      AND COALESCE(t.native_kind, 'message') IS COALESCE(s.native_kind, 'message')
+      AND COALESCE(t.generation, 1) IS COALESCE(s.generation, 1)
+      AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision < s.revision
+      AND t.occurred_at IS NOT s.occurred_at);`;
+
 /** The steps above the baseline, version 57 first. */
 export const MIGRATIONS: Array<Migration> = [
   rowLinks,
@@ -481,6 +501,7 @@ export const MIGRATIONS: Array<Migration> = [
   UNIQUE_MEDIA_LINKS,
   RULES,
   NO_GIF_VECTORS,
+  EDIT_MOMENTS,
 ];
 
 /** The tables that carry a scope and its `audience_id`. */

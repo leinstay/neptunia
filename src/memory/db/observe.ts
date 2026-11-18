@@ -39,7 +39,8 @@
 //   - an envelope with `edited: true` and no revision takes the newest stored revision of its native key: the same
 //     text is that revision (a replay), another text the next one (none stored: 2, the first was 1). The count lives in
 //     the database, so it survives a restart. The edit's row takes the `occurredAt` of the first stored revision, whatever
-//     moment the event carried: a line stays where it was said;
+//     moment the event carried: a line stays where it was said, and a read orders lines by `occurred_at` and `rowid` on
+//     `sources_place_time`;
 //   - `author.account_kind` (`user`, `bot`, `shared`, `self`) is the account's kind, updated on a stored account;
 //     `mentions` (native user ids) and `direct` are the line's columns;
 //   - a DM place observed with a partner (`place.partner`) names the partner's person, the meta-person a new partner

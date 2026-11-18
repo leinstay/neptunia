@@ -20,10 +20,6 @@ export const OF_FIRST_REVISION = (column: string): string => {
   return `CASE WHEN s.revision > 1 AND EXISTS (SELECT 1 FROM sources t WHERE ${earlier} AND t.revision < s.revision)
     THEN (SELECT t.${column} FROM sources t WHERE ${earlier} ORDER BY t.revision, t.rowid LIMIT 1) ELSE s.${column} END`;
 };
-/** The moment a chat line was written: its first revision's, whatever moment a later revision carries. */
-export const LINE_MOMENT = OF_FIRST_REVISION('occurred_at');
-/** The first revision's `rowid`: where the line stands among lines of the same moment. */
-export const LINE_ROWID = OF_FIRST_REVISION('rowid');
 /** The kind of a chat line, `said` for her own: its first revision's, as every edit is stored `seen`. */
 export const LINE_KIND = OF_FIRST_REVISION('kind');
 /** The author's kind of a chat line, its first revision's. */

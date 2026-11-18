@@ -511,8 +511,8 @@ test('the lines since a moment are read on a range of the place-and-time index, 
 });
 
 /**
- * A room of edits, retired lines and lines of one moment: `kappa` edited twice, the later rows at the moments of the
- * edits; `lambda` retired; `mu`, `nu` and `xi` written at one moment; `omicron` edited at its own moment; `pi` written
+ * A room of edits, retired lines and lines of one moment: `kappa` edited twice, the later rows at the line's moment
+ * and recorded at the moments of the edits, as the writer and schema step 67 store them; `lambda` retired; `mu`, `nu` and `xi` written at one moment; `omicron` edited at its own moment; `pi` written
  * at the moment of `kappa`'s first edit; `rho` retired in its edit, so its first revision stands.
  */
 function revisedRoom(world: World): string {
@@ -530,7 +530,8 @@ function revisedRoom(world: World): string {
   storeRevision(world.db, where, {
     native: 'kappa',
     text: 'kappa two',
-    at: minute(1) + EDIT_DELAY_MS,
+    at: minute(1),
+    recordedAt: minute(1) + EDIT_DELAY_MS,
     revision: 2,
     ...later,
   });
@@ -541,12 +542,20 @@ function revisedRoom(world: World): string {
     kind: 'seen',
     by: 'someone',
   });
-  storeRevision(world.db, where, { native: 'kappa', text: 'kappa three', at: minute(150), revision: 3, ...later });
+  storeRevision(world.db, where, {
+    native: 'kappa',
+    text: 'kappa three',
+    at: minute(1),
+    recordedAt: minute(150),
+    revision: 3,
+    ...later,
+  });
   storeRevision(world.db, where, { native: 'omicron', text: 'omicron two', at: minute(4), revision: 2, ...later });
   storeRevision(world.db, where, {
     native: 'rho',
     text: 'rho two',
-    at: minute(160),
+    at: minute(5),
+    recordedAt: minute(160),
     revision: 2,
     kind: 'seen',
     by: 'someone',
