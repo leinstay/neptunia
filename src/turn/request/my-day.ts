@@ -37,6 +37,8 @@ import { placeVisibleWhere } from '../../memory/db/places-read.ts';
 const SILENCE_MS = 30 * 60_000;
 /** How long before her first line of a window the start row of its turn may lie: the longest turn runs shorter. */
 const TURN_REACH_MS = 60 * 60_000;
+/** How long after a diary entry's moment its turn may still make a thing that no record ties to it. */
+const ENTRY_REACH_MS = 30 * 60_000;
 
 /** The operations of the journal a call line is written for. */
 const LISTED_OPS: ReadonlySet<string> = new Set(['post', 'skill', 'gif', 'react']);
@@ -458,12 +460,19 @@ function dayRecordsOf(db: Db, ctx: Context, window: DayWindow): DayRecords & { d
   events.push(...conversationsOf(db, linesOf(db, ctx, new Set(byRun.keys()), from, now), starterOf));
   const entries = readDiary(db, ctx, window.limit)
     .filter((entry) => entry.at > from && entry.at <= now)
-    .map((entry) => ({ kind: 'diary' as const, at: entry.at, entry: entry.kind, made: {} }));
+    .map((entry) => ({ kind: 'diary' as const, at: entry.at, entry: entry.kind, made: {}, turnId: entry.turnId }));
   events.push(...entries);
+  // A diary turn's things belong to its entry: by the turn the entry names, else the newest entry at most
+  // ENTRY_REACH_MS before the call, since an entry's moment is its turn's start.
+  const entryOf = (turn: string, at: number): Made | undefined =>
+    (
+      entries.find((entry) => entry.turnId === turn) ??
+      (diary.has(turn) ? entries.findLast((entry) => entry.at <= at && at - entry.at <= ENTRY_REACH_MS) : undefined)
+    )?.made;
   for (const one of done) {
     if (one.at < from || !one.skill || !window.made.has(one.skill)) continue;
     const turn = one.turnId ?? '';
-    const into = byRun.get(turn) ?? (diary.has(turn) ? entries.find((entry) => entry.at >= one.at)?.made : undefined);
+    const into = byRun.get(turn) ?? entryOf(turn, one.at);
     if (into) count(into, one.skill);
     else events.push({ kind: 'made', at: one.at, skill: one.skill, who: starterOf(one.turnId) });
   }
@@ -566,13 +575,11 @@ function eventLine(
     }
     case 'intention': {
       const line =
-        event.placeIds.length === 0
-          ? fill(wordOf(labels, 'intentionSilent'), { time, purpose: event.purpose })
-          : fill(wordOf(labels, 'intention'), {
-              time,
-              purpose: event.purpose,
-              places: list(event.placeIds.map(named)),
-            });
+        event.placeIds.length > 0
+          ? fill(wordOf(labels, 'intention'), { time, purpose: event.purpose, places: list(event.placeIds.map(named)) })
+          : Object.keys(event.made).length > 0
+            ? fill(wordOf(labels, 'intentionDue'), { time, purpose: event.purpose })
+            : fill(wordOf(labels, 'intentionSilent'), { time, purpose: event.purpose });
       return line + madeTail(event.made, labels);
     }
     case 'heartbeat': {

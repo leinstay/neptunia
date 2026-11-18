@@ -558,6 +558,7 @@
       "madeCount": "{count} {things}",
       "madeTail": ", and made {made}",
       "intention": "[{time}] you carried out your intention \"{purpose}\" in {places}",
+      "intentionDue": "[{time}] your intention \"{purpose}\" came due",
       "intentionSilent": "[{time}] your intention \"{purpose}\" came due and nothing went out",
       "heartbeat": "[{time}] your own time: {what}",
       "heartbeatRead": "you read {places}",

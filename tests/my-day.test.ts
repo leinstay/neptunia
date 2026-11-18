@@ -48,8 +48,9 @@ const handle = (person: string): string => `@${handleOf(person)}`;
 /** The native chat id a turn writes its journal lines with. */
 const CHAT: Record<string, string> = { [CAFE]: 'room-1', [SALON]: 'room-2', [DM]: 'dm-chat-n1' };
 
-const { things } = labels.myDay;
+const { things, thingsMany } = labels.myDay;
 const PICTURE = things['draw.create'];
+const PICTURES = thingsMany['draw.create'];
 const LABELS = { myDay: labels.myDay, calls: labels.calls, locale: labels.locale };
 const OPTIONS = { events: 12, calls: 12, sinceLastEntry: false, labels: LABELS };
 
@@ -90,8 +91,8 @@ type Seed = {
   innerEnd(turn: string, when: number, actions: ReadonlyArray<Record<string, unknown>>): void;
   /** One archived model request of `turn` whose answer called `calls`, each a skill and its arguments. */
   request(turn: string, when: number, calls: ReadonlyArray<[string, Record<string, unknown>]>): void;
-  /** A stored diary entry of `kind` at `when`. */
-  entry(id: string, kind: string, when: number): void;
+  /** A stored diary entry of `kind` at `when`, written by `turn`. */
+  entry(id: string, kind: string, when: number, turn?: string): void;
 };
 
 let lineIds = 0;
@@ -251,10 +252,22 @@ function world(seed: (s: Seed) => void = () => {}) {
         )
       );
     },
-    entry(id, kind, when) {
+    entry(id, kind, when, turn) {
       insertRows(db, {
         diary: [
-          { id, at_ms: when, kind, gist: id, text: id, scope_kind: 'group', scope_iface: 'discord', position: when },
+          {
+            ...{
+              id,
+              at_ms: when,
+              kind,
+              gist: id,
+              text: id,
+              scope_kind: 'group',
+              scope_iface: 'discord',
+              position: when,
+            },
+            ...(turn ? { extra: JSON.stringify({ turnId: turn }) } : {}),
+          },
         ],
       });
     },
@@ -572,7 +585,9 @@ test("what a diary turn made is counted on the entry's line and no line of its o
   // Bug: a photoset entry is followed by one line per picture, each of her own accord.
   const w = world((s) => {
     s.turnStart(PERSONA_ID, 't-diary', null, at(8, 0), 'diary');
-    s.entry('diary:p', 'photoset', at(8, 5));
+    // Changed: the entry stands at its turn's start, 08:00, before the pictures its turn makes; the entry after the
+    // pictures modelled the wrong order (review of 2026-11-18 on real days).
+    s.entry('diary:p', 'photoset', at(8, 0));
   });
   for (const mm of [1, 2, 3]) await w.act(CAFE, 'skill', at(8, mm), 'draw.create', 't-diary');
   const lines = events(w.day());
@@ -616,4 +631,43 @@ test('a conversation of one message gives one clock and words one message', () =
   const [line = ''] = events(w.day());
   assert.equal(line.split('01:03').length, 2, line);
   assert.ok(line.includes(String(labels.myDay.oneMessage)), line);
+});
+
+test("a diary turn's pictures go to its own entry, not to the next entry of the day", async () => {
+  // Bug: an entry's moment is its turn's start, so the pictures made after it are put on the next entry.
+  const w = world((s) => {
+    s.turnStart(PERSONA_ID, 't-d1', null, at(8, 0), 'diary');
+    s.entry('diary:a', 'photoset', at(8, 0));
+    s.turnStart(PERSONA_ID, 't-d2', null, at(11, 0), 'diary');
+    s.entry('diary:b', 'status', at(11, 0));
+  });
+  for (const mm of [1, 1, 2]) await w.act(CAFE, 'skill', at(8, mm), 'draw.create', 't-d1');
+  const lines = events(w.day());
+  assert.equal(lines.length, 2, lines.join('\n'));
+  assert.ok(lines[0]?.includes('photoset') && lines[0].includes('3'), lines[0]);
+  assert.ok(!lines[1]?.includes(PICTURES), lines[1]);
+});
+
+test("an intention's turn that made a thing and sent no line says it came due and what it made", async () => {
+  // Bug: the line says nothing went out and that she made a picture, two halves the reader cannot both believe.
+  const w = world((s) => {
+    s.intention('i-3', 'ΣΚΟΠΟΣ-ΤΡΙΑ');
+    s.wakeRun('w-made', 'intention_due', at(11, 30), ['i-3']);
+  });
+  await w.act(SALON, 'skill', at(11, 31), 'draw.create', 'w-made');
+  const [line = ''] = events(w.day());
+  assert.ok(line.includes('ΣΚΟΠΟΣ-ΤΡΙΑ') && line.includes(PICTURE), line);
+  assert.ok(
+    !line.includes(fill(String(labels.myDay.intentionSilent), { time: '11:30', purpose: 'ΣΚΟΠΟΣ-ΤΡΙΑ' })),
+    line
+  );
+});
+
+test('a thing made by the turn an entry names goes to that entry, however long after its moment', async () => {
+  // Bug: only the time ties a picture to its entry, so a slow diary turn's picture reads as made of her own accord.
+  const w = world((s) => s.entry('diary:t', 'selfie', at(8, 0), 't-slow'));
+  await w.act(CAFE, 'skill', at(8, 45), 'draw.create', 't-slow');
+  const lines = events(w.day());
+  assert.equal(lines.length, 1, lines.join('\n'));
+  assert.ok(lines[0]?.includes('selfie') && lines[0].includes(PICTURE), lines[0]);
 });

@@ -19,6 +19,8 @@ export type PastEntry = {
   picture: string | null;
   pictures: number | null;
   plan: unknown;
+  /** The turn that wrote it, null for an entry whose record names none. */
+  turnId: string | null;
 } & Partial<MediaMarks>;
 
 /**
@@ -48,6 +50,7 @@ export function readDiary(connection: unknown, ctx: unknown, limit: number): Arr
       picture: typeof row.picture_prompt === 'string' ? row.picture_prompt : null,
       pictures: typeof extra.pictures === 'number' ? extra.pictures : null,
       plan: extra.plan ?? null,
+      turnId: typeof extra.turnId === 'string' && extra.turnId ? extra.turnId : null,
       ...firstPictureMarks(db, text(row.id)),
     };
   });

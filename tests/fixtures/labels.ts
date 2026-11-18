@@ -619,6 +619,7 @@ export const labels = {
     madeCount: '{count} {things}',
     madeTail: ', made {made}',
     intention: '[{time}] intention "{purpose}" in {places}',
+    intentionDue: '[{time}] intention "{purpose}" due',
     intentionSilent: '[{time}] intention "{purpose}", nothing sent',
     heartbeat: '[{time}] own time: {what}',
     heartbeatRead: 'read {places}',
