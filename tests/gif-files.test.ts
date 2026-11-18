@@ -8,6 +8,10 @@ import path from 'node:path';
 import { cacheGifFile, fileGifs } from '../src/media/gif-files.ts';
 import type { GifBytes } from '../src/media/gif-files.ts';
 import { createStore } from '../src/memory/store.ts';
+import { applyMediaEmbed } from '../src/memory/db/media-store.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { quantize } from '../src/memory/vectors.ts';
+import { present } from './fixtures/loose-types.ts';
 import { memDataDir } from './fixtures/store-kit.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -73,7 +77,7 @@ function libraryRig(animationUrl: string | null = MEDIA) {
       asked.push(url);
       return answer();
     };
-  return { dir, store, asked, answering };
+  return { dir, memoryDb, store, asked, answering };
 }
 
 const onlyEntry = (store: ReturnType<typeof createStore>) => Object.values(store.getGifs().entries)[0];
@@ -158,4 +162,36 @@ test("a failed download of an attached GIF is tried again from the next sighting
   await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), items: [{ itemId: 'a1', url: ATTACHED_NEW }] });
   assert.deepEqual(asked, [ATTACHED_OLD, ATTACHED_NEW]);
   assert.equal(onlyEntry(store).hash, SHA);
+});
+
+// Report 2026-11-18 gif-files-backfill: the move of an entry under its content hash dropped the describer's cache and the
+// row's media vector, so a GIF just filed was not found by meaning until embedded again and could be described again.
+
+const MODEL = 'm/one';
+
+/** The rig's GIF described by the describer and embedded, as before its file arrives. */
+async function describedRig() {
+  const rig = libraryRig();
+  rig.store.putMediaEntry(PLACE, 'm1#e0', { text: 'a cat dances on a table', ts: 1 });
+  rig.store.flush();
+  await rig.store.flushSettled({});
+  const handle = present(rig.memoryDb.database());
+  const row = dbOf(handle).prepare("SELECT id, description FROM media WHERE writer = 'gifs'").get();
+  const { bytes, scale, norm } = quantize(Float32Array.from([0.6, 0.8]));
+  applyMediaEmbed(handle, {
+    rows: [{ mediaId: row?.id, bytes, scale, norm, dims: 2, model: MODEL, description: row?.description, now: 1 }],
+  });
+  return rig;
+}
+
+test('a library GIF that gets its file keeps its media vector, with no new embedding', async () => {
+  const { dir, store, answering } = await describedRig();
+  assert.ok(store.gifMediaVectors(MODEL).get('m1#e0'), 'the vector before the filing');
+  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), items: [{ itemId: 'm1#e0' }] });
+  store.flush();
+  await store.flushSettled({});
+  assert.equal(onlyEntry(store).hash, SHA);
+  const vector = store.gifMediaVectors(MODEL).get('m1#e0');
+  assert.ok(vector, 'the pick finds the filed GIF by meaning');
+  assert.ok(Math.abs(vector[0] - 0.6) < 0.02 && Math.abs(vector[1] - 0.8) < 0.02, String(vector));
 });
