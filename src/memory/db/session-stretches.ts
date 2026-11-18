@@ -7,6 +7,7 @@
 import { fill } from '../../format.ts';
 import { block } from '../../turn/request/text.ts';
 import { OWN_TIME_KIND } from './ids.ts';
+import { mirrorPlaces } from './mirrors.ts';
 import { scopeWhere } from './scope.ts';
 import type { Context } from './scope.ts';
 import { SILENCE_MS, overlapping, storedStretches, stretchesOf } from './stretches.ts';
@@ -35,10 +36,15 @@ export type StretchRef = {
 /** One line of the batch as the block reads it: a `sources` row with its moment and its number, 0 when unnumbered. */
 type Numbered = Row & { at: number; n: number };
 
-/** The candidates of a chat batch: stretches of her lines, each with the numbered lines of its place since the last. */
-function chatStretches(lines: ReadonlyArray<Numbered>): Array<Omit<StretchRef, 'prior'>> {
+/**
+ * The candidates of a chat batch: stretches of her lines, each with the numbered lines of its place since the last. A
+ * line of an enabled diary mirror is left out, as `<my_day>` leaves it out, since the entry's own line tells it.
+ */
+function chatStretches(db: Db, lines: ReadonlyArray<Numbered>): Array<Omit<StretchRef, 'prior'>> {
+  const mirrors = new Set(mirrorPlaces(db).map((one) => one.placeId));
   const hers = lines
     .filter((line) => line.kind === 'said' && typeof line.place_id === 'string' && line.place_id)
+    .filter((line) => !mirrors.has(String(line.place_id)))
     .map((line) => ({ placeId: String(line.place_id), at: line.at, id: asText(line.id) }));
   const before = new Map<string, number>();
   return stretchesOf(hers).flatMap((stretch) => {
@@ -99,7 +105,7 @@ export function stretchBlockOf(
     read: (kind: string, id: string, block: string) => void;
   }
 ): { block: string; stretches: Map<string, StretchRef> } {
-  const candidates = [...chatStretches(lines), ...ownStretches(lines)];
+  const candidates = [...chatStretches(db, lines), ...ownStretches(lines)];
   const stretches = new Map<string, StretchRef>();
   if (candidates.length === 0) return { block: '', stretches };
   const stored = storedStretches(db, scopeWhere(ctx, 'e'), {

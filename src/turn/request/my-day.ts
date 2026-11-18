@@ -56,7 +56,16 @@ type DayEvent =
       what: string | null;
     }
   | { kind: 'made'; at: number; skill: string; who: string | null }
-  | { kind: 'intention'; at: number; purpose: string; placeIds: Array<string>; made: Made }
+  | {
+      kind: 'intention';
+      at: number;
+      purpose: string;
+      placeIds: Array<string>;
+      made: Made;
+      /** The lines its turn sent, each by its place and moment. */
+      sent: Array<{ placeId: string; at: number }>;
+      what: string | null;
+    }
   | {
       kind: 'heartbeat';
       /** The run, which holds its stretch's sentence. */
@@ -322,29 +331,33 @@ function conversationsOf(
   });
 }
 
+const ends = (line: { at: number }): { at: number; end: number } => ({ at: line.at, end: line.at });
+
 /**
- * Gives each conversation and each own time of `events` the stored sentence of its stretch that `where` lets the turn
+ * Gives each conversation, each own time and each intention that sent a line of `events` the stored sentence of its stretch that `where` lets the turn
  * read: of the conversation's place overlapping its time, of the heartbeat's run. One read for all of them.
  */
 function withSentences(db: Db, where: { sql: string; params: Array<string> }, events: ReadonlyArray<DayEvent>): void {
   type Told = {
-    event: Extract<DayEvent, { kind: 'conversation' | 'heartbeat' }>;
+    event: Extract<DayEvent, { kind: 'conversation' | 'heartbeat' | 'intention' }>;
     holder: string;
     at: number;
     end: number;
   };
-  // A heartbeat's sentence is held by its run, whatever moments the session gave it.
+  // A heartbeat's sentence is held by its run, whatever moments the session gave it. An intention's is that of the
+  // stretch holding a line its turn sent, the first of its lines that has one.
   const told = events.flatMap((event): Array<Told> => {
     if (event.kind === 'conversation') return [{ event, holder: event.placeId, at: event.at, end: event.end }];
+    if (event.kind === 'intention') return event.sent.map((line) => ({ event, holder: line.placeId, ...ends(line) }));
     return event.kind === 'heartbeat' ? [{ event, holder: event.runId, at: -Infinity, end: Infinity }] : [];
   });
   if (told.length === 0) return;
   const stored = storedStretches(db, where, {
     holders: [...new Set(told.map((one) => one.holder))],
-    from: Math.min(...told.map((one) => one.event.at)),
-    to: Math.max(...told.map((one) => (one.event.kind === 'conversation' ? one.event.end : one.event.at))),
+    from: Math.min(...told.map((one) => Math.min(one.event.at, one.at))),
+    to: Math.max(...told.map((one) => Math.max(one.event.at, Math.min(one.end, Number.MAX_SAFE_INTEGER)))),
   });
-  for (const one of told) one.event.what = overlapping(stored, one)?.what ?? null;
+  for (const one of told) one.event.what ??= overlapping(stored, one)?.what ?? null;
 }
 
 /**
@@ -484,6 +497,8 @@ function dayRecordsOf(db: Db, ctx: Context, window: DayWindow): DayRecords & { d
         purpose,
         placeIds: [...new Set(sent.map((line) => line.placeId))],
         made,
+        sent: sent.map((line) => ({ placeId: line.placeId, at: line.at })),
+        what: null,
       });
     }
   }
@@ -618,7 +633,7 @@ function eventLine(
           : Object.keys(event.made).length > 0
             ? fill(wordOf(labels, 'intentionDue'), { time, purpose: event.purpose })
             : fill(wordOf(labels, 'intentionSilent'), { time, purpose: event.purpose });
-      return line + madeTail(event.made, labels);
+      return line + madeTail(event.made, labels) + aboutTail(event.what, labels);
     }
     case 'heartbeat': {
       const parts = [

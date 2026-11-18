@@ -716,3 +716,21 @@ test("a conversation's line and an own-time line end with the stored sentence, a
   assert.ok(own.endsWith(about('ΒΡΗΚΑ-ΑΣΤΕΡΙΑ')), own);
   assert.equal(salon, salonBefore, 'a sentence of an earlier stretch of the place is not this one');
 });
+
+test("an intention's line ends with the sentence of the stretch that holds the lines its turn sent, and one that sent none has none", () => {
+  // Bug: the intention's lines are left out of the conversations, so the sentence stored for them is told nowhere.
+  const about = fill(String(labels.myDay.about), { what: 'ΓΙΑ-ΤΗΝ-ΠΡΟΘΕΣΗ' });
+  const w = world((s) => {
+    s.intention('i-1', 'ΣΚΟΠΟΣ-ΕΝΑ');
+    s.wakeRun('w-int', 'intention_due', at(10, 42), ['i-1']);
+    s.herLine(CAFE, at(10, 42), 'w-int');
+    s.herLine(CAFE, at(10, 44));
+    s.sentence(CAFE, at(10, 42), at(10, 44), 'ΓΙΑ-ΤΗΝ-ΠΡΟΘΕΣΗ');
+    s.wakeRun('w-quiet', 'intention_due', at(10, 50), ['i-1']);
+  });
+  const lines = events(w.day());
+  const sent = lines.find((line) => line.includes('[10:42]')) ?? '';
+  const quiet = lines.find((line) => line.includes('[10:50]')) ?? '';
+  assert.ok(sent.endsWith(about), lines.join('\n'));
+  assert.ok(!quiet.includes('ΓΙΑ-ΤΗΝ-ΠΡΟΘΕΣΗ'), quiet);
+});

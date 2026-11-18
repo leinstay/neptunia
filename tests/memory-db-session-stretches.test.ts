@@ -136,6 +136,27 @@ test('a silence of hers of 31 minutes makes two stretches in the request and one
   }
 });
 
+test("her lines in an enabled diary mirror's place are no stretch of the request", () => {
+  // Bug: the mirror's copies of diary entries get sentences that no <my_day> line ever reads.
+  const env = fixture();
+  try {
+    addSalon(env.db);
+    env.db
+      .prepare(
+        "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by) VALUES ('mirror:salon', 'diary', ?, 1, ?, 'owner')"
+      )
+      .run(SALON, new Date(ago(1000)).toISOString());
+    env.say({ native: 'm1', minutesAgo: 95, text: 'καλημέρα', kind: 'said' });
+    env.say({ native: 'm2', minutesAgo: 90, text: 'ημερολόγιο', kind: 'said', place: SALON });
+    assert.deepEqual(
+      listedOf(request(env)).map((one) => one.placeId),
+      [CHANNEL]
+    );
+  } finally {
+    env.done();
+  }
+});
+
 test('a batch with no line of hers renders no stretches block', () => {
   // Bug: an empty block is rendered, so every request of a quiet scope changes its bytes.
   const env = fixture();
