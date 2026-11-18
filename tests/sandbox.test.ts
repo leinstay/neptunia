@@ -549,8 +549,8 @@ function kindHot(featureOverrides = {}) {
   const hot = fakeHot(featureOverrides);
   hot.prompts = {
     ...hot.prompts,
-    reply: 'REPLY_TASK {{author}}: {{trigger}}',
-    overheard: 'OVERHEARD_TASK {{author}}: {{trigger}}',
+    'turn/reply': 'REPLY_TASK {{author}}: {{trigger}}',
+    'turn/overheard': 'OVERHEARD_TASK {{author}}: {{trigger}}',
     interject: 'INTERJECT_TASK',
   };
   return hot;
