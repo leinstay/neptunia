@@ -1826,6 +1826,7 @@ export async function loadDiaryMods(load: Untyped): Promise<Rec> {
     ...(await load('memory/store.ts')),
     ...(await load('llm/tokens.ts')),
     ...(await load('llm/openrouter.ts')),
+    ...(await load('llm/embed.ts')),
     ...(await load('llm/images.ts')),
     ...(await load('behavior/turn.ts')),
     ...(await load('behavior/recall-run.ts')),

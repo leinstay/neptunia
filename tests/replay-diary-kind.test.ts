@@ -10,7 +10,15 @@ import { objectMediaCache } from '../src/memory/store-media.ts';
 import '../src/tools/operations/index.ts';
 import fs from 'node:fs';
 import path from 'node:path';
-import { diaryDayGate, diaryReplayRunner, diaryReplaySample, parseArgs, recordingLlm } from '../scripts/replay.ts';
+import { pathToFileURL } from 'node:url';
+import {
+  diaryDayGate,
+  diaryReplayRunner,
+  diaryReplaySample,
+  loadDiaryMods,
+  parseArgs,
+  recordingLlm,
+} from '../scripts/replay.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { SERVICE_CONTEXT, TURN_NOW, blockOf, serviceWorld } from './fixtures/service-turn.ts';
@@ -274,4 +282,35 @@ test('replay: --show-request writes the first request of the sample with its <ki
 test('replay: --show-request goes with --diary-kind alone', () => {
   assert.equal(parseArgs(['--diary-day', '--diary-kind', 'status', '--show-request']).showRequest, true);
   assert.throws(() => parseArgs(['--diary-day', '--show-request']), /usage/);
+});
+
+test("replay: the diary mode's modules hold everything a run without --answers-dir calls, the embedder built", async () => {
+  // Bug: the diary mode built an embedder for the recall from a module its list did not load, so a real run threw
+  // `mods.createEmbedder is not a function` before its first turn.
+  const src = path.join(process.cwd(), 'src');
+  const mods = await loadDiaryMods((rel: string) => import(pathToFileURL(path.join(src, rel)).href));
+  const called = [
+    'localDayKey',
+    'planDay',
+    'zonedEpoch',
+    'createStore',
+    'createCalibrator',
+    'createLlm',
+    'createImageGen',
+    'resolveGuild',
+    'createEmbedder',
+    'createDiscordInterface',
+  ];
+  assert.deepEqual(
+    called.filter((name) => typeof mods[name] !== 'function'),
+    []
+  );
+  // Built as the mode builds it on a run without --answers-dir; building it calls no model.
+  assert.doesNotThrow(() =>
+    (mods.createEmbedder as (input: object) => unknown)({
+      apiKey: '',
+      keyOf: () => null,
+      state: { data: {}, markDirty() {} },
+    })
+  );
 });
