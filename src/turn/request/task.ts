@@ -207,7 +207,8 @@ export function taskOf(given: RequestInput & Base): Task {
   };
   // A diary entry's task is its mode's text followed by the file of its kind (prompts/diary/kinds/).
   const modeText = prompts[MODE_TASKS[mode] ?? mode];
-  const modeTask = turnKind === 'diary' ? diaryTaskOf(modeText, prompts, given.diary?.kind) : modeText;
+  const modeTask =
+    turnKind === 'diary' ? diaryTaskOf(modeText, prompts, given.diary?.kind, given.diary?.voiced === true) : modeText;
   const baseTask = fillPromptTemplate(
     overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? modeTask ?? '',
     taskValues

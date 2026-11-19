@@ -143,6 +143,8 @@ const NOT_BUILT = {
   // The director's request goes before a diary turn of a scene kind, which no builder here reaches;
   // tests/diary-scene.test.ts checks what it sends.
   'diary/scene': 'built by src/behavior/diary-scene.ts before a diary turn, checked in tests/diary-scene.test.ts',
+  // A voiced entry's task adds it, which a turn draws with its random source: tests/diary-turn.test.ts checks it.
+  'diary/voice': 'added to the task of a voiced diary entry, checked in tests/diary-turn.test.ts',
   // The errand agents' prompts are not here: they live in agents/<id>/prompt.md, read by the
   // agent runner process (src/agent-runner/profiles.ts), never by a bot request.
 };

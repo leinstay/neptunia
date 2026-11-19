@@ -18,7 +18,9 @@ import {
   loadDiaryMods,
   parseArgs,
   recordingLlm,
+  voicedHot,
 } from '../scripts/replay.ts';
+import { chainsOf } from './fixtures/chains.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { SERVICE_CONTEXT, TURN_NOW, blockOf, serviceWorld } from './fixtures/service-turn.ts';
@@ -195,7 +197,10 @@ function diaryDataDir(): string {
 const DIARY_GRANTED = ['conversation.read', 'memory.read'];
 
 /** One diary sample of `status` on the replay's runner, the model reading memory and the place `<memory>` lists. */
-async function memorySample(request: { outDir: string; n: number } | null = null) {
+async function memorySample(
+  request: { outDir: string; n: number } | null = null,
+  { voiced = false, answer = null }: { voiced?: boolean; answer?: unknown } = {}
+) {
   const dataDir = diaryDataDir();
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => TURN_NOW });
   let asked = 0;
@@ -203,6 +208,7 @@ async function memorySample(request: { outDir: string; n: number } | null = null
     complete: (messages: Array<{ content: unknown }>) => {
       asked += 1;
       if (asked > 1) return Promise.resolve(completionOf('<skip/>'));
+      if (answer !== null) return Promise.resolve(answer);
       const text = messages.map((message) => userText(message.content)).join('\n');
       const garden = blockOf(text, 'memory')
         .split('\n')
@@ -237,13 +243,21 @@ async function memorySample(request: { outDir: string; n: number } | null = null
       llm: { maxRequestTokens: 60000 },
       tools: { transport: 'native', resultMaxChars: 2000, callTimeoutMs: 120000 },
       diary: { loop: { maxSteps: 3 } },
+      models: { routes: chainsOf({ speech: 'x/speech' }) },
     },
-    prompts: { main: 'SYSTEM', persona: 'CARD', format: 'FORMAT', 'diary/task': 'DIARY_TASK', labels },
+    prompts: {
+      main: 'SYSTEM',
+      persona: 'CARD',
+      format: 'FORMAT',
+      'diary/task': 'DIARY_TASK',
+      'diary/voice': 'VOICE_PART',
+      labels,
+    },
   };
   const turns = diaryReplayRunner({
     root: process.cwd(),
     dataDir,
-    hot,
+    hot: voiced ? voicedHot(hot) : hot,
     port,
     llm,
     embed: (texts: Array<string>) => Promise.resolve(texts.map(() => null)),
@@ -252,7 +266,10 @@ async function memorySample(request: { outDir: string; n: number } | null = null
     turnId: 't-replay-diary-1',
   });
   try {
-    return await diaryReplaySample({ turns, kind: 'status', calls, asked: askedRequests, request });
+    return {
+      ...(await diaryReplaySample({ turns, kind: 'status', calls, asked: askedRequests, request })),
+      askedRequests,
+    };
   } finally {
     turns.close();
   }
@@ -313,4 +330,22 @@ test("replay: the diary mode's modules hold everything a run without --answers-d
       state: { data: {}, markDirty() {} },
     })
   );
+});
+
+test('replay: --diary-voice voices the entry, the speech model is a free stand-in, and the report shows the voiced text', async () => {
+  // Bug: the forced voice is ignored, the replay would call the speech model, or the report hides what was said aloud.
+  assert.equal(parseArgs(['--diary-day', '--diary-kind', 'status', '--diary-voice']).diaryVoice, true);
+  assert.throws(() => parseArgs(['--diary-day', '--diary-voice']), /usage/);
+  const sample = await memorySample(null, {
+    voiced: true,
+    answer: toolAnswer('', [call('voice.say', { text: 'καλησπέρα' }, { id: 'v1' })]),
+  });
+  const { fields, askedRequests } = sample;
+  const result: unknown = sample.result;
+  const first = askedRequests[0]?.messages as Array<{ content: unknown }>;
+  assert.ok(blockOf(first.map((message) => userText(message.content)).join('\n'), 'task').endsWith('VOICE_PART'));
+  assert.deepEqual(fields.voiced, ['καλησπέρα']);
+  assert.equal((result as { outcome?: unknown }).outcome, 'spoke');
+  const voice = (result as { diary?: { entry?: { voice?: { ogg?: unknown } } } }).diary?.entry?.voice;
+  assert.ok(voice?.ogg instanceof Uint8Array, 'the stand-in made a voice file of no sound');
 });

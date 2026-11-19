@@ -190,11 +190,24 @@ export type DiarySlot = {
   kind?: unknown;
   scenes?: Array<DiaryScene>;
   answers?: Array<DiaryAnswer>;
+  voiced?: Array<string>;
   messages?: Array<string>;
   attachments?: number;
   draws?: Array<DrawCall>;
   [field: string]: Untyped;
 };
+
+/** A call's arguments as an object: the JSON text a model sent parsed, `{}` for one that is no JSON object. */
+function argsOf(args: unknown): { text?: unknown } {
+  if (typeof args !== 'string') return args ?? {};
+  try {
+    const parsed: unknown = JSON.parse(args);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    // A call whose arguments the model cut off or mangled: the engine refuses it, and the report shows no text for it.
+    return {};
+  }
+}
 
 /** One answer of the persona in a diary turn: its text and the calls it made, each by name with its arguments, status and code. */
 export type DiaryAnswer = {
@@ -236,12 +249,21 @@ export function diaryKindSample(
   const messages: Array<string> = Array.isArray(entry?.messages)
     ? (entry.messages as Array<unknown>).filter((one): one is string => typeof one === 'string')
     : [];
+  // What the persona asked to say aloud: the text of each `voice.say` call.
+  const voiced = answers.flatMap((one) =>
+    one.calls.flatMap((call) => {
+      if (call.name !== 'voice_say' && call.name !== 'voice.say') return [];
+      const given = argsOf(call.args);
+      return typeof given.text === 'string' ? [given.text] : [];
+    })
+  );
   return {
     outcome: made.outcome ?? null,
     ...(made.reason ? { reason: made.reason } : {}),
     kind: diary?.kind ?? null,
     scenes,
     answers,
+    ...(voiced.length > 0 ? { voiced } : {}),
     messages,
   };
 }
@@ -328,6 +350,7 @@ function diaryKindLines(slot: DiarySlot): Array<string> {
   }
   for (const [i, answer] of (slot.answers ?? []).entries())
     for (const call of answer.calls) lines.push(`- call in answer ${i + 1}: \`${cell(JSON.stringify(call))}\``);
+  for (const text of slot.voiced ?? []) lines.push(`- voiced: ${cell(text)}`);
   if (typeof slot.request === 'string') lines.push(`- first request: ${slot.request}`);
   return lines;
 }

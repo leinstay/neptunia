@@ -404,6 +404,7 @@
       }
     ],
     "quietDayChance": 0.3,
+    "voiceChance": 0.1,
     "writerEntries": 30,
     "loop": {
       "maxSteps": 50,

@@ -21,6 +21,8 @@ export type DiaryInput = {
   /** The entries of the turn's own kind that `entries` leaves out, oldest first. */
   readonly told?: ReadonlyArray<unknown> | null;
   readonly kind?: string | null;
+  /** Whether the entry is voiced: its task ends with `diary/voice` (src/behavior/diary.ts#drawVoiced). */
+  readonly voiced?: boolean;
   readonly scenes?: ReadonlyArray<string>;
   readonly topic?: string | null;
   readonly facts?: string;
@@ -137,12 +139,17 @@ export function diaryFramedOf(given: RequestInput & { labels: Labels }): DiaryFr
 
 /**
  * The task text of a diary entry of `kind`: the common text `task` (the mode's file, `diary/task`), then the kind's
- * own file `prompts['diary/kinds/<kind>']`, each read as the hot prompts hold it.
+ * own file `prompts['diary/kinds/<kind>']`, and for a voiced entry `prompts['diary/voice']`, each read as the hot
+ * prompts hold it.
  */
-export function diaryTaskOf(task: unknown, prompts: Readonly<Record<string, unknown>>, kind: unknown): string {
-  const common = typeof task === 'string' ? task.trim() : '';
-  const own = typeof kind === 'string' ? prompts[`diary/kinds/${kind}`] : undefined;
+export function diaryTaskOf(
+  task: unknown,
+  prompts: Readonly<Record<string, unknown>>,
+  kind: unknown,
+  voiced = false
+): string {
+  const trimmed = (text: unknown): string => (typeof text === 'string' ? text.trim() : '');
   // A kind whose file a deployment emptied or left out gets the common text alone.
-  const section = typeof own === 'string' ? own.trim() : '';
-  return [common, section].filter(Boolean).join('\n\n');
+  const own = typeof kind === 'string' ? trimmed(prompts[`diary/kinds/${kind}`]) : '';
+  return [trimmed(task), own, voiced ? trimmed(prompts['diary/voice']) : ''].filter(Boolean).join('\n\n');
 }

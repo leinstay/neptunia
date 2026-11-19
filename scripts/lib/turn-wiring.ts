@@ -482,10 +482,12 @@ export function buildTurnRunner(input: WiringInput): Wired {
       return Promise.resolve({ buffer: BLANK_PNG, mediaType: 'image/png', cost: 0, usage: {}, model: '', seconds: 0 });
     },
   };
+  // A free stand-in of the speech model: the voice message holds no sound, and its text is what she asked to say.
   const speech = {
-    say: (request: unknown) => {
+    say: (request: { text?: unknown }) => {
       drawings.push({ voice: request });
-      return Promise.resolve({ ok: false, code: 'replay' });
+      const voiced = typeof request?.text === 'string' ? request.text : '';
+      return Promise.resolve({ ogg: new Uint8Array(0), durationSecs: 0, waveform: '', voiced });
     },
   };
   const admin = createAdmin({

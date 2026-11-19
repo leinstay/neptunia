@@ -2938,6 +2938,22 @@ async function runInner({
 
 // ---- a diary day (--diary-day) ---------------------------------------------------
 
+/** The settings of a diary run: `hot`, with every text entry voiced under `--diary-voice` (voicedHot). */
+function diaryHot<T extends { config: Untyped }>(args: { diaryVoice?: boolean }, hot: T): T {
+  return args.diaryVoice ? voicedHot(hot) : hot;
+}
+
+/** `hot` with `diary.voiceChance` at 1, read through to the live settings at each read. */
+export function voicedHot<T extends { config: Untyped }>(hot: T): T {
+  return new Proxy(hot, {
+    get(target, prop) {
+      if (prop !== 'config') return Reflect.get(target, prop, target);
+      const config = target.config ?? {};
+      return { ...config, diary: { ...(config.diary ?? {}), voiceChance: 1 } };
+    },
+  });
+}
+
 /**
  * One diary turn of a replay's diary mode on `turns` (diaryReplayRunner), read as the report shows it: the fields of
  * diaryKindSample over the requests `calls` recorded during it and the journal it kept, and with `request` the
@@ -3134,7 +3150,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, createHot, log, sig
       layered = overlayPromptsHot(createHot, root, args.prompts, { mergeJson: deepMerge });
       log.info('replay-cli: diary prompt layers', { layers: diaryPromptLayers(root, args.prompts).length });
     }
-    const hot = layered?.hot ?? liveHot;
+    const hot = diaryHot(args, layered?.hot ?? liveHot);
     const config = hot.config;
 
     // The clock of the turn runner and the image client: the slot's instant, running on from there.

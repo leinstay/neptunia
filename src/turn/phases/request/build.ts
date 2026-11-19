@@ -36,6 +36,7 @@ import type { Prepared } from '../request.ts';
 import type { Handles } from '../../handles.ts';
 import { shuffled } from '../../../behavior/random.ts';
 import { drawFragments } from '../../../behavior/seeds.ts';
+import { drawVoiced } from '../../../behavior/diary.ts';
 import { promptsInFolder } from '../../../hot.ts';
 import type { ServiceListsInput } from '../../request/types.ts';
 import { messageSourceId, PERSONA_ID } from '../../../memory/db/ids.ts';
@@ -1028,6 +1029,10 @@ export async function buildTurnRequest(
     wake: wakeWords,
   };
   const framed = framedInputsOf(ctx, frame, draft, channel, facts);
+  // A text entry is voiced at `diary.voiceChance` when the turn offers `voice.say`.
+  const voiced =
+    diaryPrep !== null &&
+    drawVoiced({ kind: diaryPrep.kind, offered: toolNames, diaryCfg: config.diary, rng: ctx.rng });
   // `<errands>` and `<errand_result>`: her errands (none on a diary post); a result shown whole is read once she answers.
   const errands =
     finalMode === 'diary'
@@ -1092,6 +1097,7 @@ export async function buildTurnRequest(
           posts: diaryPrep.posts,
           ...pastEntriesOf(ctx, draft, channel, config, diaryPrep.kind),
           kind: diaryPrep.kind,
+          voiced,
           scenes: diaryPrep.scenes.map((one) => one.scene),
           topic: diaryPrep.topic,
           facts: diaryPrep.facts,

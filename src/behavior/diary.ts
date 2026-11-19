@@ -118,6 +118,7 @@ const labelOf = (value: unknown): string => (typeof value === 'string' ? value :
 const diaryWords = (labels: unknown): Obj => sectionOf(labels, 'diary');
 
 const DEFAULT_QUIET_DAY_CHANCE = 0.3; // diary.quietDayChance
+const DEFAULT_VOICE_CHANCE = 0.1; // diary.voiceChance
 // The diary's measures. Production values, config cut of 2026-10-31.
 const DEFAULT_GRACE_MINUTES = 30;
 const DEFAULT_QUIET_CARRY = 0.25;
@@ -461,6 +462,29 @@ const listOr = (value: unknown, fallback: ReadonlyArray<string>): ReadonlyArray<
 export function isPictureKind(kind: unknown, pictureKinds: unknown): boolean {
   const drawable = listOr(pictureKinds, DEFAULT_PICTURE_KINDS);
   return typeof kind === 'string' && drawable.includes(kind);
+}
+
+/**
+ * Whether a diary entry of `kind` is voiced: a kind of DIARY_KINDS that is no picture kind, `voice.say` among the tools
+ * the turn offers (`offered`), and a draw of `rng` under `diary.voiceChance` (0.1; a number from 0 to 1, else the
+ * default), read from `diaryCfg` now.
+ */
+export function drawVoiced({
+  kind,
+  offered,
+  diaryCfg,
+  rng,
+}: {
+  kind: unknown;
+  offered: ReadonlyArray<string>;
+  diaryCfg: unknown;
+  rng: () => number;
+}): boolean {
+  const textKind = typeof kind === 'string' && Object.hasOwn(DIARY_KINDS, kind) && !isPictureKind(kind, undefined);
+  if (!textKind || !offered.includes('voice.say')) return false;
+  const given = objOf(diaryCfg).voiceChance;
+  const chance = typeof given === 'number' && given >= 0 && given <= 1 ? given : DEFAULT_VOICE_CHANCE;
+  return rng() < chance;
 }
 
 /**

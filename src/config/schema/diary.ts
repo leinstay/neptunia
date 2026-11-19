@@ -39,6 +39,14 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
     'text': 'Chance of no posts for the whole day',
   },
   {
+    'key': 'diary.voiceChance',
+    'types': ['number'],
+    'reader': 'src/behavior/diary.ts',
+    'default': 0.1,
+    'text':
+      'Chance, from 0 to 1, that an entry of a kind with no picture is voiced when the turn offers `voice.say`; 0 voices none. Read at each entry',
+  },
+  {
     'key': 'diary.writerEntries',
     'types': ['number'],
     'reader': 'src/turn/request/diary.ts',
