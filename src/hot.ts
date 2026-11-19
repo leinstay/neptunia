@@ -279,7 +279,7 @@ function readMdFile(dir: Untyped, file: Untyped) {
 
 /**
  * Merge the base and local `*.md` layers into `{ prompts, sources, keptPrevious }`, each file keyed by its path
- * relative to its layer without the extension (`diary/kinds/status`).
+ * relative to its layer without the extension (`diary/kinds/story`).
  * A local file replaces the base file of the same path once it is non-empty
  * after trimming; otherwise the base text is used. When the resulting text is
  * still empty but a previous, non-empty value is known for that name (an

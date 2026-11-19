@@ -22,7 +22,7 @@ const D1 = 'fake:channel:d1';
 const D2 = 'fake:channel:d2';
 const OTHER_D1 = 'other:channel:d1';
 
-/** A model whose plan is a status and whose writer says `answer`; it keeps every request. */
+/** A model whose plan is a thought and whose writer says `answer`; it keeps every request. */
 function modelSaying(answer: string) {
   const calls: Array<unknown> = [];
   return {
@@ -80,7 +80,7 @@ async function writeEntry(scene: Scene, answer: string) {
   const model = modelSaying(answer);
   const result = await sceneRunner(model, store).runTurn({
     mode: 'diary',
-    diary: { kind: 'status', forced: true },
+    diary: { kind: 'thought', forced: true },
     placeId: ROOT,
   });
   await store.flushSettled({});
@@ -314,7 +314,7 @@ test('a turn under a trusted restriction that names no audience stays restricted
   const store = createStore({ dataDir: scene.memory.dataDir, memoryDb: scene.memory.memoryDb });
   const result = await sceneRunner(modelSaying(`<msg>${TEXT}</msg>`), store).runTurn({
     mode: 'diary',
-    diary: { kind: 'status', forced: true },
+    diary: { kind: 'thought', forced: true },
     placeId: ROOT,
     publicationBoundary: BOUNDARY,
   });

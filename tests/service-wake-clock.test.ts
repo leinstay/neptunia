@@ -141,7 +141,7 @@ function diaryWith(schedule: string, start: number) {
       runTurn: () =>
         Promise.resolve({
           outcome: 'spoke',
-          diary: { kind: 'status', picture: false, search: false, messages: 1 },
+          diary: { kind: 'thought', picture: false, search: false, messages: 1 },
         }),
     },
     isServedRoot: (id: unknown) => id === ROOT,

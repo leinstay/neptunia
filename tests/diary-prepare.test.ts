@@ -18,9 +18,10 @@ const FIRST = () => 0;
 const LAST = () => 0.999999;
 
 test('a drawn kind with no scene asks the director nothing', async () => {
-  // Bug: every kind waits on a director request, so a status line costs a scene it never reads.
+  // Bug: every kind waits on a director request, so a facts entry costs a scene it never reads.
+  // The last roll lands on facts, a kind with no scene, since the draw holds no `status`.
   const run = await prepare({ rng: LAST });
-  assert.equal(run.kind, 'status');
+  assert.equal(run.kind, 'facts');
   assert.deepEqual(run.requests, []);
   assert.equal(run.result.skipped, false);
   assert.deepEqual(scenesOf(run.result), []);
@@ -96,7 +97,7 @@ test('the lines an entry kept, and those of an entry stored with a plan, stay ou
   // Bug: the next entry is offered the place the last one was built on, so two entries in a row share their scene.
   const posts = [
     { at: 1, kind: 'story', gist: 'a', picture: null, scenes: [{ used: ['p0'] }] },
-    { at: 2, kind: 'status', gist: 'b', picture: null, plan: { brief: 'x', seeds: [['p1', 'q1']], seed: 1 } },
+    { at: 2, kind: 'thought', gist: 'b', picture: null, plan: { brief: 'x', seeds: [['p1', 'q1']], seed: 1 } },
   ];
   const run = await prepare({ rng: FIRST, posts, seeds: SEEDS_24 });
   const lines = run.requests.flatMap((user) => setsOf(user).flat());

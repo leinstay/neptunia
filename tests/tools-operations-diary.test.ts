@@ -206,7 +206,7 @@ async function turnOf(
         ? turns.runTurn({
             memoryContext,
             mode: 'diary',
-            diary: { kind: 'status', forced: true },
+            diary: { kind: 'thought', forced: true },
             placeId: ROOT,
           })
         : turns.runTurn({ memoryContext, chat, mode: 'reply', triggerKind: 'mention', trigger });
@@ -242,7 +242,7 @@ test('the diary turn offers the tools and answers a diary call as the diary chan
   // PR 7d: voice messages are code, so the recorded writer tools gained voice_say.
   const core = await root();
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false, seed: 0 });
+  const plan = JSON.stringify({ kind: 'thought', brief: 'a quiet day', search: '', picture: false, seed: 0 });
   const { llm, logs } = await turnOf(core, {
     mode: 'diary',
     answers: [
@@ -273,7 +273,7 @@ function seedRestrictedDiary(core: Root, metadata: unknown = PRIVATE_BOUNDARY): 
   // Public store writes reproduce restored metadata without granting a model control over it.
   const post = {
     at: NOW - 60000,
-    kind: 'status',
+    kind: 'thought',
     gist: PRIVATE_DIARY,
     picture: null,
     search: '',
@@ -313,7 +313,7 @@ test('ordinary diary planning and writing omit restricted posts from the store',
   seedRestrictedDiary(core);
   core.store.appendDiaryPost({
     at: NOW - 120000,
-    kind: 'status',
+    kind: 'thought',
     gist: PUBLIC_DIARY,
     picture: null,
     search: '',
@@ -322,7 +322,7 @@ test('ordinary diary planning and writing omit restricted posts from the store',
   });
   await core.store.flushSettled({});
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false, seed: 0 });
+  const plan = JSON.stringify({ kind: 'thought', brief: 'a quiet day', search: '', picture: false, seed: 0 });
   const { llm } = await turnOf(core, { mode: 'diary', answers: [plan, '<msg>ordinary entry</msg>'] });
   assert.ok(llm.calls.length >= 2);
   const prompts = JSON.stringify(llm.calls);
@@ -334,7 +334,7 @@ test('a diary-mode internal turn records restricted provenance on its held speec
   // Catches guarding diary tool calls while leaving the ordinary diary-mode producer unrestricted.
   const core = await root();
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const plan = JSON.stringify({ kind: 'status', brief: 'a private day', search: '', picture: false, seed: 0 });
+  const plan = JSON.stringify({ kind: 'thought', brief: 'a private day', search: '', picture: false, seed: 0 });
   await turnOf(core, {
     mode: 'diary',
     memoryContext: internalDiaryContext(),

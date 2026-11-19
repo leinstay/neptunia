@@ -382,7 +382,7 @@ test('withoutPictureKinds: nothing weighted left makes pickKind return null', ()
 
 test('isPictureKind: listed kinds, the default list when none is given', () => {
   assert.equal(isPictureKind('meme', ['meme']), true);
-  assert.equal(isPictureKind('status', ['meme']), false);
+  assert.equal(isPictureKind('thought', ['meme']), false);
   assert.equal(isPictureKind('selfPicture', undefined), true);
   assert.equal(isPictureKind('selfPicture', []), false);
   assert.equal(isPictureKind(null, undefined), false);
@@ -391,7 +391,7 @@ test('isPictureKind: listed kinds, the default list when none is given', () => {
 test('renderDiaryBlock: newest first, at most max lines, picture suffix when present', () => {
   // newest first since 2026-11-14 (specs/2026-11-14-diary-in-her-own-words.md)
   const posts = [
-    { at: Date.parse('2026-03-01T10:00:00Z'), kind: 'status', gist: 'oldest', picture: null },
+    { at: Date.parse('2026-03-01T10:00:00Z'), kind: 'thought', gist: 'oldest', picture: null },
     { at: Date.parse('2026-03-02T10:00:00Z'), kind: null, gist: 'from the backfill', picture: true },
     { at: Date.parse('2026-03-03T22:30:00Z'), kind: 'selfPicture', gist: 'on the pier', picture: 'a pier at dusk' },
     { at: Date.parse('2026-03-04T10:00:00Z'), kind: 'thought', gist: 'café thoughts', picture: null },
@@ -441,12 +441,12 @@ test('renderDiaryBlock: a cut to max keeps the newest posts, not the first ones 
   // Bug: the list is reversed and then cut with the old `slice(-max)`, so the oldest posts stay.
   const posts = ['one', 'two', 'three', 'four'].map((gist, index) => ({
     at: Date.UTC(2026, 2, 1 + index, 10),
-    kind: 'status',
+    kind: 'thought',
     gist,
     picture: null,
   }));
   const lines = renderDiaryBlock(posts, labels, { timezone: 'UTC', max: 2 }).split('\n');
-  assert.deepEqual(lines.slice(1), ['- 2026-03-04 status: four', '- 2026-03-03 status: three']);
+  assert.deepEqual(lines.slice(1), ['- 2026-03-04 thought: four', '- 2026-03-03 thought: three']);
 });
 
 test('renderDiaryBlock: a set renders its first scene with the picture count', () => {
@@ -489,7 +489,7 @@ test('setSettings: the configured values, whole and ordered; the defaults for mi
 /** A past entry the planner planned: `seeds` the combinations offered, `seed` the 1-based one taken (0 for none). */
 const planned = (at: number, seeds: Array<Array<string>>, seed: number) => ({
   at,
-  kind: 'status',
+  kind: 'thought',
   gist: `entry ${at}`,
   picture: null,
   plan: { brief: `brief ${at}`, seeds, seed },
@@ -521,7 +521,7 @@ test('usedSeedLines: seed 0, a seed past the list and a post with no plan leave 
   const posts = [
     planned(1, [['a pier', 'fog']], 0),
     planned(2, [['a roof', 'rain']], 3),
-    { at: 3, kind: 'status', gist: 'an old row', picture: null },
+    { at: 3, kind: 'thought', gist: 'an old row', picture: null },
   ];
   assert.equal(usedSeedLines(posts, 10).size, 0);
 });
@@ -585,7 +585,7 @@ function tmpDataDir() {
 
 const post = (n: Untyped) => ({
   at: n * 1000,
-  kind: 'status',
+  kind: 'thought',
   gist: `post ${n}`,
   picture: null,
   messageIds: [`m${n}`],
@@ -733,7 +733,7 @@ function diaryHarness({
       return (
         outcomes.shift() ?? {
           outcome: 'spoke',
-          diary: { kind: 'status', picture: false, search: false, messages: 1 },
+          diary: { kind: 'thought', picture: false, search: false, messages: 1 },
         }
       );
     },
@@ -839,7 +839,7 @@ test('tick: fires the due slot through runTurn with mode diary and marks it done
   assert.ok(logs.some((l) => l.msg === 'diary: due'));
   const line = logs.find((l) => l.msg === 'diary: post');
   assert.equal(loose(line).outcome, 'spoke');
-  assert.equal(loose(line).kind, 'status');
+  assert.equal(loose(line).kind, 'thought');
   await h.diary.tick();
   assert.equal(h.turnCalls.length, 1, 'a done slot never fires again');
 });
@@ -957,7 +957,7 @@ test('tick: backfills an empty history before the first post', async () => {
 
   const kept = [];
   const full = diaryHarness({
-    posts: [{ at: 1, kind: 'status', gist: 'x' }],
+    posts: [{ at: 1, kind: 'thought', gist: 'x' }],
     backfill: async (args: Untyped) => kept.push(args),
   });
   full.setNow(SLOT + MINUTE_MS);

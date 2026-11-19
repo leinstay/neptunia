@@ -33,9 +33,9 @@ type Post = { id: string; at: number; text: string; attachments: ReadonlyArray<A
 
 /** Her diary, oldest first: each entry and the messages it was posted as. */
 const ENTRIES: ReadonlyArray<{ kind: string; posts: ReadonlyArray<Post> }> = [
-  { kind: 'status', posts: [{ id: 'm1', at: NOW - 5 * DAY, text: 'πρώτη μέρα στο λιμάνι', attachments: [] }] },
-  { kind: 'status', posts: [{ id: 'm2', at: NOW - 4 * DAY, text: 'δεύτερη μέρα, βροχή', attachments: [] }] },
-  { kind: 'status', posts: [{ id: 'm3', at: NOW - 3 * DAY, text: 'une journée grise', attachments: [] }] },
+  { kind: 'thought', posts: [{ id: 'm1', at: NOW - 5 * DAY, text: 'πρώτη μέρα στο λιμάνι', attachments: [] }] },
+  { kind: 'thought', posts: [{ id: 'm2', at: NOW - 4 * DAY, text: 'δεύτερη μέρα, βροχή', attachments: [] }] },
+  { kind: 'thought', posts: [{ id: 'm3', at: NOW - 3 * DAY, text: 'une journée grise', attachments: [] }] },
   {
     kind: 'picture',
     posts: [
@@ -65,7 +65,7 @@ const ENTRIES: ReadonlyArray<{ kind: string; posts: ReadonlyArray<Post> }> = [
       },
     ],
   },
-  { kind: 'status', posts: [{ id: 'm7', at: NOW - DAY, text: 'ήσυχη μέρα', attachments: [] }] },
+  { kind: 'thought', posts: [{ id: 'm7', at: NOW - DAY, text: 'ήσυχη μέρα', attachments: [] }] },
 ];
 /** The gist each entry is stored with, oldest first: its messages' texts, the empty ones left out. */
 export const GISTS: ReadonlyArray<string> = ENTRIES.map((entry) =>

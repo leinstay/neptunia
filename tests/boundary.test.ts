@@ -132,11 +132,11 @@ describe('inner turns with no interface', () => {
     };
     const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => START });
     // Changed: the diary turn runs as the diary's post runs it, since diary.force is gone.
-    await runnerOver({ port, hot, llm, store }).runTurn({ mode: 'diary', diary: { kind: 'status', forced: false } });
+    await runnerOver({ port, hot, llm, store }).runTurn({ mode: 'diary', diary: { kind: 'thought', forced: false } });
     await store.flushSettled({});
     assert.deepEqual(
       rowsOf(memory.memoryDb, 'SELECT kind, text FROM diary'),
-      [{ kind: 'status', text: 'μια ήσυχη μέρα' }],
+      [{ kind: 'thought', text: 'μια ήσυχη μέρα' }],
       'the entry exists in memory with its text'
     );
     assert.deepEqual(

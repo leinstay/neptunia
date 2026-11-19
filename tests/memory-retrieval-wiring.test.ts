@@ -241,7 +241,7 @@ for (const openPrivate of [false, true])
       config: { diary: {}, llm: { maxRequestTokens: 100000 }, bot: { timezone: 'UTC' } },
       channel: { id: 'c1', rootId: null, permissions: {} },
       now: START + 3_600_000,
-      params: { kind: 'status' },
+      params: { kind: 'thought' },
       memoryOn: true,
     });
     const text = prepared.facts ?? '';

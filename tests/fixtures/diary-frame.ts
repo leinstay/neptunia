@@ -70,13 +70,13 @@ export type FrameTurnSpec = {
   mirrors?: ReadonlyArray<MirrorSpec>;
   /** How many entries are stored before the turn, the oldest first, one a day up to the day before FRAME_NOW. */
   entries?: number;
-  /** The kind of entry `i`, `status` when absent. */
+  /** The kind of entry `i`, `thought` when absent. */
   entryKind?: (index: number) => string;
   /** The gist and text of entry `i`, `gistOf(i)` when absent. */
   entryGist?: (index: number) => string;
   /** How many turns run one after the other over the same memory, 1 when absent. */
   turns?: number;
-  /** The kind the owner forces, `status` when absent. */
+  /** The kind the owner forces, `thought` when absent. */
   kind?: string;
   /** Laid over the `diary` settings. */
   diary?: Record<string, unknown>;
@@ -144,7 +144,7 @@ function seedEntries(
   memoryDb: MemoryService,
   count: number,
   gist: (index: number) => string = gistOf,
-  kind: (index: number) => string = () => 'status'
+  kind: (index: number) => string = () => 'thought'
 ): void {
   const rows = Array.from({ length: count }, (_, i) => ({
     id: `diary:test:${String(i).padStart(3, '0')}`,
@@ -268,7 +268,7 @@ export async function frameTurn(spec: FrameTurnSpec = {}): Promise<FrameTurnRun>
   const { result } = await withCapturedLogs(async () => {
     let last: unknown = null;
     for (let turn = 0; turn < (spec.turns ?? 1); turn += 1)
-      last = await turns.runTurn({ chat: null, mode: 'diary', diary: { kind: spec.kind ?? 'status', forced: true } });
+      last = await turns.runTurn({ chat: null, mode: 'diary', diary: { kind: spec.kind ?? 'thought', forced: true } });
     return last;
   });
   await store.flushSettled({});

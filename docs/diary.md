@@ -31,14 +31,13 @@ The code draws the kind of an entry before anything else. `drawWeights` in `src/
 | `picture` | 2 | one |
 | `photoset` | 1 | one |
 | `randomSet` | 1 | three |
-| `status` | 3 | none |
 | `thought` | 2 | none |
 | `people` | 2 | none |
 | `news` | 2 | none |
 | `facts` | 1 | none |
 | `meme` | 1 | none |
 
-A `status` is a line of the persona's real day, and an invented moment in a scene is a `story`. Schema version 68 gives every entry that an older database stores as a `status` the kind `story`, because such an entry is an invented moment. `tests/memory-db-status-to-story.test.ts` opens a database written at version 67.
+An older database stores an invented moment under the kind `status`, which the code does not draw. Schema version 68 gives those entries the kind `story`. `tests/memory-db-status-to-story.test.ts` opens a database written at version 67.
 
 ## The director
 
