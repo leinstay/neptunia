@@ -3,7 +3,7 @@
 // persona has not heard were refused. buildRequest (src/behavior/prompt.ts) calls `diaryFramedOf` on the frame, and
 // `diaryTaskOf` gives the entry's task text. None of it reaches a request of another kind.
 
-import { localDayKey, renderDiaryBlock, renderTopicBlock } from '../../behavior/diary.ts';
+import { diaryLineOf, localDayKey, renderDiaryBlock, renderTopicBlock } from '../../behavior/diary.ts';
 import { fill } from '../../format.ts';
 import { refusedAudience } from '../../tools/publication.ts';
 import { kindOfRequest } from './frame.ts';
@@ -18,6 +18,8 @@ import type { Labels, RequestInput } from './types.ts';
 export type DiaryInput = {
   readonly posts?: unknown;
   readonly entries?: ReadonlyArray<unknown> | null;
+  /** The entries of the turn's own kind that `entries` leaves out, oldest first. */
+  readonly told?: ReadonlyArray<unknown> | null;
   readonly kind?: string | null;
   readonly scenes?: ReadonlyArray<string>;
   readonly topic?: string | null;
@@ -110,7 +112,15 @@ export function diaryFramedOf(given: RequestInput & { labels: Labels }): DiaryFr
   const lines = shown ? shown.split('\n') : [];
   const intro = labels.diary?.intro ?? '';
   const entries = intro && lines[0] === intro ? lines.slice(1) : lines;
+  const told = input.told ?? [];
+  const toldText =
+    told.length > 0
+      ? [labels.diary?.told ?? '', ...told.map((entry) => diaryLineOf(entry, labels, config.bot?.timezone))]
+          .filter(Boolean)
+          .join('\n')
+      : '';
   const parts = [
+    ...textPart('told', toldText),
     ...textPart('kind', input.kind),
     ...textPart('scene', (input.scenes ?? []).join('\n\n')),
     ...textPart('topic', renderTopicBlock(input.topic, labels)),

@@ -176,7 +176,7 @@ A diary turn runs nowhere, with no conversation: `frameOf` gives the kind `diary
 
 After its other parts, `<inner>` holds `<diary>`: `diary.intro`, then one `diary.line` per past entry with `{date}`, `{kind}` (`diary.kindUnknown` without one) and `{gist}`, and `diary.picture` or `diary.pictureSet` with `{scene}` and `{count}` after a picture entry. The entries are the newest of the `diary` table the turn may read (`readDiary` in `src/memory/db/diary-past.ts`), listed newest first, the newest `diary.writerEntries` of them. The budget cuts the oldest first.
 
-`<inner>` then holds `<kind>` with the name of the entry's kind, `<scene>` with the director's scene for a kind that takes one (the three scenes of a `randomSet` one after another, a blank line between them), `<topic>` (`diary.topic` and the owner's subject), `<stored_facts>` for a kind with no scene, and `<publication_places>`, each absent when empty. None of these parts is cut.
+`<inner>` then holds `<told>`, which is `diary.told` followed by one line per entry of the turn's own kind that `<diary>` does not show. The lines run oldest first in the form of a `<diary>` line, at most 150 of them with the oldest left out first, and the part is absent when there is none. It is read under the same audience as `<diary>`. Then comes `<kind>` with the name of the entry's kind, `<scene>` with the director's scene for a kind that takes one (the three scenes of a `randomSet` one after another, a blank line between them), `<topic>` (`diary.topic` and the owner's subject), `<stored_facts>` for a kind with no scene, and `<publication_places>`, each absent when empty. None of these parts is cut.
 
 ### Diary audience
 

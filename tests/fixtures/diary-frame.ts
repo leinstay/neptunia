@@ -70,6 +70,8 @@ export type FrameTurnSpec = {
   mirrors?: ReadonlyArray<MirrorSpec>;
   /** How many entries are stored before the turn, the oldest first, one a day up to the day before FRAME_NOW. */
   entries?: number;
+  /** The kind of entry `i`, `status` when absent. */
+  entryKind?: (index: number) => string;
   /** The gist and text of entry `i`, `gistOf(i)` when absent. */
   entryGist?: (index: number) => string;
   /** How many turns run one after the other over the same memory, 1 when absent. */
@@ -138,11 +140,16 @@ function seedWorld(memoryDb: MemoryService): void {
 }
 
 /** `count` group entries of hers, the oldest first, entry `i` with the gist `gist(i)`, `gistOf(i)` by default. */
-function seedEntries(memoryDb: MemoryService, count: number, gist: (index: number) => string = gistOf): void {
+function seedEntries(
+  memoryDb: MemoryService,
+  count: number,
+  gist: (index: number) => string = gistOf,
+  kind: (index: number) => string = () => 'status'
+): void {
   const rows = Array.from({ length: count }, (_, i) => ({
     id: `diary:test:${String(i).padStart(3, '0')}`,
     at_ms: FRAME_NOW - (count - i) * DAY,
-    kind: 'status',
+    kind: kind(i),
     gist: gist(i),
     text: gist(i),
     scope_kind: 'group',
@@ -209,7 +216,7 @@ export async function frameTurn(spec: FrameTurnSpec = {}): Promise<FrameTurnRun>
     text: TEXT.mirrorOnly,
     at: iso(FRAME_NOW - 3 * DAY),
   });
-  seedEntries(memoryDb, spec.entries ?? 3, spec.entryGist);
+  seedEntries(memoryDb, spec.entries ?? 3, spec.entryGist, spec.entryKind);
   for (const [index, at] of (spec.gardenLines ?? []).entries())
     addLine(dbOf(memoryDb), {
       id: `g-more-${index}`,

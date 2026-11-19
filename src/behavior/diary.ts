@@ -551,14 +551,20 @@ export function renderDiaryBlock(
   const limit = countOf(max ?? DEFAULT_HISTORY_POSTS);
   const shown = limit > 0 ? list.slice(-limit).reverse() : [];
   if (shown.length === 0) return '';
-  const lines = shown.map((entry) => {
-    const post = objOf(entry);
-    const date = isFiniteNumber(post.at) ? localDayKey(post.at, timezone) : '';
-    const kind = typeof post.kind === 'string' && post.kind ? post.kind : (words.kindUnknown ?? '');
-    const line = fill(labelOf(words.line), { date, kind, gist: oneLine(post.gist) });
-    return line + pictureSuffix(post, labels);
-  });
-  return [words.intro, ...lines].filter(Boolean).join('\n');
+  return [words.intro, ...shown.map((entry) => diaryLineOf(entry, labels, timezone))].filter(Boolean).join('\n');
+}
+
+/**
+ * One past entry on one line, as `<diary>` and `<told>` show it: `labels.diary.line` with `{date}` (the entry's local
+ * date in `timezone`), `{kind}` (its kind key or `labels.diary.kindUnknown`) and `{gist}`, and the picture suffix of
+ * renderDiaryBlock.
+ */
+export function diaryLineOf(entry: unknown, labels: unknown, timezone?: string): string {
+  const words = diaryWords(labels);
+  const post = objOf(entry);
+  const date = isFiniteNumber(post.at) ? localDayKey(post.at, timezone) : '';
+  const kind = typeof post.kind === 'string' && post.kind ? post.kind : (words.kindUnknown ?? '');
+  return fill(labelOf(words.line), { date, kind, gist: oneLine(post.gist) }) + pictureSuffix(post, labels);
 }
 
 /**
