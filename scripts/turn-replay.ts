@@ -42,7 +42,7 @@ import { createLlm } from '../src/llm/openrouter.ts';
 import { createEmbedder } from '../src/llm/embed.ts';
 import { estimateMessages } from '../src/llm/tokens.ts';
 import { roleModel } from '../src/llm/roles.ts';
-import { CliError, flagText, parseFlags, runCli } from './lib/cli.ts';
+import { CliError, flagText, parseFlags, runCli, writePrivate } from './lib/cli.ts';
 import { createAnswersDir, offlineCore } from './lib/answers-dir.ts';
 import { promptLayersHot } from './lib/prompt-layers.ts';
 import { cutCopy } from './lib/turn-cut.ts';
@@ -305,12 +305,6 @@ function turnOptions(flags: Flags, dataDir: string) {
     prompts: flagText(flags, '--prompts') ?? null,
     kind: flagText(flags, '--kind') ?? null,
   };
-}
-
-/** Writes a private file of a run under the out folder. */
-function writePrivate(file: string, value: unknown): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
 /**

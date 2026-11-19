@@ -149,3 +149,9 @@ export function spendGate({
   if (budget < usd) return { ok: false, text: `${head}\nrefused: --spend ${budget} is below the estimate`, budget };
   return { ok: true, text: head, budget };
 }
+
+/** Writes a private file of a run under its out folder: the folder and the file readable by the owner alone. */
+export function writePrivate(file: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+}

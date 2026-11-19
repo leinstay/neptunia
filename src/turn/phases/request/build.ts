@@ -36,6 +36,7 @@ import type { Prepared } from '../request.ts';
 import type { Handles } from '../../handles.ts';
 import { shuffled } from '../../../behavior/random.ts';
 import { drawFragments } from '../../../behavior/seeds.ts';
+import { drawVoiced } from '../../../behavior/diary.ts';
 import { promptsInFolder } from '../../../hot.ts';
 import type { ServiceListsInput } from '../../request/types.ts';
 import { messageSourceId, PERSONA_ID } from '../../../memory/db/ids.ts';
@@ -242,6 +243,9 @@ type FramedInputs = {
   /** A service turn's lists and a heartbeat's fragments; null on any other kind. */
   serviceLists: ServiceListsInput | null;
 };
+
+/** The most entries `<told>` lists, the oldest left out first. */
+const TOLD_ENTRIES = 150;
 
 /** The service turns whose `<memory>` lists the people and places of the service collector. */
 const LISTED_KINDS: ReadonlySet<string> = new Set(['heartbeat', 'diary']);
@@ -890,17 +894,25 @@ function dueIds(wake: { items?: ReadonlyArray<unknown> } | null | undefined): Ar
 
 /**
  * The newest diary entries the turn's context may read, as many as `entriesShownOf` says (`diary.writerEntries`),
- * oldest first, read from memory alone (src/memory/db/diary-past.ts#readDiary). None without a reader or a context.
+ * oldest first, read from memory alone (src/memory/db/diary-past.ts#readDiary), and with `kind` the entries of that
+ * kind among the ones it does not show (`told`). None without a reader or a context.
  */
 function pastEntriesOf(
   ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf'>,
   draft: Draft,
   channel: Prepared['channel'],
-  config: Prepared['config']
-): Array<PastEntry> {
+  config: Prepared['config'],
+  kind: string | null = null
+): { entries: Array<PastEntry>; told: Array<PastEntry> } {
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
-  if (!memoryContext) return [];
-  return ctx.frameReads?.diary?.(memoryContext, entriesShownOf(config)) ?? [];
+  if (!memoryContext) return { entries: [], told: [] };
+  const shown = entriesShownOf(config);
+  const entries = ctx.frameReads?.diary?.(memoryContext, shown) ?? [];
+  if (kind === null) return { entries, told: [] };
+  // The entries of the turn's own kind that `<diary>` does not show, the newest TOLD_ENTRIES of them, oldest first.
+  const inDiary = new Set(entries.map((entry) => entry.id));
+  const ofKind = ctx.frameReads?.diary?.(memoryContext, shown + TOLD_ENTRIES, kind) ?? [];
+  return { entries, told: ofKind.filter((entry) => !inDiary.has(entry.id)).slice(-TOLD_ENTRIES) };
 }
 
 /** The budget's line of a request: one entry per section (src/llm/budget.ts). */
@@ -1017,6 +1029,10 @@ export async function buildTurnRequest(
     wake: wakeWords,
   };
   const framed = framedInputsOf(ctx, frame, draft, channel, facts);
+  // A text entry is voiced at `diary.voiceChance` when the turn offers `voice.say`.
+  const voiced =
+    diaryPrep !== null &&
+    drawVoiced({ kind: diaryPrep.kind, offered: toolNames, diaryCfg: config.diary, rng: ctx.rng });
   // `<errands>` and `<errand_result>`: her errands (none on a diary post); a result shown whole is read once she answers.
   const errands =
     finalMode === 'diary'
@@ -1079,8 +1095,9 @@ export async function buildTurnRequest(
     diary: diaryPrep
       ? {
           posts: diaryPrep.posts,
-          entries: pastEntriesOf(ctx, draft, channel, config),
+          ...pastEntriesOf(ctx, draft, channel, config, diaryPrep.kind),
           kind: diaryPrep.kind,
+          voiced,
           scenes: diaryPrep.scenes.map((one) => one.scene),
           topic: diaryPrep.topic,
           facts: diaryPrep.facts,

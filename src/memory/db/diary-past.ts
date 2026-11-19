@@ -25,9 +25,14 @@ export type PastEntry = {
 
 /**
  * The newest `limit` entries of her diary that `ctx` may read, oldest first, from the `diary` table and the `media`
- * row of each entry's first picture: no mirror and no message is read.
+ * row of each entry's first picture: no mirror and no message is read. With `kind`, the entries of that kind alone.
  */
-export function readDiary(connection: unknown, ctx: unknown, limit: number): Array<PastEntry> {
+export function readDiary(
+  connection: unknown,
+  ctx: unknown,
+  limit: number,
+  kind: string | null = null
+): Array<PastEntry> {
   const db = connection as Db; // a node:sqlite connection; the queries below read it
   const count = Math.max(0, Math.floor(limit));
   if (count === 0) return [];
@@ -35,10 +40,10 @@ export function readDiary(connection: unknown, ctx: unknown, limit: number): Arr
   const rows = db
     .prepare(
       `SELECT id, at_ms, kind, gist, picture_prompt, extra FROM diary
-        WHERE retired_at IS NULL AND ${where.sql}
+        WHERE retired_at IS NULL AND ${where.sql}${kind === null ? '' : ' AND kind = ?'}
         ORDER BY at_ms DESC, COALESCE(position, 0) DESC, id DESC LIMIT ?`
     )
-    .all(...where.params, count)
+    .all(...where.params, ...(kind === null ? [] : [kind]), count)
     .reverse();
   return rows.map((row) => {
     const extra = parseExtra(row.extra);

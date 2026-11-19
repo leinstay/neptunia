@@ -315,6 +315,10 @@ export type WiringInput = {
    * shadow only proposes them.
    */
   errandAnswers?: ReadonlyArray<ErrandAnswer> | null;
+  /** The image client in place of the stand-in (scripts/replay.ts `--diary-kind --draw live`); absent: the stand-in. */
+  images?: CreateTurnRunnerInput['images'];
+  /** The look at a picture she drew (scripts/replay.ts `--draw none`); absent: no look, as with no eyes. */
+  describePicture?: CreateTurnRunnerInput['describePicture'];
 };
 
 /**
@@ -478,10 +482,12 @@ export function buildTurnRunner(input: WiringInput): Wired {
       return Promise.resolve({ buffer: BLANK_PNG, mediaType: 'image/png', cost: 0, usage: {}, model: '', seconds: 0 });
     },
   };
+  // A free stand-in of the speech model: the voice message holds no sound, and its text is what she asked to say.
   const speech = {
-    say: (request: unknown) => {
+    say: (request: { text?: unknown }) => {
       drawings.push({ voice: request });
-      return Promise.resolve({ ok: false, code: 'replay' });
+      const voiced = typeof request?.text === 'string' ? request.text : '';
+      return Promise.resolve({ ogg: new Uint8Array(0), durationSecs: 0, waveform: '', voiced });
     },
   };
   const admin = createAdmin({
@@ -533,8 +539,9 @@ export function buildTurnRunner(input: WiringInput): Wired {
     imageFetcher,
     lookup,
     recall,
-    images,
+    images: (input.images as typeof images | undefined) ?? images,
     speech,
+    ...(input.describePicture ? { describePicture: input.describePicture } : {}),
     emoji: createEmojiIndex({ reads, now, iface: identity.iface, names: namesStore }),
     // The live glance at voice channels and statuses (src/core.ts): kept in process only, so a replay starts it empty,
     // as a snapshot that found nobody. The core reads presences off the link's hello, which a chat platform declares.

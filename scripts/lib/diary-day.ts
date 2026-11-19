@@ -13,7 +13,8 @@ import { createHash } from 'node:crypto';
 import { mulberry32 } from './search-compare.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import type { DayPlan } from '../../src/behavior/diary.ts';
-import { sceneOf } from './turn-report.ts';
+import { callOutcomesOf, sceneOf } from './turn-report.ts';
+import type { KeptLine } from './turn-report.ts';
 import type { DiaryScene } from './turn-report.ts';
 
 /** An object read by key whose values are not typed yet. */
@@ -189,24 +190,43 @@ export type DiarySlot = {
   kind?: unknown;
   scenes?: Array<DiaryScene>;
   answers?: Array<DiaryAnswer>;
+  voiced?: Array<string>;
   messages?: Array<string>;
   attachments?: number;
   draws?: Array<DrawCall>;
   [field: string]: Untyped;
 };
 
-/** One answer of the persona in a diary turn: its text and the calls it made, each by name with its arguments. */
-export type DiaryAnswer = { text: string | null; calls: Array<{ name: unknown; args: unknown }> };
+/** A call's arguments as an object: the JSON text a model sent parsed, `{}` for one that is no JSON object. */
+function argsOf(args: unknown): { text?: unknown } {
+  if (typeof args !== 'string') return args ?? {};
+  try {
+    const parsed: unknown = JSON.parse(args);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    // A call whose arguments the model cut off or mangled: the engine refuses it, and the report shows no text for it.
+    return {};
+  }
+}
+
+/** One answer of the persona in a diary turn: its text and the calls it made, each by name with its arguments, status and code. */
+export type DiaryAnswer = {
+  text: string | null;
+  calls: Array<{ name: unknown; args: unknown; status: string | null; code: string | null }>;
+};
 
 /**
  * What one diary turn made, from its `result` and the requests it recorded (`calls` of scripts/replay.ts#recordingLlm):
- * its outcome, its kind, its scenes with their seed lines, the persona's answers with their calls, and the messages of
- * the entry. The director's requests are left out of the answers.
+ * its outcome, its kind, its scenes with their seed lines, the persona's answers with their calls, each call's status
+ * and code read from the operations of the turn's `journal`, and the messages of the entry. The director's requests are
+ * left out of the answers.
  */
 export function diaryKindSample(
   result: unknown,
-  calls: ReadonlyArray<Record<string, unknown>>
+  calls: ReadonlyArray<Record<string, unknown>>,
+  journal: ReadonlyArray<KeptLine> = []
 ): Record<string, unknown> {
+  const outcomes = callOutcomesOf(journal);
   type Field = Record<string, unknown>;
   const made = (result ?? {}) as { outcome?: unknown; reason?: unknown; diary?: Field | null };
   const diary = made.diary ?? null;
@@ -215,21 +235,35 @@ export function diaryKindSample(
     .filter((call) => call.purpose !== 'diary-scene')
     .map((call) => ({
       text: typeof call.text === 'string' ? call.text : null,
-      calls: (Array.isArray(call.toolCalls) ? (call.toolCalls as Array<Field>) : []).map((one) => ({
-        name: one.name ?? null,
-        args: one.args ?? one.arguments ?? null,
-      })),
+      calls: (Array.isArray(call.toolCalls) ? (call.toolCalls as Array<Field>) : []).map((one) => {
+        const outcome = typeof one.id === 'string' ? outcomes.get(one.id) : undefined;
+        return {
+          name: one.name ?? null,
+          args: one.args ?? one.arguments ?? null,
+          status: outcome?.status ?? null,
+          code: outcome?.code ?? null,
+        };
+      }),
     }));
   const scenes: Array<DiaryScene> = Array.isArray(diary?.scenes) ? (diary.scenes as Array<unknown>).map(sceneOf) : [];
   const messages: Array<string> = Array.isArray(entry?.messages)
     ? (entry.messages as Array<unknown>).filter((one): one is string => typeof one === 'string')
     : [];
+  // What the persona asked to say aloud: the text of each `voice.say` call.
+  const voiced = answers.flatMap((one) =>
+    one.calls.flatMap((call) => {
+      if (call.name !== 'voice_say' && call.name !== 'voice.say') return [];
+      const given = argsOf(call.args);
+      return typeof given.text === 'string' ? [given.text] : [];
+    })
+  );
   return {
     outcome: made.outcome ?? null,
     ...(made.reason ? { reason: made.reason } : {}),
     kind: diary?.kind ?? null,
     scenes,
     answers,
+    ...(voiced.length > 0 ? { voiced } : {}),
     messages,
   };
 }
@@ -316,6 +350,8 @@ function diaryKindLines(slot: DiarySlot): Array<string> {
   }
   for (const [i, answer] of (slot.answers ?? []).entries())
     for (const call of answer.calls) lines.push(`- call in answer ${i + 1}: \`${cell(JSON.stringify(call))}\``);
+  for (const text of slot.voiced ?? []) lines.push(`- voiced: ${cell(text)}`);
+  if (typeof slot.request === 'string') lines.push(`- first request: ${slot.request}`);
   return lines;
 }
 

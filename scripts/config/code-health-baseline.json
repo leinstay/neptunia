@@ -1131,7 +1131,7 @@
     },
     "scripts/lib/replay-args.ts": {
       "parseArgs": {
-        "complexity": 210
+        "complexity": 209
       }
     },
     "scripts/lib/vision-compare.ts": {
@@ -1172,7 +1172,7 @@
         "complexity": 27
       },
       "runDiaryDay": {
-        "complexity": 30
+        "complexity": 28
       },
       "runInner": {
         "complexity": 41

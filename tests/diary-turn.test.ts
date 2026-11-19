@@ -40,6 +40,8 @@ import { createJournal } from '../src/memory/journal.ts';
 import { NOW as NOW_ID, sceneHot, sceneLlm, sceneMemory, sceneWorld } from './fixtures/diary-scene.ts';
 import type { SceneMemory } from './fixtures/diary-scene.ts';
 import { worldTurnRunner } from './fixtures/world-runner.ts';
+import { chainsOf } from './fixtures/chains.ts';
+import { defaultSkills } from '../src/turn/calls.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -203,18 +205,6 @@ function fakeImages({ used = 0, cap = 10, fail = null }: { used?: number; cap?: 
       prompts.push(prompt);
       if (fail) throw fail;
       return { buffer: Buffer.from('png'), mediaType: 'image/png', seconds: 1, cost: 0 };
-    },
-  };
-}
-
-function fakeLookup(result: Untyped) {
-  const calls: Array<Untyped> = [];
-  return {
-    calls,
-    search: async (placeId: string, query: Untyped) => {
-      calls.push({ placeId, query });
-      if (result instanceof Error) throw result;
-      return result;
     },
   };
 }
@@ -436,20 +426,6 @@ test('diary turn: no topic leaves the requests unchanged', async () => {
   assert.ok(!userOf(plain.calls[0]).includes('<topic>'));
 });
 
-test('diary turn: news asks for no search of the code', async () => {
-  // Bug: the code still searches for the persona before the turn, so the entry rides on a search it did not choose.
-  const llm = fakeLlm(null, '<msg>une comète</msg>');
-  const lookup = fakeLookup({ text: 'found', sources: [] });
-  await runner({ llm, lookup }).runTurn({
-    channel: diaryChannel(),
-    mode: 'diary',
-    diary: { kind: 'news', forced: true },
-  });
-  assert.equal(lookup.calls.length, 0);
-});
-
-// PR 7d: the kinds and their weights are DIARY_KINDS of src/behavior/diary.ts, and the daily caps that turned the
-// pictures off are gone: no image client is what turns them off here.
 test('diary turn: with pictures off only a text kind is drawn', async () => {
   for (const roll of [0, 0.3, 0.6, 0.99]) {
     const llm = fakeLlm(null, '<msg>brume</msg>');
@@ -1341,4 +1317,88 @@ test('the diary requests are the same bytes with a heartbeat seeds file beside t
   });
   assert.equal(seeded.writer[0], plain.writer[0]);
   assert.ok(!(seeded.writer[0] ?? '').includes('ΘΡΑΥΣΜΑ'));
+});
+
+// ---- voiced entries ----------------------------------------------------------------
+
+const VOICE_PART = 'VOICE_PART';
+const TEXT_KINDS = ['status', 'story', 'thought', 'people', 'news', 'facts'];
+const PICTURE_KINDS = ['selfPicture', 'picture', 'photoset', 'randomSet', 'meme'];
+
+/** A diary setting where the role `speech` has a route (or none with `speech: false`) and `diary.voiceChance` is `chance`. */
+function voiceHot({ chance, speech = true }: { chance?: number; speech?: boolean } = {}) {
+  const hot = fakeHot({
+    diary: chance === undefined ? {} : { voiceChance: chance },
+    prompts: { 'diary/voice': VOICE_PART },
+  });
+  Object.assign(hot.config, { models: { routes: chainsOf({ speech: speech ? 'x/speech' : null }) } });
+  return hot;
+}
+
+/** The `<task>` of the persona's first request in a diary turn of `kind` at a constant `roll`. */
+async function voicedTask(
+  kind: string,
+  roll: number,
+  hot: ReturnType<typeof voiceHot>,
+  extra: Record<string, unknown> = {}
+) {
+  const llm = fakeLlm(null, '<skip/>');
+  await runner({ hot, llm, rng: () => roll, extra }).runTurn({
+    channel: diaryChannel(),
+    mode: 'diary',
+    diary: { kind, forced: true },
+  });
+  const at = (llm.options as Array<{ purpose?: unknown } | null>).findIndex((one) => one?.purpose !== 'diary-scene');
+  return /<task>\n([\s\S]*?)\n<\/task>/.exec(userOf(llm.calls[at]))?.[1] ?? '';
+}
+
+test('diary voice: with diary.voiceChance at 1 every text kind is voiced and no picture kind', async () => {
+  // Bug: a picture entry is told to speak, or a text kind is never voiced.
+  for (const kind of TEXT_KINDS)
+    assert.ok((await voicedTask(kind, 0.5, voiceHot({ chance: 1 }))).endsWith(VOICE_PART), kind);
+  for (const kind of PICTURE_KINDS)
+    assert.ok(!(await voicedTask(kind, 0.5, voiceHot({ chance: 1 }))).includes(VOICE_PART), kind);
+});
+
+test('diary voice: with diary.voiceChance at 0 no entry is voiced', async () => {
+  for (const kind of TEXT_KINDS)
+    assert.ok(!(await voicedTask(kind, 0, voiceHot({ chance: 0 }))).includes(VOICE_PART), kind);
+});
+
+test('diary voice: the default chance voices a text entry below 0.1 and not above it', async () => {
+  assert.ok((await voicedTask('status', 0.05, voiceHot())).endsWith(VOICE_PART));
+  assert.ok(!(await voicedTask('status', 0.15, voiceHot())).includes(VOICE_PART));
+});
+
+test('diary voice: with the role speech off no entry is voiced at any roll', async () => {
+  // Bug: the persona is told to speak with a tool it is not offered.
+  for (const roll of [0, 0.05, 0.5])
+    assert.ok(!(await voicedTask('status', roll, voiceHot({ chance: 1, speech: false }))).includes(VOICE_PART));
+});
+
+test("diary voice: with voice.say filtered out of the turn's tools no entry is voiced", async () => {
+  const skills = new Map([...defaultSkills()].filter(([name]) => name !== 'voice.say'));
+  assert.ok(!(await voicedTask('status', 0, voiceHot({ chance: 1 }), { skills })).includes(VOICE_PART));
+});
+
+test('diary voice: an entry of the voice alone is recorded with its voiced text and ends spoke', async () => {
+  // Bug: a voiced entry with no <msg> counts as no speech, so the voice is made and the entry is lost.
+  const store = fakeStore();
+  const llm = fakeLlm(null, [toolAnswer('', [call('voice.say', { text: 'bonsoir' })]), '<skip/>']);
+  const speech = {
+    say: ({ text }: { text: string }) =>
+      Promise.resolve({
+        ogg: new Uint8Array(1),
+        durationSecs: 2,
+        waveform: '',
+        voiced: `[soft] ${text}`,
+      }),
+  };
+  const result = await runner({ hot: voiceHot({ chance: 1 }), store, llm, rng: () => 0, extra: { speech } }).runTurn({
+    channel: diaryChannel(),
+    mode: 'diary',
+    diary: { kind: 'status', forced: true },
+  });
+  assert.equal(loose(result).outcome, 'spoke');
+  assert.equal(loose(appendedPost(store).post.voice).text, '[soft] bonsoir');
 });

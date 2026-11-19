@@ -432,6 +432,7 @@ export const labels = {
     pictureUnknown: 'not recorded',
     pictureSet: ' [{count} pictures: {scene}]',
     kindUnknown: 'post',
+    told: 'Earlier posts of this kind:',
     topic: 'Topic the owner asked for:',
     publicationPlaces: 'Who may read this post, and the audience tag:',
     publicationPlace: '{place} {name}, on {iface}',

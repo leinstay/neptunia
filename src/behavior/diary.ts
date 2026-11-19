@@ -118,6 +118,7 @@ const labelOf = (value: unknown): string => (typeof value === 'string' ? value :
 const diaryWords = (labels: unknown): Obj => sectionOf(labels, 'diary');
 
 const DEFAULT_QUIET_DAY_CHANCE = 0.3; // diary.quietDayChance
+const DEFAULT_VOICE_CHANCE = 0.1; // diary.voiceChance
 // The diary's measures. Production values, config cut of 2026-10-31.
 const DEFAULT_GRACE_MINUTES = 30;
 const DEFAULT_QUIET_CARRY = 0.25;
@@ -464,6 +465,29 @@ export function isPictureKind(kind: unknown, pictureKinds: unknown): boolean {
 }
 
 /**
+ * Whether a diary entry of `kind` is voiced: a kind of DIARY_KINDS that is no picture kind, `voice.say` among the tools
+ * the turn offers (`offered`), and a draw of `rng` under `diary.voiceChance` (0.1; a number from 0 to 1, else the
+ * default), read from `diaryCfg` now.
+ */
+export function drawVoiced({
+  kind,
+  offered,
+  diaryCfg,
+  rng,
+}: {
+  kind: unknown;
+  offered: ReadonlyArray<string>;
+  diaryCfg: unknown;
+  rng: () => number;
+}): boolean {
+  const textKind = typeof kind === 'string' && Object.hasOwn(DIARY_KINDS, kind) && !isPictureKind(kind, undefined);
+  if (!textKind || !offered.includes('voice.say')) return false;
+  const given = objOf(diaryCfg).voiceChance;
+  const chance = typeof given === 'number' && given >= 0 && given <= 1 ? given : DEFAULT_VOICE_CHANCE;
+  return rng() < chance;
+}
+
+/**
  * Whether `kind` posts a set of pictures: listed in `setKinds`
  * (`diary.setKinds`), DEFAULT_SET_KINDS when that is not a list.
  */
@@ -551,14 +575,20 @@ export function renderDiaryBlock(
   const limit = countOf(max ?? DEFAULT_HISTORY_POSTS);
   const shown = limit > 0 ? list.slice(-limit).reverse() : [];
   if (shown.length === 0) return '';
-  const lines = shown.map((entry) => {
-    const post = objOf(entry);
-    const date = isFiniteNumber(post.at) ? localDayKey(post.at, timezone) : '';
-    const kind = typeof post.kind === 'string' && post.kind ? post.kind : (words.kindUnknown ?? '');
-    const line = fill(labelOf(words.line), { date, kind, gist: oneLine(post.gist) });
-    return line + pictureSuffix(post, labels);
-  });
-  return [words.intro, ...lines].filter(Boolean).join('\n');
+  return [words.intro, ...shown.map((entry) => diaryLineOf(entry, labels, timezone))].filter(Boolean).join('\n');
+}
+
+/**
+ * One past entry on one line, as `<diary>` and `<told>` show it: `labels.diary.line` with `{date}` (the entry's local
+ * date in `timezone`), `{kind}` (its kind key or `labels.diary.kindUnknown`) and `{gist}`, and the picture suffix of
+ * renderDiaryBlock.
+ */
+export function diaryLineOf(entry: unknown, labels: unknown, timezone?: string): string {
+  const words = diaryWords(labels);
+  const post = objOf(entry);
+  const date = isFiniteNumber(post.at) ? localDayKey(post.at, timezone) : '';
+  const kind = typeof post.kind === 'string' && post.kind ? post.kind : (words.kindUnknown ?? '');
+  return fill(labelOf(words.line), { date, kind, gist: oneLine(post.gist) }) + pictureSuffix(post, labels);
 }
 
 /**

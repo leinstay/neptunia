@@ -44,6 +44,11 @@ function isQuietInner(draft: Draft, stepped: Rounded['stepped']): boolean {
   return !reached && (draft.innerActions ?? []).every((action) => changedNothing(action as Record<string, unknown>));
 }
 
+/** Whether a diary turn holds the persona's speech: a message, or a voiced entry of the voice message alone. */
+function spokeOf(messages: number, voice: unknown): boolean {
+  return messages > 0 || Boolean(voice);
+}
+
 /** What the outcome phase reads of the attempt. */
 type OutcomeNeeds = Pick<
   Rounded,
@@ -70,8 +75,9 @@ export function outcomePhase(ctx: PhaseContext, draft: Draft, turn: OutcomeNeeds
     .filter((id): id is string => typeof id === 'string' && Boolean(id));
   // A diary post holds what it would send (holdSpeech): the entry is recorded and counted before any publication.
   const held = acts.filter((one): one is HeldSpeech => 'held' in one && one.held === true);
+  const spoke = spokeOf(held.length, draft.diaryVoice);
   const recorded =
-    diaryPrep && held.length > 0
+    diaryPrep && spoke
       ? {
           diary: recordEntry({
             publicationBoundary: turnBoundary(draft, ctx.chatOf(channel)),
@@ -106,8 +112,7 @@ export function outcomePhase(ctx: PhaseContext, draft: Draft, turn: OutcomeNeeds
   }
   if (isQuietInner(draft, stepped)) return { outcome: 'skip', mode: finalMode, reason: SKIP_NOTHING_TO_DO };
   // A diary turn that held no speech recorded no entry: ended on her skip, it skipped, whatever it called.
-  if (diaryPrep && stepped.skipped && held.length === 0)
-    return { outcome: 'skip', mode: finalMode, reason: SKIP_NOTHING_TO_DO };
+  if (diaryPrep && stepped.skipped && !spoke) return { outcome: 'skip', mode: finalMode, reason: SKIP_NOTHING_TO_DO };
   // An inner turn in shadow mode delivers nothing, whatever it proposed.
   const delivered = stepped.delivered && draft.inner?.shadow !== true;
   return {

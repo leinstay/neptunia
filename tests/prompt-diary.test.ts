@@ -17,6 +17,7 @@ import {
   SCENE,
   blockOf,
   frameTurn,
+  gistOf,
   inOrderOf,
   partOf,
   rootTags,
@@ -274,4 +275,27 @@ test('a past entry that names a custom emoji gives the diary turn <media> with i
   const run = await frameTurn({ emoji: 'named', entries: 2, entryGist: (index) => `ΣΕΛΙΔΑ-${index} :e1:` });
   const text = run.writer[0] ?? '';
   assert.ok(blockOf(text, 'media').includes(`:e1: ${EMOJI_NAME}`), text.slice(-1500));
+});
+
+// ---- the earlier entries of the same kind -----------------------------------------
+
+test('a facts turn lists in <told> a facts entry older than <diary> shows, and no entry of another kind', async () => {
+  // Bug: a kind's history beyond the newest entries is invisible, so a facts entry repeats a subject of an older one.
+  const facts = new Set([0, 35]);
+  const run = await frameTurn({
+    entries: 40,
+    entryKind: (index) => (facts.has(index) ? 'facts' : 'status'),
+    kind: 'facts',
+  });
+  const inner = blockOf(run.writer[0] ?? '', 'inner');
+  const told = partOf(inner, 'told');
+  assert.ok(told.includes(gistOf(0)), told);
+  assert.ok(!told.includes(gistOf(1)), 'no entry of another kind');
+  assert.ok(!told.includes(gistOf(35)), 'an entry <diary> shows is not told again');
+  assert.ok(partOf(inner, 'diary').includes(gistOf(35)));
+});
+
+test('a turn whose kind has no entry beyond <diary> has no <told>', async () => {
+  const run = await frameTurn({ entries: 5, kind: 'facts', entryKind: () => 'facts' });
+  assert.ok(!(run.writer[0] ?? '').includes('<told>'));
 });

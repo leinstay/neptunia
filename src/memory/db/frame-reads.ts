@@ -763,8 +763,8 @@ export type FrameReads = {
   source?(iface: string, messageId: string): string | null;
   /** The stored line of a message id in a stored place of any interface, null when none (sourceInPlace). */
   sourceInPlace?(placeId: string, messageId: string): string | null;
-  /** Her newest `limit` diary entries the context may read, oldest first (readDiary). */
-  diary?(ctx: Context, limit: number): Array<PastEntry>;
+  /** Her newest `limit` diary entries the context may read, oldest first, of `kind` alone when given (readDiary). */
+  diary?(ctx: Context, limit: number, kind?: string | null): Array<PastEntry>;
   /** The live places a name she wrote names under the context, each once with its stored name (names.ts#placesNamed). */
   placesNamed?(ctx: Context, name: string): Array<{ id: string; name: string }>;
   /** The places the memory graph ranks for words she wrote, best first (graph-find.ts#placesFound, `context.find`). */
@@ -850,7 +850,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     person: (account) => over(null, (db) => personOfAccount(db, account)),
     source: (iface, messageId) => over(null, (db) => sourceOfMessage(db, iface, messageId)),
     sourceInPlace: (placeId, messageId) => over(null, (db) => sourceInPlace(db, placeId, messageId)),
-    diary: (ctx, limit) => over([], (db) => readDiary(db, ctx, limit)),
+    diary: (ctx, limit, kind = null) => over([], (db) => readDiary(db, ctx, limit, kind)),
     placesNamed: (ctx, name) => over([], (db) => placesNamed(db, ctx, name)),
     placesFound: (ctx, words, meaning) =>
       over([], (db) => placesFound(db, ctx, words, findSettingsOf(configOf()), meaning)),
