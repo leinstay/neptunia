@@ -161,15 +161,15 @@ test('stages a diary turn with no chat and serves the stored places of its inter
 test('runs a diary turn with the pinned kind and forced off', () => {
   const handle = freshMemoryDb();
   seedDiary(handle.db as Db);
-  const params = diaryParamsOf(storedTurn(handle.db as Db, 't-dddd-3333'), 'status');
-  assert.deepEqual(params, { mode: 'diary', diary: { kind: 'status', forced: false } });
+  const params = diaryParamsOf(storedTurn(handle.db as Db, 't-dddd-3333'), 'thought');
+  assert.deepEqual(params, { mode: 'diary', diary: { kind: 'thought', forced: false } });
   handle.close();
 });
 
 test('refuses a pinned kind for a turn that is no diary turn', () => {
   const handle = freshMemoryDb();
   seed(handle.db as Db);
-  assert.throws(() => diaryParamsOf(storedTurn(handle.db as Db, 't-aaaa-1111'), 'status'), /no diary turn/);
+  assert.throws(() => diaryParamsOf(storedTurn(handle.db as Db, 't-aaaa-1111'), 'thought'), /no diary turn/);
   handle.close();
 });
 

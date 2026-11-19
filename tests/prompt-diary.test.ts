@@ -150,13 +150,13 @@ test('renderSenses: does not name the diary channel when unset', () => {
 });
 
 test('buildRequest: no diary blocks outside diary mode, and no <diary> or <scene> without entries or scenes', () => {
-  const diary = { posts: [post(NOW - DAY, 'status', 'bonjour')], kind: 'story', scenes: ['A PIER'] };
+  const diary = { posts: [post(NOW - DAY, 'thought', 'bonjour')], kind: 'story', scenes: ['A PIER'] };
   const reply = userText(buildRequest(baseInput({ mode: 'reply', diary })));
   for (const tag of ['diary', 'kind', 'scene']) assert.ok(!reply.includes(`<${tag}>`), tag);
 
-  const bare = userText(buildRequest(baseInput({ mode: 'diary', diary: { posts: [], kind: 'status', scenes: [] } })));
+  const bare = userText(buildRequest(baseInput({ mode: 'diary', diary: { posts: [], kind: 'thought', scenes: [] } })));
   assert.ok(!bare.includes('<diary>') && !bare.includes('<scene>'));
-  assert.ok(bare.includes('<kind>\nstatus\n</kind>'), bare);
+  assert.ok(bare.includes('<kind>\nthought\n</kind>'), bare);
 });
 
 /** The `<task>` of a diary request of `kind` over the prompts `overrides` laid on the fake ones. */
@@ -219,11 +219,11 @@ test('a story asks the director first, and its request holds <kind> and the scen
   for (const tag of ['plan', 'seeds', 'kinds']) assert.ok(!text.includes(`<${tag}>`), tag);
 });
 
-test('a status asks no director, and its request holds no <scene>', async () => {
+test('a thought asks no director, and its request holds no <scene>', async () => {
   // Bug: a kind with no scene waits on the director, or reads a scene meant for another kind.
-  const run = await frameTurn({ kind: 'status' });
+  const run = await frameTurn({ kind: 'thought' });
   assert.equal(run.director.length, 0);
-  assert.equal(partOf(blockOf(run.writer[0] ?? '', 'inner'), 'kind'), 'status');
+  assert.equal(partOf(blockOf(run.writer[0] ?? '', 'inner'), 'kind'), 'thought');
   assert.ok(!(run.writer[0] ?? '').includes('<scene>'));
 });
 
@@ -284,7 +284,7 @@ test('a facts turn lists in <told> a facts entry older than <diary> shows, and n
   const facts = new Set([0, 35]);
   const run = await frameTurn({
     entries: 40,
-    entryKind: (index) => (facts.has(index) ? 'facts' : 'status'),
+    entryKind: (index) => (facts.has(index) ? 'facts' : 'thought'),
     kind: 'facts',
   });
   const inner = blockOf(run.writer[0] ?? '', 'inner');

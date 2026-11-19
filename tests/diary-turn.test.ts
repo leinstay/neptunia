@@ -236,7 +236,7 @@ function fakeHot({ diary = {}, prompts = {} }: { diary?: Untyped; prompts?: Unty
       format: 'FORMAT_TEXT',
       'diary/task': 'DIARY_TASK for {{name}}',
       'diary/scene': 'SCENE_TASK',
-      'diary/kinds/status': 'STATUS_TASK',
+      'diary/kinds/thought': 'THOUGHT_TASK',
       'diary/kinds/story': 'STORY_TASK',
       'diary/seeds/place': 'a pier',
       'diary/seeds/setting': 'fog',
@@ -305,15 +305,15 @@ test('diary turn: a story asks the director on its role, then writes with the ca
   for (const tag of ['plan', 'seeds', 'kinds', 'meanwhile']) assert.ok(!composeUser.includes(`<${tag}>`), tag);
 });
 
-test('diary turn: a status asks no director and its request holds no <scene>', async () => {
+test('diary turn: a thought asks no director and its request holds no <scene>', async () => {
   // Bug: a kind with no scene waits on the director, or reads a scene.
   const llm = fakeLlm(null, '<msg>ennui</msg>');
-  await runner({ llm }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: { kind: 'status', forced: false } });
+  await runner({ llm }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: { kind: 'thought', forced: false } });
   assert.equal(llm.calls.length, 1, 'the persona alone');
   const user = userOf(llm.calls[0]);
-  assert.equal(partOf(blockOf(user, 'inner'), 'kind'), 'status');
+  assert.equal(partOf(blockOf(user, 'inner'), 'kind'), 'thought');
   assert.ok(!user.includes('<scene>'));
-  assert.ok(user.includes('<task>\nDIARY_TASK for Bot\n\nSTATUS_TASK\n</task>'));
+  assert.ok(user.includes('<task>\nDIARY_TASK for Bot\n\nTHOUGHT_TASK\n</task>'));
 });
 
 test('diary turn: a randomSet asks for three scenes whose sets share no line', async () => {
@@ -401,7 +401,7 @@ test('diary turn: a topic becomes a <topic> part of <inner>', async () => {
   await runner({ llm }).runTurn({
     channel: diaryChannel(),
     mode: 'diary',
-    diary: { kind: 'status', topic: '  le vieux  port\n ', forced: true },
+    diary: { kind: 'thought', topic: '  le vieux  port\n ', forced: true },
   });
   const inner = blockOf(userOf(llm.calls[0]), 'inner');
   assert.equal(partOf(inner, 'topic'), `${labels.diary.topic}\nle vieux port`);
@@ -412,14 +412,14 @@ test('diary turn: no topic leaves the requests unchanged', async () => {
   await runner({ llm: plain }).runTurn({
     channel: diaryChannel(),
     mode: 'diary',
-    diary: { kind: 'status', forced: true },
+    diary: { kind: 'thought', forced: true },
   });
   for (const topic of [undefined, null, '', '   ']) {
     const llm = fakeLlm(null, '<msg>brume</msg>');
     await runner({ llm }).runTurn({
       channel: diaryChannel(),
       mode: 'diary',
-      diary: { kind: 'status', topic, forced: true },
+      diary: { kind: 'thought', topic, forced: true },
     });
     assert.deepEqual(llm.calls, plain.calls, `topic ${JSON.stringify(topic)}: byte-identical requests`);
   }
@@ -433,7 +433,7 @@ test('diary turn: with pictures off only a text kind is drawn', async () => {
       runner({ llm, images: null, rng: () => roll }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} })
     );
     const prepared = logs.find((entry) => entry.msg === 'diary: prepared');
-    assert.ok(['story', 'thought', 'people', 'news', 'facts', 'status'].includes(loose(prepared).kind), String(roll));
+    assert.ok(['story', 'thought', 'people', 'news', 'facts'].includes(loose(prepared).kind), String(roll));
     assert.equal(loose(prepared).picturesOff, true, 'the log says why');
   }
 });
@@ -480,10 +480,10 @@ test('diary turn: a forced text kind still posts with pictures off', async () =>
   const result = await runner({ llm, store, images: null }).runTurn({
     channel: diaryChannel(),
     mode: 'diary',
-    diary: { kind: 'status', forced: true },
+    diary: { kind: 'thought', forced: true },
   });
   assert.equal(loose(result).outcome, 'spoke');
-  assert.equal(store.appended[0].post.kind, 'status');
+  assert.equal(store.appended[0].post.kind, 'thought');
 });
 
 test('diary turn: reactions and gifs are dropped, reply attributes ignored, urls stripped', async () => {
@@ -1195,7 +1195,7 @@ test('two diary requests with nothing stored between them hold the same <kind> a
   const run = await frameTurn({ entries: 6, answer: '<skip/>', turns: 2 });
   assert.equal(run.writer.length, 2, 'one request per turn');
   const [first = '', second = ''] = run.writer.map((text) => blockOf(text, 'inner'));
-  assert.equal(partOf(first, 'kind'), 'status');
+  assert.equal(partOf(first, 'kind'), 'thought');
   assert.equal(partOf(second, 'kind'), partOf(first, 'kind'));
   assert.notEqual(partOf(first, 'diary'), '');
   assert.equal(partOf(second, 'diary'), partOf(first, 'diary'));
@@ -1322,7 +1322,7 @@ test('the diary requests are the same bytes with a heartbeat seeds file beside t
 // ---- voiced entries ----------------------------------------------------------------
 
 const VOICE_PART = 'VOICE_PART';
-const TEXT_KINDS = ['status', 'story', 'thought', 'people', 'news', 'facts'];
+const TEXT_KINDS = ['story', 'thought', 'people', 'news', 'facts'];
 const PICTURE_KINDS = ['selfPicture', 'picture', 'photoset', 'randomSet', 'meme'];
 
 /** A diary setting where the role `speech` has a route (or none with `speech: false`) and `diary.voiceChance` is `chance`. */
@@ -1366,19 +1366,19 @@ test('diary voice: with diary.voiceChance at 0 no entry is voiced', async () => 
 });
 
 test('diary voice: the default chance voices a text entry below 0.1 and not above it', async () => {
-  assert.ok((await voicedTask('status', 0.05, voiceHot())).endsWith(VOICE_PART));
-  assert.ok(!(await voicedTask('status', 0.15, voiceHot())).includes(VOICE_PART));
+  assert.ok((await voicedTask('thought', 0.05, voiceHot())).endsWith(VOICE_PART));
+  assert.ok(!(await voicedTask('thought', 0.15, voiceHot())).includes(VOICE_PART));
 });
 
 test('diary voice: with the role speech off no entry is voiced at any roll', async () => {
   // Bug: the persona is told to speak with a tool it is not offered.
   for (const roll of [0, 0.05, 0.5])
-    assert.ok(!(await voicedTask('status', roll, voiceHot({ chance: 1, speech: false }))).includes(VOICE_PART));
+    assert.ok(!(await voicedTask('thought', roll, voiceHot({ chance: 1, speech: false }))).includes(VOICE_PART));
 });
 
 test("diary voice: with voice.say filtered out of the turn's tools no entry is voiced", async () => {
   const skills = new Map([...defaultSkills()].filter(([name]) => name !== 'voice.say'));
-  assert.ok(!(await voicedTask('status', 0, voiceHot({ chance: 1 }), { skills })).includes(VOICE_PART));
+  assert.ok(!(await voicedTask('thought', 0, voiceHot({ chance: 1 }), { skills })).includes(VOICE_PART));
 });
 
 test('diary voice: an entry of the voice alone is recorded with its voiced text and ends spoke', async () => {
@@ -1397,7 +1397,7 @@ test('diary voice: an entry of the voice alone is recorded with its voiced text 
   const result = await runner({ hot: voiceHot({ chance: 1 }), store, llm, rng: () => 0, extra: { speech } }).runTurn({
     channel: diaryChannel(),
     mode: 'diary',
-    diary: { kind: 'status', forced: true },
+    diary: { kind: 'thought', forced: true },
   });
   assert.equal(loose(result).outcome, 'spoke');
   assert.equal(loose(appendedPost(store).post.voice).text, '[soft] bonsoir');

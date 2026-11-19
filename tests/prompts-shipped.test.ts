@@ -215,19 +215,9 @@ const SYSTEM = ['main', 'persona', 'format'];
 
 /** Every kind of diary entry and the prompt file of its own task, which follows the common `diary/task.md`. */
 const DIARY_KIND_FILES: Record<string, string> = Object.fromEntries(
-  [
-    'status',
-    'story',
-    'selfPicture',
-    'picture',
-    'photoset',
-    'randomSet',
-    'news',
-    'facts',
-    'thought',
-    'people',
-    'meme',
-  ].map((kind) => [kind, `diary/kinds/${kind}`])
+  ['story', 'selfPicture', 'picture', 'photoset', 'randomSet', 'news', 'facts', 'thought', 'people', 'meme'].map(
+    (kind) => [kind, `diary/kinds/${kind}`]
+  )
 );
 
 /** The prompt files each request below must carry whole, by request. */

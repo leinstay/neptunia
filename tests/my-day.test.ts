@@ -543,9 +543,9 @@ test('an intention carried out says its purpose and place, and its line is not t
 
 test('a diary entry is a line with its clock and kind', () => {
   // Bug: her diary entries are left out of her day.
-  const w = world((s) => s.entry('diary:1', 'status', at(8, 0)));
+  const w = world((s) => s.entry('diary:1', 'thought', at(8, 0)));
   const [line = ''] = events(w.day());
-  assert.ok(line.includes('08:00') && line.includes('status'), line);
+  assert.ok(line.includes('08:00') && line.includes('thought'), line);
 });
 
 test('with more events than the setting the oldest are dropped and the header says how many', () => {
@@ -563,7 +563,7 @@ test('with more events than the setting the oldest are dropped and the header sa
 test('since her last entry the day reaches across midnight to the first event after that entry', () => {
   // Bug: the diary reads today alone, so an evening after her last entry never reaches the next entry.
   const w = world((s) => {
-    s.entry('diary:last', 'status', NOW - 20 * HOUR);
+    s.entry('diary:last', 'thought', NOW - 20 * HOUR);
     s.herLine(CAFE, NOW - 15 * HOUR);
     s.herLine(CAFE, NOW - 22 * HOUR);
   });
@@ -595,13 +595,13 @@ test("her lines in an enabled diary mirror are no conversation, since the diary 
   // Bug: the mirror's copy of an entry reads as a talk in the mirror's place beside the entry's own line.
   const w = world((s) => {
     s.mirror(SALON);
-    s.entry('diary:m', 'status', at(3, 46));
+    s.entry('diary:m', 'thought', at(3, 46));
     s.herLine(SALON, at(3, 46));
     s.herLine(SALON, at(3, 47));
   });
   const lines = events(w.day());
   assert.equal(lines.length, 1, lines.join('\n'));
-  assert.ok(lines[0]?.includes('status'), lines[0]);
+  assert.ok(lines[0]?.includes('thought'), lines[0]);
 });
 
 test("what a diary turn made is counted on the entry's line and no line of its own", async () => {
@@ -662,7 +662,7 @@ test("a diary turn's pictures go to its own entry, not to the next entry of the 
     s.turnStart(PERSONA_ID, 't-d1', null, at(8, 0), 'diary');
     s.entry('diary:a', 'photoset', at(8, 0));
     s.turnStart(PERSONA_ID, 't-d2', null, at(11, 0), 'diary');
-    s.entry('diary:b', 'status', at(11, 0));
+    s.entry('diary:b', 'thought', at(11, 0));
   });
   for (const mm of [1, 1, 2]) await w.act(CAFE, 'skill', at(8, mm), 'draw.create', 't-d1');
   const lines = events(w.day());

@@ -45,7 +45,7 @@ async function turn({ store }: Setting, answer: string | null, extra: Record<str
   };
   const result = await sceneRunner(model, store).runTurn({
     mode: 'diary',
-    diary: { kind: 'status', forced: true },
+    diary: { kind: 'thought', forced: true },
     placeId: ROOT,
     ...extra,
   });

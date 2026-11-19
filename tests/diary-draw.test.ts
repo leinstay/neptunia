@@ -27,9 +27,9 @@ const times = (kind: string, count: number): Array<string> => Array.from({ lengt
 
 test('a kind used past its share is scaled down by its share over its use', () => {
   // Bug: the weights ignore the history, and a kind the diary already overuses keeps its full chance.
-  const weights = drawWeights({ thought: 1, status: 1 }, postsOf([...times('thought', 3), 'status']), { window: 10 });
-  // thought: share 0.5 over use 0.75. status: share 0.5 over use 0.25, then a quarter as the newest post's kind.
-  assertWeights(weights, { thought: 1 * (0.5 / 0.75), status: 1 * 2 * 0.25 });
+  const weights = drawWeights({ thought: 1, people: 1 }, postsOf([...times('thought', 3), 'people']), { window: 10 });
+  // thought: share 0.5 over use 0.75. people: share 0.5 over use 0.25, then a quarter as the newest post's kind.
+  assertWeights(weights, { thought: 1 * (0.5 / 0.75), people: 1 * 2 * 0.25 });
 });
 
 test('a kind not used in the window gets four times its weight', () => {
@@ -47,37 +47,63 @@ test('the correction is clamped to a quarter and to four times the weight', () =
 
 test("the newest post's kind is drawn at a quarter of its corrected weight", () => {
   // Bug: the kind just posted keeps its full chance, and the diary repeats a kind twice in a row as often as any pair.
-  const kinds = { thought: 1, status: 1 };
-  assertWeights(drawWeights(kinds, postsOf(['thought', 'status']), { window: 10 }), { thought: 1, status: 0.25 });
-  assertWeights(drawWeights(kinds, postsOf(['status', 'thought']), { window: 10 }), { thought: 0.25, status: 1 });
+  const kinds = { thought: 1, people: 1 };
+  assertWeights(drawWeights(kinds, postsOf(['thought', 'people']), { window: 10 }), { thought: 1, people: 0.25 });
+  assertWeights(drawWeights(kinds, postsOf(['people', 'thought']), { window: 10 }), { thought: 0.25, people: 1 });
 });
 
 test('only the newest posts of the window count', () => {
   // Bug: the whole history counts, and a kind overused a year ago is still held down.
-  const posts = postsOf([...times('thought', 4), 'status', 'thought']);
-  assertWeights(drawWeights({ thought: 1, status: 1 }, posts, { window: 2 }), { thought: 0.25, status: 1 });
+  const posts = postsOf([...times('thought', 4), 'people', 'thought']);
+  assertWeights(drawWeights({ thought: 1, people: 1 }, posts, { window: 2 }), { thought: 0.25, people: 1 });
 });
 
 test('a use is a fraction of the posts in the window when fewer posts than the window exist', () => {
   // Bug: a young diary divides by the whole window, every kind looks unused, and the correction does nothing.
-  const weights = drawWeights({ thought: 1, status: 1 }, postsOf(['thought', 'status']), { window: 150 });
-  assertWeights(weights, { thought: 1, status: 0.25 });
+  const weights = drawWeights({ thought: 1, people: 1 }, postsOf(['thought', 'people']), { window: 150 });
+  assertWeights(weights, { thought: 1, people: 0.25 });
 });
 
 test('with no posts the weights keep their proportions', () => {
   // Bug: zero posts give NaN weights, and the draw always lands on the last kind.
-  const weights = drawWeights({ thought: 2, status: 1 }, [], { window: 10 });
+  const weights = drawWeights({ thought: 2, people: 1 }, [], { window: 10 });
   const thought = weights.thought ?? Number.NaN;
-  const status = weights.status ?? Number.NaN;
-  assert.ok(Number.isFinite(thought) && Number.isFinite(status), JSON.stringify(weights));
-  assert.ok(Math.abs(thought / status - 2) < 1e-9, JSON.stringify(weights));
+  const people = weights.people ?? Number.NaN;
+  assert.ok(Number.isFinite(thought) && Number.isFinite(people), JSON.stringify(weights));
+  assert.ok(Math.abs(thought / people - 2) < 1e-9, JSON.stringify(weights));
 });
 
 test('a kind with no weight and a kind only the history knows get no weight', () => {
   // Bug: a retired kind still in the history, or a kind the owner set to 0, comes back through the correction.
-  const weights = drawWeights({ thought: 1, status: 0 }, postsOf(['retired', 'thought']), { window: 10 });
-  assert.equal((weights.status ?? 0) > 0, false, JSON.stringify(weights));
+  const weights = drawWeights({ thought: 1, people: 0 }, postsOf(['retired', 'thought']), { window: 10 });
+  assert.equal((weights.people ?? 0) > 0, false, JSON.stringify(weights));
   assert.equal((weights.retired ?? 0) > 0, false, JSON.stringify(weights));
+});
+
+test('the draw never gives a status, and each of the ten kinds is drawn at the weight DIARY_KINDS holds', () => {
+  // Bug: the kind `status`, which gave lines with no mood of the persona behind them, comes back into the draw.
+  const kinds = [
+    'story',
+    'selfPicture',
+    'picture',
+    'meme',
+    'thought',
+    'people',
+    'news',
+    'facts',
+    'photoset',
+    'randomSet',
+  ];
+  assert.deepEqual(Object.keys(DIARY_KINDS).sort(), [...kinds].sort());
+  const weights = drawWeights(DIARY_KINDS, [], { window: DEFAULT_HISTORY_POSTS });
+  for (const kind of kinds)
+    assert.ok(Math.abs((weights[kind] ?? 0) / weights.story - DIARY_KINDS[kind] / DIARY_KINDS.story) < 1e-9, kind);
+  for (let roll = 0; roll < 1; roll += 0.001)
+    assert.notEqual(
+      pickKind(weights, () => roll),
+      'status',
+      String(roll)
+    );
 });
 
 test('a thousand draws give an overused kind less than its share and an unused kind more', () => {
@@ -91,7 +117,8 @@ test('a thousand draws give an overused kind less than its share and an unused k
     ...times('news', 6),
     ...times('photoset', 3),
     ...times('randomSet', 4),
-    ...times('status', 10),
+    // Ten story posts hold the place of a kind the window overuses, since the old `status` is no kind of the draw.
+    ...times('story', 10),
   ];
   const weights = drawWeights(DIARY_KINDS, postsOf(history), { window: DEFAULT_HISTORY_POSTS });
   const rng = seeded(42);
@@ -111,12 +138,12 @@ test('a thousand draws give an overused kind less than its share and an unused k
 const TEXT_KINDS = withoutPictureKinds(DIARY_KINDS, DEFAULT_PICTURE_KINDS);
 // 0.6 rather than the middle: with the kind `story` in the weights, 0.5 lands on the same kind both ways.
 const MIDDLE = () => 0.6;
-// Ten status posts: status is held down and is the newest kind, so the middle of the draw moves off the raw weights.
-const STATUS_POSTS = postsOf(times('status', 10));
+// Ten people posts: people is held down and is the newest kind, so the middle of the draw moves off the raw weights.
+const PEOPLE_POSTS = postsOf(times('people', 10));
 
 /** The kind a draw at the middle lands on over the corrected weights, checked to differ from the raw weights' one. */
 function middleDraw(): string {
-  const drawn = pickKind(drawWeights(TEXT_KINDS, STATUS_POSTS, { window: DEFAULT_HISTORY_POSTS }), MIDDLE) ?? 'none';
+  const drawn = pickKind(drawWeights(TEXT_KINDS, PEOPLE_POSTS, { window: DEFAULT_HISTORY_POSTS }), MIDDLE) ?? 'none';
   assert.notEqual(drawn, pickKind(TEXT_KINDS, MIDDLE), 'the scene must tell the corrected draw from the raw one');
   return drawn;
 }
@@ -124,6 +151,6 @@ function middleDraw(): string {
 test('the first step of a post draws its kind over the corrected weights', async () => {
   // Bug: the step draws over the raw weights, and the correction for recent use never reaches a post.
   const drawn = middleDraw();
-  const run = await prepare({ rng: MIDDLE, posts: STATUS_POSTS });
+  const run = await prepare({ rng: MIDDLE, posts: PEOPLE_POSTS });
   assert.equal(run.kind, drawn);
 });

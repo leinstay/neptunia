@@ -61,6 +61,8 @@ test('replay: --diary-kind runs with --diary-day, takes samples, a seed, a promp
   for (const argv of [
     ['--diary-kind', 'story'],
     ['--diary-day', '--diary-kind', 'novel'],
+    // The kind `status` is refused as any kind outside DIARY_KINDS is.
+    ['--diary-day', '--diary-kind', 'status'],
     ['--diary-day', '--diary-kind', 'story', '--date', '2026-10-06'],
     ['--diary-day', '--samples', '2'],
     ['--diary-day', '--draw', 'none'],
@@ -196,7 +198,7 @@ function diaryDataDir(): string {
 
 const DIARY_GRANTED = ['conversation.read', 'memory.read'];
 
-/** One diary sample of `status` on the replay's runner, the model reading memory and the place `<memory>` lists. */
+/** One diary sample of `thought` on the replay's runner, the model reading memory and the place `<memory>` lists. */
 async function memorySample(
   request: { outDir: string; n: number } | null = null,
   { voiced = false, answer = null }: { voiced?: boolean; answer?: unknown } = {}
@@ -267,7 +269,7 @@ async function memorySample(
   });
   try {
     return {
-      ...(await diaryReplaySample({ turns, kind: 'status', calls, asked: askedRequests, request })),
+      ...(await diaryReplaySample({ turns, kind: 'thought', calls, asked: askedRequests, request })),
       askedRequests,
     };
   } finally {
@@ -292,12 +294,12 @@ test('replay: --show-request writes the first request of the sample with its <ki
     messages: Array<{ content: unknown }>;
   };
   const text = written.messages.map((message) => userText(message.content)).join('\n');
-  assert.ok(text.includes('<kind>\nstatus\n</kind>'), text.slice(0, 400));
+  assert.ok(text.includes('<kind>\nthought\n</kind>'), text.slice(0, 400));
   assert.ok(blockOf(text, 'memory').includes('κήπος'));
 });
 
 test('replay: --show-request goes with --diary-kind alone', () => {
-  assert.equal(parseArgs(['--diary-day', '--diary-kind', 'status', '--show-request']).showRequest, true);
+  assert.equal(parseArgs(['--diary-day', '--diary-kind', 'thought', '--show-request']).showRequest, true);
   assert.throws(() => parseArgs(['--diary-day', '--show-request']), /usage/);
 });
 
@@ -334,7 +336,7 @@ test("replay: the diary mode's modules hold everything a run without --answers-d
 
 test('replay: --diary-voice voices the entry, the speech model is a free stand-in, and the report shows the voiced text', async () => {
   // Bug: the forced voice is ignored, the replay would call the speech model, or the report hides what was said aloud.
-  assert.equal(parseArgs(['--diary-day', '--diary-kind', 'status', '--diary-voice']).diaryVoice, true);
+  assert.equal(parseArgs(['--diary-day', '--diary-kind', 'thought', '--diary-voice']).diaryVoice, true);
   assert.throws(() => parseArgs(['--diary-day', '--diary-voice']), /usage/);
   const sample = await memorySample(null, {
     voiced: true,

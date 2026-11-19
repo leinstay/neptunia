@@ -93,7 +93,7 @@ test('a diary turn whose refused call is followed by her skip ends skip and reco
   const result = (await runner.runTurn({
     channel,
     mode: 'diary',
-    diary: { kind: 'status', forced: false },
+    diary: { kind: 'thought', forced: false },
   })) as { outcome?: unknown; reason?: unknown };
   assert.equal(result.outcome, 'skip');
   assert.equal(result.reason, 'nothing-to-do');

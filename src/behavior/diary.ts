@@ -135,7 +135,6 @@ export const DIARY_KINDS: Readonly<Record<string, number>> = Object.freeze({
   people: 2,
   news: 2,
   facts: 1,
-  status: 3,
   photoset: 1,
   randomSet: 1,
 });
