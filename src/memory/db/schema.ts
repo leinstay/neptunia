@@ -489,6 +489,13 @@ const EDIT_MOMENTS = `UPDATE sources AS s SET occurred_at = (SELECT t.occurred_a
       AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision < s.revision
       AND t.occurred_at IS NOT s.occurred_at);`;
 
+/**
+ * Version 68: every stored diary entry of the kind `status` takes the kind `story`. An entry stored under `status`
+ * before this version is an invented moment in a scene, which is what `story` names, and `status` names a line of the
+ * persona's real day. The step changes the `kind` of live and retired rows alike and nothing else of a row.
+ */
+const STATUS_TO_STORY = `UPDATE diary SET kind = 'story' WHERE kind = 'status';`;
+
 /** The steps above the baseline, version 57 first. */
 export const MIGRATIONS: Array<Migration> = [
   rowLinks,
@@ -502,6 +509,7 @@ export const MIGRATIONS: Array<Migration> = [
   RULES,
   NO_GIF_VECTORS,
   EDIT_MOMENTS,
+  STATUS_TO_STORY,
 ];
 
 /** The tables that carry a scope and its `audience_id`. */

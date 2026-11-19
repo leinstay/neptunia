@@ -38,6 +38,8 @@ The code draws the kind of an entry before anything else. `drawWeights` in `src/
 | `facts` | 1 | none |
 | `meme` | 1 | none |
 
+A `status` is a line of the persona's real day, and an invented moment in a scene is a `story`. Schema version 68 gives every entry that an older database stores as a `status` the kind `story`, because such an entry is an invented moment. `tests/memory-db-status-to-story.test.ts` opens a database written at version 67.
+
 ## The director
 
 The director in `src/behavior/diary-scene.ts` builds a scene for one entry, a place at the real moment with its circumstances and atmosphere and nothing the persona does or feels. `drawSceneSets` draws eight seed sets with `pickSeeds` in `src/behavior/seeds.ts`, one line of each family in each set. `buildScene` sends one request on the model role `director` with the purpose `diary-scene`, which `models.byPurpose` may pin. Its system message is `prompts/diary/scene.md` alone, and its user message holds the kind, the sets and the moment, as the [prompt contract](prompt-contract.md) describes. The result names the sets offered and either the set chosen, the lines kept and the scene, or the reason the answer failed. A failed request is `request-failed` and a blank prompt `no-prompt`. A `randomSet` asks three requests at once, whose sets come from one draw and so share no line while a family has a line left for each, and one scene of the three is enough for its turn.
