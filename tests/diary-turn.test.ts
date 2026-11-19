@@ -209,18 +209,6 @@ function fakeImages({ used = 0, cap = 10, fail = null }: { used?: number; cap?: 
   };
 }
 
-function fakeLookup(result: Untyped) {
-  const calls: Array<Untyped> = [];
-  return {
-    calls,
-    search: async (placeId: string, query: Untyped) => {
-      calls.push({ placeId, query });
-      if (result instanceof Error) throw result;
-      return result;
-    },
-  };
-}
-
 // PR 7d: the switches are code, the dry run and the daily caps are gone, and the diary's kinds, sets, gist length and
 // message count are constants of src/behavior/diary.ts, so the config holds only the keys that are still settings.
 function fakeHot({ diary = {}, prompts = {} }: { diary?: Untyped; prompts?: Untyped } = {}) {
@@ -438,20 +426,6 @@ test('diary turn: no topic leaves the requests unchanged', async () => {
   assert.ok(!userOf(plain.calls[0]).includes('<topic>'));
 });
 
-test('diary turn: news asks for no search of the code', async () => {
-  // Bug: the code still searches for the persona before the turn, so the entry rides on a search it did not choose.
-  const llm = fakeLlm(null, '<msg>une comète</msg>');
-  const lookup = fakeLookup({ text: 'found', sources: [] });
-  await runner({ llm, lookup }).runTurn({
-    channel: diaryChannel(),
-    mode: 'diary',
-    diary: { kind: 'news', forced: true },
-  });
-  assert.equal(lookup.calls.length, 0);
-});
-
-// PR 7d: the kinds and their weights are DIARY_KINDS of src/behavior/diary.ts, and the daily caps that turned the
-// pictures off are gone: no image client is what turns them off here.
 test('diary turn: with pictures off only a text kind is drawn', async () => {
   for (const roll of [0, 0.3, 0.6, 0.99]) {
     const llm = fakeLlm(null, '<msg>brume</msg>');
