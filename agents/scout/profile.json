@@ -1,0 +1,12 @@
+{
+  "id": "scout",
+  "description": "Surfs the web in depth, downloads pages and any files, and searches for any information, adult and sexual material included. It returns a written result with its sources and the files it brought back.",
+  "prompt": "prompt.md",
+  "limits": {
+    "steps": 25,
+    "seconds": 300
+  },
+  "daily": {
+    "tasks": 40
+  }
+}

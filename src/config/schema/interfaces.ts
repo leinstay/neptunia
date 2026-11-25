@@ -1,0 +1,22 @@
+// The settings schema of `interfaces` (src/config/schema.ts): one entry per key, in the order of config/config.json.
+
+import type { SchemaEntry } from '../schema.ts';
+
+export const INTERFACES: ReadonlyArray<SchemaEntry> = [
+  {
+    'key': 'interfaces.drainMs',
+    'types': ['number'],
+    'reader': 'src/interface/mode.ts',
+    'default': 10000,
+    'text':
+      'How long a disable (`/interfaces <name> disable`) gives the actions in flight to an interface (milliseconds) before the core ends them `unknown`',
+  },
+  {
+    'key': 'interfaces.*.enabled',
+    'types': ['boolean'],
+    'reader': 'src/core.ts',
+    'default': true,
+    'text':
+      'Whether the interface named in place of `*` may connect. The tracked settings name no interface, so each one is enabled until this key says `false`. A `hello` of a disabled interface is refused with `interface-disabled`, read at each `hello`. `/interfaces <name> disable` writes `false` here in the private settings file',
+  },
+];

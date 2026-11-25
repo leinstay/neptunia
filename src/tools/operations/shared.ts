@@ -1,0 +1,789 @@
+// Pure functions and constants of the operations (src/tools/operations/*.ts):
+// the config-path functions, the profile views, the ping/route formatters, the
+// media wording tables and the line formatters several operations share. No I/O but
+// `postingChat` (a channel looked up through the client it is handed).
+
+import { chatOfPlace, notePlaceAddress, placeRefOf } from '../../memory/addresses.ts';
+import { chatOfStoredPlace } from '../../interface/place-chat.ts';
+import { isMirrorPlace } from '../../memory/db/mirrors.ts';
+import { cliChatRef } from '../../interface/cli-chat.ts';
+import { dmChatsOff } from '../../behavior/core-pause.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { publicationRefusal } from '../publication.ts';
+import type { PublicationBoundary } from '../publication.ts';
+import { emptyAffinity, affinityBand, roundScore } from '../../memory/index.ts';
+import { topByRank } from '../../memory/ranking.ts';
+import { fromTokens } from '../../memory/mentions.ts';
+import { isRouteRole, ROUTE_ROLES } from '../../llm/route-text.ts';
+import { oneLine } from '../../memory/clamp.ts';
+import { DAY_MS, utcDay } from '../../time.ts';
+import { denied, invalid } from './registry.ts';
+import { CODE, httpCode } from '../codes.ts';
+import { nestedRefusal } from '../access.ts';
+import { isObj, objOf, textOf } from '../types.ts';
+import type { Obj, Untyped } from '../types.ts';
+import type { Env } from './env.ts';
+import type { Reads } from '../../interface/reads.ts';
+import type { ChatInfo, ChatRef, Permissions } from '../../protocol/adapter.ts';
+
+/** `memory.journal.read`'s `n`: default and bounds. */
+export const JOURNAL_N_DEFAULT = 20;
+export const JOURNAL_N_MAX = 50;
+export const JOURNAL_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** The error of every place-bound command before the served place resolves. */
+export const PLACE_REQUIRED = 'no place resolved yet';
+
+/** The reply for an empty list, the same for every list command. */
+export const NONE = '(none)';
+
+// ---------------------------------------------------------------------------
+// Pure functions
+// ---------------------------------------------------------------------------
+
+/**
+ * The keys of a dotted config path. With `reference` (the live config) a key that itself holds a
+ * dot is read whole: at each level the longest run of the remaining segments that is an own key
+ * of the node there wins (`llm.providerByModel.openai/gpt-6.1` -> `llm`, `providerByModel`, `openai/gpt-6.1`), and a segment the reference
+ * does not hold is one key. Without it every dot separates keys. A path given as an array of keys
+ * is taken as it is. Throws on a forbidden segment.
+ */
+export function splitPath(dottedPath: string | ReadonlyArray<string>, reference?: unknown): Array<string> {
+  const segments = Array.isArray(dottedPath)
+    ? [...dottedPath]
+    : (dottedPath as string).split('.').filter((part) => part.length > 0);
+  for (const part of segments) {
+    if (FORBIDDEN_SEGMENTS.has(part)) throw invalid(`forbidden path segment: ${part}`);
+  }
+  if (Array.isArray(dottedPath) || reference === undefined) return segments;
+  const parts: Array<string> = [];
+  let node: unknown = reference;
+  for (let i = 0; i < segments.length;) {
+    let take = 1;
+    if (isObj(node)) {
+      for (let end = segments.length; end > i + 1; end -= 1) {
+        if (Object.hasOwn(node, segments.slice(i, end).join('.'))) {
+          take = end - i;
+          break;
+        }
+      }
+    }
+    const key = segments.slice(i, i + take).join('.');
+    parts.push(key);
+    node = isObj(node) && Object.hasOwn(node, key) ? node[key] : undefined;
+    i += take;
+  }
+  return parts;
+}
+
+/** Deep copy of `object` with `value` set at `dottedPath` (or an array of keys, see splitPath), creating intermediate objects. */
+export function setPath(object: unknown, dottedPath: string | ReadonlyArray<string>, value: unknown): Obj {
+  const parts = splitPath(dottedPath);
+  const root = structuredClone(object ?? {}) as Obj;
+  let node: Obj = root;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const key = parts[i] ?? '';
+    const child = node[key];
+    const next: Obj = isObj(child) ? child : {};
+    node[key] = next;
+    node = next;
+  }
+  node[parts[parts.length - 1] ?? ''] = value;
+  return root;
+}
+
+/** Deep copy of `object` with the key at `dottedPath` (or an array of keys) removed; empty parent objects are pruned. */
+export function unsetPath(object: unknown, dottedPath: string | ReadonlyArray<string>): Obj {
+  const parts = splitPath(dottedPath);
+  const root = structuredClone(object ?? {}) as Obj;
+  const chain: Array<unknown> = [root];
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const node = chain[chain.length - 1];
+    const key = parts[i] ?? '';
+    if (node === null || typeof node !== 'object' || !(key in node)) return root;
+    chain.push((node as Obj)[key]);
+  }
+
+  const leaf = chain[chain.length - 1];
+  if (leaf && typeof leaf === 'object') delete (leaf as Obj)[parts[parts.length - 1] ?? ''];
+
+  for (let i = chain.length - 1; i >= 1; i -= 1) {
+    const obj = chain[i];
+    if (isObj(obj) && Object.keys(obj).length === 0) {
+      delete (chain[i - 1] as Obj)[parts[i - 1] ?? ''];
+    } else {
+      break;
+    }
+  }
+  return root;
+}
+
+/** The value at `parts` of `object`, walking own keys only (never an inherited name such as
+ * `toString`): `{ found: true, value }`, or `{ found: false }`. */
+export function ownValueAt(object: unknown, parts: ReadonlyArray<string>): { found: boolean; value?: unknown } {
+  let node: unknown = object;
+  for (const part of parts) {
+    if (node === null || typeof node !== 'object' || !Object.hasOwn(node, part)) return { found: false };
+    node = (node as Obj)[part];
+  }
+  return { found: true, value: node };
+}
+
+/** A config value's JSON type: `null`, `array`, `object`, `string`, `number` or `boolean`. */
+export function jsonTypeOf(value: unknown): string {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+}
+
+/** `a number`, `an array`, ... for an error message. */
+export function withArticle(word: string): string {
+  return /^[aeiou]/.test(word) ? `an ${word}` : `a ${word}`;
+}
+
+/** `, last YYYY-MM-DD` for `memory.profile.read`, or '' when `lastSeen` is unknown. */
+export function lastDateSuffix(lastSeen: unknown): string {
+  return typeof lastSeen === 'string' && lastSeen ? `, last ${lastSeen.slice(0, 10)}` : '';
+}
+
+/** `YYYY-MM-DD` (UTC) for an epoch-ms timestamp, or `-` when it is not a finite number. */
+export function isoDay(ts: unknown): string {
+  return typeof ts === 'number' && Number.isFinite(ts) ? utcDay(ts) : '-';
+}
+
+/** `on` / `off` for a switch line of a status reply. */
+export function onOff(value: unknown): string {
+  return value ? 'on' : 'off';
+}
+
+/** `(reload ok)` / `(reload FAILED)`: the suffix of every reply that wrote a file and reloaded it. */
+export function reloadNote(ok: unknown): string {
+  return `(reload ${ok ? 'ok' : 'FAILED'})`;
+}
+
+// ---------------------------------------------------------------------------
+// `memory.profile.read` — sectioned view
+// ---------------------------------------------------------------------------
+
+/** The default and the largest list length a caller of `memory.profile.read` picks for its per-section views. */
+export const MEMORY_SHOW_DEFAULT_LIMIT = 25;
+export const MEMORY_SHOW_MAX_LIMIT = 100;
+
+/** Hard ceiling for the `summary` section: the whole reply must fit a single
+ * message of the command interface (2000 chars) — comfortably under that even after the
+ * code-fence wrapping the interface's command handler adds. */
+export const SUMMARY_MAX_CHARS = 1800;
+
+export const DIVIDER_LINE = '-- not shown to the persona (below the shown cap) --';
+
+/** `iso` parsed to epoch ms, or 0 when missing/unparsable — never NaN, so callers can sort safely. */
+export function dateMs(iso: unknown): number {
+  const ms = typeof iso === 'string' && iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/**
+ * `value` clamped to `maxChars`, with an ellipsis and (when `sectionName` is
+ * given) a pointer to the section that shows it in full, appended once it had
+ * to be cut. A short-enough value passes through unchanged, with no pointer.
+ */
+export function truncateForSummary(value: unknown, maxChars: number, sectionName?: string): string {
+  const text = typeof value === 'string' ? value : '';
+  if (text.length <= maxChars) return text;
+  const cut = text.slice(0, Math.max(0, maxChars - 1)).trimEnd();
+  return sectionName ? `${cut}… (full text: section ${sectionName})` : `${cut}…`;
+}
+
+/**
+ * `memory.profile.read`'s default view: a compact, human-readable digest of one
+ * profile GUARANTEED to fit a single message (see `SUMMARY_MAX_CHARS`)
+ * — long fields are truncated with an ellipsis and, when the full text lives
+ * under its own section, a pointer to it. `<@id>` tokens in free-text fields
+ * are resolved via `nameOf` the same way every other analyzer-facing text is
+ * (src/memory/mentions.ts#fromTokens, mode `'analyzer'`). Pure: no I/O.
+ * `memoryCfg` is `hot.config.memory`.
+ */
+export function buildProfileSummary(
+  profile: Untyped,
+  memoryCfg: Untyped = {},
+  nameOf: (id: string) => string | null = () => null
+): string {
+  const resolve = (text: unknown): string => fromTokens(typeof text === 'string' ? text : '', nameOf, 'analyzer');
+
+  const names = Array.isArray(profile?.names) ? profile.names : [];
+  const currentName = names[0] || `id ${profile?.id}`;
+  const formerNames = names.slice(1).join(', ');
+
+  const aliasNames = (topByRank(profile?.aliases ?? [], undefined, memoryCfg.aliasHalfLifeDays) as Array<Untyped>).map(
+    (a) => a.name as string
+  );
+
+  const affinity = profile?.affinity ?? emptyAffinity();
+  const reason = resolve(affinity.reason);
+
+  const topInterests = (topByRank(profile?.interests ?? [], 5, memoryCfg.interestHalfLifeDays) as Array<Untyped>).map(
+    (it) => it.topic as string
+  );
+
+  const lines = [
+    `name: ${currentName}`,
+    `former names: ${truncateForSummary(formerNames || 'none', 150)}`,
+    `aliases: ${truncateForSummary(aliasNames.join(', ') || 'none', 150, 'aliases')}`,
+    `messages: ${profile?.messageCount ?? 0}`,
+    `first seen: ${profile?.firstSeen ? profile.firstSeen.slice(0, 10) : '-'}`,
+    `last seen: ${profile?.lastSeen ? profile.lastSeen.slice(0, 10) : '-'}`,
+    `attitude: ${roundScore(affinity.score ?? 0)} (${affinityBand(affinity.score ?? 0)})${reason ? ` — ${truncateForSummary(reason, 150)}` : ''}`,
+    `character: ${truncateForSummary(resolve(profile?.character) || '(empty)', 240, 'character')}`,
+    `style: ${truncateForSummary(resolve(profile?.style) || '(empty)', 240, 'style')}`,
+    `relationship: ${truncateForSummary(resolve(profile?.relationship) || '(empty)', 240, 'relationship')}`,
+    `interests: ${profile?.interests?.length ?? 0} stored, top: ${truncateForSummary(topInterests.join(', ') || 'none', 200, 'interests')}`,
+    `details: ${profile?.details?.length ?? 0} stored`,
+    `episodes: ${profile?.episodes?.length ?? 0} stored`,
+  ];
+
+  let text = lines.join('\n');
+  if (text.length > SUMMARY_MAX_CHARS) text = `${text.slice(0, SUMMARY_MAX_CHARS - 1).trimEnd()}…`;
+  return text;
+}
+
+/**
+ * Order + cap one list-shaped section of `memory.profile.read` (aliases,
+ * interests, details): `order: 'recent'` sorts by `dateOf` descending, no
+ * divider; the default `'rank'` order reuses the persona's own rank
+ * (src/memory/ranking.ts#topByRank) and inserts `DIVIDER_LINE` right after
+ * `maxShown` items — the ones the persona is actually shown (see
+ * docs/prompt-contract.md, "More is stored than shown, and rank
+ * decays with age") — before either is capped to `limit` lines. Never throws
+ * on an empty/missing `items`.
+ */
+export function orderedSectionLines(
+  items: ReadonlyArray<Untyped> | null | undefined,
+  {
+    order,
+    limit,
+    halfLifeDays,
+    maxShown,
+    formatLine,
+    dateOf = () => 0,
+  }: {
+    order: 'rank' | 'recent';
+    limit: number;
+    halfLifeDays?: number;
+    maxShown?: number;
+    formatLine: (item: Untyped) => string;
+    dateOf?: (item: Untyped) => number;
+  }
+): Array<string> {
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  if (order === 'recent') {
+    return [...items]
+      .sort((a, b) => dateOf(b) - dateOf(a))
+      .slice(0, limit)
+      .map((item) => formatLine(item));
+  }
+
+  const ranked = topByRank(items, undefined, halfLifeDays).slice(0, limit);
+  const lines: Array<string> = [];
+  ranked.forEach((item, index) => {
+    if (Number.isInteger(maxShown) && index === maxShown) lines.push(DIVIDER_LINE);
+    lines.push(formatLine(item));
+  });
+  return lines;
+}
+
+/** Free text as stored, `<@id>` tokens left alone: the resolver of the `raw` view. */
+export function asStored(text: unknown): string {
+  return typeof text === 'string' ? text : '';
+}
+
+/**
+ * `memory.profile.read`'s `raw` section: the whole profile as JSON, followed by
+ * every stored interest/detail/alias in rank order (divider included, the
+ * same lines as their sections) and every episode in stored order — `<@id>`
+ * tokens are deliberately left unresolved here, unlike every other section.
+ */
+export function rawMemoryShowView(profile: Untyped, memoryCfg: Untyped): string {
+  const lines: Array<string> = [JSON.stringify(profile, null, 2)];
+  const everything = (
+    items: ReadonlyArray<Untyped>,
+    {
+      halfLifeDays,
+      maxShown,
+      formatLine,
+    }: { halfLifeDays?: number; maxShown?: number; formatLine: (item: Untyped) => string }
+  ): Array<string> =>
+    orderedSectionLines(items, {
+      order: 'rank',
+      limit: Infinity,
+      ...(halfLifeDays === undefined ? {} : { halfLifeDays }),
+      ...(maxShown === undefined ? {} : { maxShown }),
+      formatLine,
+    }).map((line) => `  ${line}`);
+  const heading = (name: string): string =>
+    `${name}: (rank order, everything stored -- see the divider for what the persona is shown)`;
+  if (profile.interests?.length) {
+    lines.push('', heading('interests'));
+    lines.push(
+      ...everything(profile.interests, {
+        halfLifeDays: memoryCfg?.interestHalfLifeDays,
+        maxShown: memoryCfg?.maxInterests,
+        formatLine: (it: Untyped) => interestLine(it, asStored),
+      })
+    );
+  }
+  if (profile.details?.length) {
+    lines.push('', heading('details'));
+    lines.push(
+      ...everything(profile.details, {
+        halfLifeDays: memoryCfg?.detailHalfLifeDays,
+        maxShown: memoryCfg?.maxDetails,
+        formatLine: (d: Untyped) => detailLine(d, asStored),
+      })
+    );
+  }
+  if (profile.aliases?.length) {
+    lines.push('', heading('aliases'));
+    lines.push(
+      ...everything(profile.aliases, {
+        halfLifeDays: memoryCfg?.aliasHalfLifeDays,
+        maxShown: memoryCfg?.maxAliases,
+        formatLine: aliasLine,
+      })
+    );
+  }
+  if (profile.episodes?.length) {
+    lines.push('', 'episodes:');
+    lines.push(...(profile.episodes as Array<Untyped>).map((ep) => `  ${episodeLine(ep, asStored)}`));
+  }
+  return lines.join('\n');
+}
+
+/** One interest line of `memory.profile.read` and `memory.private.read`; `resolve` turns `<@id>` tokens into names. */
+export function interestLine(it: Untyped, resolve: (text: unknown) => string): string {
+  const note = resolve(it.note);
+  const suffix = `[weight ${it.weight}${lastDateSuffix(it.lastSeen)}]`;
+  return note ? `${it.topic} — ${note} ${suffix}` : `${it.topic} ${suffix}`;
+}
+
+/** One detail line of `memory.profile.read` and `memory.private.read`. */
+export function detailLine(d: Untyped, resolve: (text: unknown) => string): string {
+  return `#${d.id} ${resolve(d.text)} [weight ${d.weight}${lastDateSuffix(d.lastSeen)}]`;
+}
+
+/** One episode line of `memory.profile.read` and `memory.private.read`. */
+export function episodeLine(ep: Untyped, resolve: (text: unknown) => string): string {
+  const quote = ep.quote ? ` "${ep.quote}"` : '';
+  return `${ep.date} [weight ${ep.weight}] ${resolve(ep.what)}${quote}`;
+}
+
+/** `[weight N, last DATE] name`, or just `[weight N] name`, used by
+ * both the `raw` view (via `rawMemoryShowView`) and the `aliases` section. */
+export function aliasLine(alias: Untyped): string {
+  return `[weight ${alias.weight}${lastDateSuffix(alias.lastSeen)}] ${alias.name}`;
+}
+
+/**
+ * One end of a time window as an instant in epoch milliseconds: an ISO date or time (`2026-11-04`, `2026-11-04T09:30Z`).
+ * A bare date is its first instant for a `since` and its last for an `until`, so the window holds the whole day. Text that
+ * is no date is `invalid`; no value is null.
+ */
+export function windowBound(value: unknown, end: 'since' | 'until', name = end): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const text = textOf(value).trim();
+  const ms = /^\d{4}-\d{2}-\d{2}$/.test(text) ? Date.parse(`${text}T00:00:00.000Z`) : Date.parse(text);
+  if (!Number.isFinite(ms)) throw invalid(`${name} must be an ISO date or time, as 2026-11-04`);
+  return end === 'until' && /^\d{4}-\d{2}-\d{2}$/.test(text) ? ms + DAY_MS - 1 : ms;
+}
+
+/**
+ * The attitude view of `memory.profile.read section:affinity`: score,
+ * band, reason (`-` when empty) and the last 5 history entries, every reason resolved by `resolve`.
+ * `affinity` is a stored `{ score, reason, history }`.
+ */
+export function affinityView(affinity: Untyped, resolve: (text: unknown) => string): string {
+  const current = affinity ?? emptyAffinity();
+  const history = (current.history ?? [])
+    .slice(-5)
+    .map(
+      (h: Untyped) =>
+        `${h.ts} ${h.delta >= 0 ? '+' : ''}${h.delta} -> ${roundScore(h.score)}${h.reason ? `: ${resolve(h.reason)}` : ''}`
+    )
+    .join('\n');
+  return [
+    `score: ${roundScore(current.score)}`,
+    `band: ${affinityBand(current.score)}`,
+    `reason: ${resolve(current.reason) || '-'}`,
+    history ? `history:\n${history}` : `history: ${NONE}`,
+  ].join('\n');
+}
+
+export function readLocalConfig(localPath: string): Obj {
+  if (!fs.existsSync(localPath)) return {};
+  const raw = fs.readFileSync(localPath, 'utf8').trim();
+  if (!raw) return {};
+  return JSON.parse(raw) as Obj;
+}
+
+/** `value` as JSON into `localPath`, its folder (`data/config/`) made when absent. */
+export function writeLocalConfig(localPath: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(localPath), { recursive: true });
+  fs.writeFileSync(localPath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+// ---------------------------------------------------------------------------
+// Model roles and `route.*`: pure functions
+// ---------------------------------------------------------------------------
+
+export const MODEL_ID_RE = /^[\w.:/-]{3,100}$/;
+
+/** A provider slug as OpenRouter writes it: lowercase letters, digits and `-`. */
+export const PROVIDER_SLUG_RE = /^[a-z0-9-]+$/;
+
+/** The providers part of a routing object: its `only`/`order`/`ignore` lists, or the object as
+ * JSON (without `allow_fallbacks` and `byok`, shown on their own) when it holds anything else. */
+export function describeProviders(value: Obj): string {
+  const lists = ['only', 'order', 'ignore'];
+  const known = new Set([...lists, 'allow_fallbacks', 'byok']);
+  const parts = lists.flatMap((field) => {
+    const list = value[field];
+    return Array.isArray(list) && list.length > 0 ? [`${field} ${list.join(', ')}`] : [];
+  });
+  if (parts.length > 0 && Object.keys(value).every((field) => known.has(field))) return parts.join('; ');
+  const { allow_fallbacks: _ignored, byok: _byok, ...rest } = value;
+  return JSON.stringify(rest).slice(0, 200);
+}
+
+/** `on` unless the routing object says `allow_fallbacks: false` (OpenRouter's default is on). */
+export function fallbacksText(value: Obj): string {
+  return onOff(value.allow_fallbacks !== false);
+}
+
+/** `on` only when the routing object says exactly `byok: true` (src/llm/openrouter.ts#assertByok). */
+export function byokText(value: Obj): string {
+  return onOff(value.byok === true);
+}
+
+/** `(<providers>, fallbacks: on|off)` for the by-role lines, `, byok` appended for a route marked `byok: true`. */
+export function routingSummary(value: Obj): string {
+  return `(${describeProviders(value)}, fallbacks: ${fallbacksText(value)}${value.byok === true ? ', byok' : ''})`;
+}
+
+/** The prefix of a `route.*` command: trimmed, required, no `@` (the role has its own
+ * option), no whitespace, never an object-prototype key. */
+export function routePrefixArg(args: unknown): string {
+  const model = objOf(args).model;
+  const prefix = (typeof model === 'string' ? model : '').trim();
+  if (!prefix) throw invalid('a model id or prefix is required');
+  if (prefix.includes('@')) throw invalid('the model prefix cannot contain @ (give the role in the role option)');
+  if (/\s/.test(prefix)) throw invalid('the model prefix cannot contain spaces');
+  if (prefix.length > 100) throw invalid('the model prefix is too long (100 chars max)');
+  if (FORBIDDEN_SEGMENTS.has(prefix)) throw invalid(`forbidden model prefix: ${prefix}`);
+  return prefix;
+}
+
+/** The role of a `route.*` command, or null for any role. */
+export function routeRoleArg(args: unknown): string | null {
+  const role = objOf(args).role;
+  if (role === undefined || role === null || role === '') return null;
+  const name = typeof role === 'string' ? role : '';
+  if (!isRouteRole(name)) throw invalid(`unknown role: ${name} (${ROUTE_ROLES.join(', ')})`);
+  return name;
+}
+
+// ---------------------------------------------------------------------------
+// Pure line formatters shared by several operations
+// ---------------------------------------------------------------------------
+
+/** A channel's stored `topWriters` (`{ id, count }[]`) resolved to current stored names, comma
+ * -separated -- an id with no stored profile (e.g. someone who left) is skipped silently. `''` when
+ * there is nothing to show. */
+export function channelTopWritersText(topWriters: unknown, nameOf: (id: string) => string | null | undefined): string {
+  return (Array.isArray(topWriters) ? topWriters : [])
+    .map((writer): string | null => {
+      const name = nameOf(writer?.id);
+      return name ? `${name} (${writer.count as number})` : null;
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+/** One line of `memory.channel.read`'s table view (no channel given): name, activity verdict,
+ * message count, last message date, whether a note exists (a non-empty `purpose`). */
+export function channelTableLine(channel: Untyped, activity: string): string {
+  const note = channel.purpose ? 'yes' : 'no';
+  return `${channel.name || channel.id}  activity=${activity}  messages=${channel.messageCount ?? 0}  last=${isoDay(channel.lastMessageAt)}  note=${note}`;
+}
+
+/** Numbered `1. …` list of `items` (in-jokes/self facts), each resolved via `resolve`; `(none)`
+ * when the list is empty. Used by `cmdMemoryServer`. */
+export function numberedNotes(items: unknown, resolve: (item: unknown) => string): string {
+  const list: Array<unknown> = Array.isArray(items) ? (items as Array<unknown>) : [];
+  if (list.length === 0) return NONE;
+  return list.map((item, i) => `${i + 1}. ${resolve(item)}`).join('\n');
+}
+
+/** One archive entry's text on one line: its text fields joined (an exchange's messages by their text), tokens resolved. */
+export function archivedText(entry: unknown, resolve: (text: unknown) => string): string {
+  const parts: Array<string> = [];
+  for (const value of Object.values(objOf(objOf(entry).text))) {
+    if (typeof value === 'string' && value.trim()) parts.push(value);
+    else if (Array.isArray(value))
+      parts.push(
+        (value as Array<unknown>)
+          .map((message) => {
+            const said = objOf(message).text;
+            return typeof said === 'string' ? said : '';
+          })
+          .filter(Boolean)
+          .join(' / ')
+      );
+  }
+  return oneLine(resolve(parts.filter(Boolean).join(' | ')));
+}
+
+export function loreLine(entry: Untyped): string {
+  return `${entry.id as string}  ${entry.title as string}  keys=${(entry.keys as Array<string>).join(', ')}  source=${entry.source as string}${entry.always ? ' always' : ''}`;
+}
+
+/** `#<id> <text> — from <name> · seen <weight> · last <YYYY-MM-DD>`, the `from` part only when
+ * the item has one. */
+export function learnedLine(item: Untyped, resolve: (text: unknown) => string): string {
+  const from = item.from ? ` — from ${resolve(item.from)}` : '';
+  const last = String(item.lastSeen ?? item.firstSeen ?? '-').slice(0, 10);
+  return `#${item.id} ${resolve(item.text)}${from} · seen ${item.weight} · last ${last}`;
+}
+
+/**
+ * What an operation does in a chat other than the one it runs in, and the permissions of the persona it needs
+ * there (`info.permissions` of the interface's chat info): `send` a message, `reply` to one (send, and read the
+ * history the reply points into), `attach` a picture (send with a file), `edit` one of theirs (read the history to find
+ * it), `read` the history to find a message (a deletion, a reaction taken back), `react` to one.
+ */
+export const CHANNEL_NEEDS: Readonly<
+  Record<'send' | 'reply' | 'attach' | 'edit' | 'read' | 'react', (permissions: Permissions) => boolean>
+> = Object.freeze({
+  send: (permissions) => permissions.send,
+  reply: (permissions) => permissions.send && permissions.read,
+  attach: (permissions) => permissions.send && permissions.attach,
+  edit: (permissions) => permissions.read,
+  read: (permissions) => permissions.read,
+  react: (permissions) => permissions.react,
+});
+
+/** The needs of a post: a closed direct chat refuses them by its own code, every other need by the permission's. */
+const POSTING_NEEDS: ReadonlySet<string> = new Set(['send', 'reply', 'attach']);
+
+/** The needs that write the persona's words into a chat, which a diary mirror's place refuses: a post and an edit. */
+const WRITING_NEEDS: ReadonlySet<string> = new Set([...POSTING_NEEDS, 'edit']);
+
+/** What posting in another chat reads of the call's context: the place it runs in, and the wake it is made in. */
+export type PostingContext = {
+  publicationBoundary?: PublicationBoundary;
+  placeId?: string | null;
+  ownInitiative?: boolean;
+  wakeKind?: string;
+  env?: Env;
+};
+
+/** The skill a channel need stands for, as a wake envelope names it (a read stands for none). */
+const NEED_CAPABILITY: Readonly<Record<string, string>> = Object.freeze({
+  send: 'message.create',
+  reply: 'message.create',
+  attach: 'message.create',
+  react: 'message.react.add',
+});
+
+function checkWakePosting(context: PostingContext, capability: string | null): void {
+  if (capability && context?.ownInitiative === true && typeof context.wakeKind === 'string') {
+    const { env } = context;
+    const refusal = nestedRefusal({ config: env?.hot?.config, wakeKind: context.wakeKind, capability });
+    if (refusal) throw denied(`the wake envelope does not allow ${capability}`, refusal.reason);
+  }
+}
+
+/**
+ * The chat a stored place names on its own interface: the address its row holds (src/interface/place-chat.ts), a
+ * direct chat that holds none opened once through `dm.chat` and its answer stored on the place. An `invalid` error
+ * (`unknown-conversation`) when a stored place has no chat the interface knows. Any other id, a place with no row, is a
+ * chat of `iface`.
+ */
+async function refOfPlace(store: unknown, reads: Reads | null, id: string, iface: string): Promise<ChatRef> {
+  // The command line's place id is its chat id, whether or not a chat of it was seen since the start.
+  const cli = cliChatRef(id);
+  if (cli !== null) return cli;
+  const ref = placeRefOf(store, id);
+  if (ref === null) return { iface, chatId: id };
+  const live = await chatOfStoredPlace({
+    placeId: id,
+    ref,
+    reads,
+    note: (placeId, address) => notePlaceAddress(store, placeId, address),
+  });
+  if (!live.ok) throw invalid(`no chat of place ${id} (${live.code})`, CODE.UNKNOWN_CONVERSATION);
+  return live.chat;
+}
+
+/**
+ * Whether the direct chat `info` describes is closed: `dm.enabled` is off (read now through `context.env.hot`) and the
+ * chat is not the owner's command line (src/behavior/core-pause.ts#dmChatsOff).
+ */
+const closedDirectChat = (info: { kind?: unknown; iface?: unknown } | null, context: PostingContext): boolean => {
+  const hot: unknown = context.env?.hot;
+  return info?.kind === 'dm' && dmChatsOff(objOf(hot).config, info);
+};
+
+/**
+ * Where a call of `need` acts: the chat `chatId` names (a chat of `iface`, or a place id of any
+ * interface), else the one of the place the call runs in. A chat other than that one must be one the
+ * interface knows and where it reports the permissions `need` names. A post to a direct chat while `dm.enabled`
+ * is false is a `denied` error (`dm-disabled`), any other refusal a `denied` error (`channel-no-permission`), an `invalid` one with no chat at all; nothing was
+ * done. On the persona's own initiative (an inner turn: `context.ownInitiative` with `context.wakeKind`) a post or a reaction is
+ * also asked of the wake's envelope (src/tools/access.ts#nestedRefusal, the live config through `context.env.hot`): a
+ * `denied` error (`not-allowed`) before anything is done. A post or an edit in the place of a diary mirror
+ * (src/memory/db/mirrors.ts#isMirrorPlace, read through `store`) is a `denied` error (`diary-mirror`), the
+ * chat the call runs in included, before a wake's hold keeps anything: only the mirrors' publisher writes there.
+ */
+export async function postingRef({
+  reads,
+  store,
+  iface,
+  chatId,
+  context,
+  need,
+}: {
+  reads: Reads | null;
+  store: unknown;
+  iface: string;
+  chatId: string | null | undefined;
+  context: PostingContext;
+  need: keyof typeof CHANNEL_NEEDS;
+}): Promise<ChatRef> {
+  const capability = NEED_CAPABILITY[need] ?? null;
+  checkWakePosting(context, capability);
+  const place = context.placeId ?? null;
+  const here = place ? chatOfPlace(store, place) : null;
+  const target = chatId ? await refOfPlace(store, reads, chatId, iface) : here ? { iface, chatId: here } : null;
+  if (!target) throw invalid('a channel is required');
+  if (capability && publicationRefusal(context.publicationBoundary, target))
+    throw denied('publication-boundary', 'not-allowed');
+  if (WRITING_NEEDS.has(need) && isMirrorPlace(store, target.iface, target.chatId))
+    throw denied(`a mirror of your diary, ${target.chatId}`, CODE.DIARY_MIRROR);
+  if (target.iface === iface && target.chatId === (here ?? '')) return target;
+  if (typeof CHANNEL_NEEDS[need] !== 'function') throw new Error(`unknown channel need: ${need}`);
+  const info = await chatInfoOf(reads, target);
+  refuseThere(info, need, target.chatId, context);
+  return target;
+}
+
+/** The codes of an interface that knows no chat by the id it was asked. */
+const GONE_CHAT_CODES: ReadonlySet<string> = new Set([CODE.UNKNOWN_CONVERSATION, httpCode(404)]);
+
+/**
+ * The interface's description of a chat, null when it gives none. An `invalid` error (`unknown-conversation`) when the
+ * interface knows no such chat, so the persona reads why rather than a missing permission.
+ */
+async function chatInfoOf(reads: Reads | null, target: ChatRef): Promise<ChatInfo | null> {
+  if (!reads) return null;
+  const answer = await reads.answer('chatInfo', target);
+  if (answer.status === 'ok') return answer.chat;
+  if (GONE_CHAT_CODES.has(answer.code))
+    throw invalid(`the interface knows no chat ${target.chatId} (${answer.code})`, CODE.UNKNOWN_CONVERSATION);
+  return null;
+}
+
+/** Throws the refusal of `need` in a chat as the interface describes it (`info`), or returns when it may run. */
+function refuseThere(
+  info: { kind?: unknown; iface?: unknown; permissions: Permissions } | null,
+  need: keyof typeof CHANNEL_NEEDS,
+  chatId: string,
+  context: PostingContext
+): void {
+  const closedDm = closedDirectChat(info, context);
+  if (closedDm && POSTING_NEEDS.has(need)) throw denied(`direct chats are closed, ${chatId}`, CODE.DM_DISABLED);
+  if (info === null || closedDm || !CHANNEL_NEEDS[need](info.permissions))
+    throw denied(`the bot may not ${need} in channel ${chatId}`, CODE.CHANNEL_NO_PERMISSION);
+}
+
+/**
+ * The place an intention begins in, checked now: a chat of `iface` or a place id of any interface that the
+ * interface knows and where the persona may write. A `denied` error (`dm-disabled`) for a direct chat while `dm.enabled`
+ * is false, and (`channel-no-permission`) for a root, a gone place or one they may only read.
+ */
+export async function writablePlace({
+  reads,
+  store,
+  iface,
+  id,
+  context,
+}: {
+  reads: Reads | null;
+  store: unknown;
+  iface: string;
+  id: string;
+  context: PostingContext;
+}): Promise<ChatRef> {
+  const target = await refOfPlace(store, reads, id, iface);
+  const info = await chatInfoOf(reads, target);
+  if (closedDirectChat(info, context)) throw denied(`direct chats are closed, ${id}`, CODE.DM_DISABLED);
+  if (info === null || !CHANNEL_NEEDS.send(info.permissions))
+    throw denied(`no place to begin in at ${id}`, CODE.CHANNEL_NO_PERMISSION);
+  return target;
+}
+
+/** The chat id of postingRef's answer, for the operations that act on the persona's own interface. */
+export async function postingChat(given: Parameters<typeof postingRef>[0]): Promise<string> {
+  return (await postingRef(given)).chatId;
+}
+
+/** The core's own spelling of a message in another chat, `ref:<chat>/<message>` (executors.ts#mediaRef). */
+const MESSAGE_REF_RE = /^ref:([\w-]{1,64})\/([\w-]{1,64})$/;
+
+/**
+ * `{ placeId, messageId }` of a message id (`placeId` null), a `ref:<chat>/<message>` the core wrote, or a
+ * message link a person pasted (with or without angle brackets), which the interface reads (`reads.parseLinks`): the
+ * core knows no address grammar of a platform. An `invalid` error (`unknown-message`) for anything else, a link
+ * included when there are no reads or the interface does not read links.
+ */
+export async function messageRefOf(
+  value: unknown,
+  reads: Reads | null
+): Promise<{ placeId: string | null; messageId: string }> {
+  const text = (typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '')
+    .trim()
+    .replace(/^<(.*)>$/, '$1')
+    .trim();
+  if (/^[\w-]{1,64}$/.test(text)) return { placeId: null, messageId: text };
+  const own = MESSAGE_REF_RE.exec(text);
+  if (own?.[1] !== undefined && own[2] !== undefined) return { placeId: own[1], messageId: own[2] };
+  if (/^https?:\/\//i.test(text) && reads) {
+    const parsed = await reads.parseLinks([text]);
+    const ref = parsed?.refs[0] ?? null;
+    if (ref) return { placeId: ref.chatId, messageId: ref.messageId };
+  }
+  throw invalid('a message id or link is required', CODE.UNKNOWN_MESSAGE);
+}
+
+/**
+ * An interface port's answer (src/interface/port.ts) as an operation's: `{ text, ref, at }` when
+ * it went out, with `deferred` when the interface kept it for a chat that is not open, else a `failed` result with the port's code and `data.unknown` true when it may
+ * have taken effect anyway (never retried).
+ * `name` is the operation's name, for the summary, and `text` the answer when it went out.
+ */
+export function portAnswer(name: string, answer: unknown, text: string): Obj {
+  const result = objOf(answer);
+  if (result.status === 'ok')
+    return { text, ref: result.ref ?? null, at: result.at, ...(result.deferred === true ? { deferred: true } : {}) };
+  const given = objOf(result.error).code ?? result.status;
+  const code = typeof given === 'string' ? given : CODE.ERROR;
+  const unknown = result.status === 'unknown';
+  return {
+    status: 'failed',
+    code,
+    summary: `${name}: ${unknown ? 'unclear whether it went through' : 'failed'} (${code})`,
+    data: { unknown, portStatus: result.status ?? null },
+  };
+}

@@ -1,0 +1,590 @@
+// How a turn ends: runTurn around its attempts, the chain of parts of a message that holds several requests, the facts
+// an addressed turn keeps for the persona's next request, the end hook and the idle notifications. createTurnRunner (src/behavior/turn.ts) builds it once per runner with createOutcome over its attempt
+// (runTurnOnce); the runner's facade hands out runTurn and the chain and idle functions.
+
+import type { Chat } from '../protocol/events.ts';
+import type { PublicationBoundary } from '../tools/publication.ts';
+import type { Context } from '../memory/db/scope.ts';
+import type { FactInput } from '../behavior/inner.ts';
+import { currentRequestMeta, turnOutcome, turnService, withRequestMeta } from '../llm/archive.ts';
+import { withIface } from '../memory/db/current-iface.ts';
+import { errorCodeOf } from '../llm/openrouter.ts';
+import { log } from '../log.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
+import type { Facts } from './facts.ts';
+import { untoldDiagnostics } from './journal.ts';
+import type { JournalNotes } from './journal-notes.ts';
+import { inRoot } from './routing.ts';
+import { askedFor } from './triggers.ts';
+import type { Attention, Lane, TriggerKind } from './triggers.ts';
+
+/** The chat a turn ran in, as the interface described it: its id, and whether it is in a root. */
+type EndChannel = Pick<Chat, 'id' | 'rootId'>;
+
+/** The trigger of a turn, as its end reads it; the attempt reads the rest. */
+type EndTrigger = {
+  id?: string | null;
+  authorId?: string | null;
+  placeId?: string | null;
+  ts?: number | null;
+  content?: string;
+  [key: string]: unknown;
+} | null;
+
+/** What a turn was asked to do, as its end reads it; the attempt reads the rest. */
+/** The modes a turn runs in. */
+export type TurnMode = 'reply' | 'interject' | 'inner' | 'diary';
+
+export type TurnParams = {
+  memoryContext?: Context;
+  /** A restriction inherited from deferred work: the turn may publish only to its origin. */
+  publicationBoundary?: PublicationBoundary;
+  /** The chat of the turn; null or absent for a turn that runs nowhere (a service, a diary post). */
+  chat?: ChatRef | null;
+  placeId?: string | null;
+  mode?: TurnMode | null;
+  trigger?: EndTrigger;
+  triggerKind?: TriggerKind | null;
+  source?: unknown;
+  added?: ReadonlyArray<unknown> | null;
+  /** No turn is forced: the persona starts a chat through their own `message.create`. */
+  forced?: never;
+  [key: string]: unknown;
+};
+
+/** How an attempt or a turn ended (TurnOutcome in src/behavior/turn.ts), and the parts of a message that split. */
+export type TurnResult = {
+  outcome: string;
+  reason?: unknown;
+  mode?: unknown;
+  delivered?: boolean;
+  turnId?: unknown;
+  parts?: Array<string>;
+  history?: unknown;
+  [key: string]: unknown;
+};
+
+/** What every attempt of a turn posted in reply to and why it ended, for the end hook. */
+type Ends = {
+  replyTargets: Array<string>;
+  folded: Array<string>;
+  reasons: Array<string>;
+  factsShown: Array<string> | null;
+  info: EndChannel | null;
+};
+
+/** How a turn ended, as the end hook hears it (src/behavior/missed.ts). */
+export type TurnEnd = {
+  iface?: string;
+  chatId: string | null;
+  dmChat: boolean;
+  routed: boolean;
+  mode: string | null;
+  trigger: {
+    id: string | null;
+    authorId: string | null;
+    placeId: string | null;
+    ts: number | null;
+    content: string;
+  } | null;
+  triggerKind: TriggerKind | null;
+  outcome: string;
+  reason: string | null;
+  replyTargets: Array<string>;
+  /** The trigger author's lines its settle wait read as part of the call and answered with it. */
+  folded?: Array<string>;
+  turnId: unknown;
+};
+
+/** What an attempt's draft holds that the facts of its end read. */
+type FactsDraft = Parameters<typeof untoldDiagnostics>[0] & {
+  info?: EndChannel | null;
+  sendFailure?: Record<string, unknown>;
+  loopCut?: { reason: string; dropped: number };
+  steps?: number;
+  unseenFailed?: Array<FactInput>;
+};
+
+/** A message folded into a part of a chain. */
+type PartMessage = { id: string; text: string; ts: number };
+
+/** The chain of parts running in a channel: its author, its parts, the part in progress and the folded messages. */
+type Chain = {
+  memoryContext?: Context;
+  authorId: string | null;
+  parts: Array<string>;
+  next: number;
+  added: Map<number, Array<PartMessage>>;
+};
+
+/** What createOutcome reads: the dependencies, the attempt and the functions of the other topic modules it calls. */
+export type OutcomeContext = {
+  store: { state: { data: { paused?: unknown } } };
+  clock: () => number;
+  attention: Attention;
+  facts: Facts['facts'];
+  factsOfKind: JournalNotes['factsOfKind'];
+  keepFact: JournalNotes['keepFact'];
+  writeTurnRecords: (attempts: Array<unknown>) => Promise<void>;
+  runTurnOnce: (args: TurnParams) => Promise<TurnResult>;
+};
+
+export type Outcome = {
+  runTurn: (params: TurnParams) => Promise<TurnResult>;
+  recordTurnFacts: (args: { placeId?: string | null }, draft: FactsDraft) => void;
+  notifyIdle: (lane: Lane) => void;
+  /**
+   * The parts of the chain running in `placeId` not started yet, when its message is
+   * `authorId`'s: `{ index, text }` in order (1-based indices). Empty otherwise. Read only.
+   */
+  waitingParts: (placeId: unknown, authorId: unknown) => Array<{ index: number; text: string }>;
+  /**
+   * Fold `message` (`{ id, text, ts }`) into part `index` of `authorId`'s chain in `placeId`,
+   * so that part's request names it (`labels.task.added`). False -- nothing changed -- when no
+   * such chain runs or the part has started.
+   */
+  addToPart: (placeId: unknown, authorId: unknown, index: unknown, message: PartMessage) => boolean;
+  /**
+   * Resolves once no turn is in flight on `lane`, or on any lane without one -- immediately if that is
+   * already true. Used by admin.js's `/nep pause` to wait out a turn
+   * that was already running when the pause was requested, instead of
+   * aborting it, and by the diary's forced post for the service lane.
+   */
+  waitIdle: (lane?: Lane) => Promise<void>;
+  /** Called (never awaited by runTurn) every time a chat turn finishes, once its chat lane is freed. */
+  setOnIdle: (fn: (() => unknown) | null) => void;
+  /**
+   * Called (never awaited, never thrown into the turn) once every runTurn has ended, with how
+   * it ended (noteTurnEnd): src/behavior/missed.ts resolves and records from it.
+   */
+  setOnTurnEnd: (fn: ((end: TurnEnd) => unknown) | null) => void;
+};
+
+// health: allow function-length until 2027-04-01 -- the outcome shares the runner state of src/behavior/turn.ts, moved whole in stage 5b
+export function createOutcome(ctx: OutcomeContext): Outcome {
+  const { store, clock, attention, facts, factsOfKind, keepFact, writeTurnRecords, runTurnOnce } = ctx;
+
+  // placeId -> the chain of parts running there (runChain): its author, its parts, the part
+  // in progress (`next`, 1-based; 0 before the first) and the messages folded into a later part.
+  const chains = new Map<string, Chain>();
+  let onIdle: (() => unknown) | null = null; // set via setOnIdle(); see the finally block of runTurn below
+  let onTurnEnd: ((end: TurnEnd) => unknown) | null = null; // set via setOnTurnEnd(); see noteTurnEnd
+  // The waiters of waitIdle() (/nep pause, the diary's forced post): each with its lane, null for every lane.
+  let idleWaiters: Array<{ lane: Lane | null; resolve: () => void }> = [];
+  const isIdle = (lane: Lane | null): boolean =>
+    lane === null ? attention.chat.size === 0 && attention.service.size === 0 : attention[lane].size === 0;
+
+  /**
+   * @param {object} params
+   * @param {import('../protocol/adapter.ts').ChatRef|null} [params.chat]  null for a turn that runs
+   *   nowhere (a service, an intention without a place, a diary post, for which absent means null too): no
+   *   history, the journal's turn under the persona, a tool that takes a place needs it named
+   * @param {{ turnId: string, attemptId?: number }|null} [params.journalTurn]  The journal's turn and attempt (runTurn passes them on).
+   * @param {string} [params.placeId]  The root of a private chat; a server channel uses its own; a private chat with neither has none.
+   * @param {'reply'|'interject'|'diary'|'inner'} params.mode  'inner' is an inner turn
+   *   (with `params.inner`).
+   * @param {{ wake: import('../behavior/inner/types.ts').WakeInfo, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.ts,
+   *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its
+   *   request is the turn frame's (src/turn/request/frame.ts), its task `prompts['turn/inner']` or the service's own, its
+   *   history the last `wakes.chatMessages` lines of `channel` when it has one, its prefetch searches the
+   *   purposes of the intentions it woke for, no planner runs. What the persona writes in tags (a `<msg>`,
+   *   a `<react to>`) is lowered into the calls they stand for, in the current channel
+   *   (`currentChannel`: an id, or null for none, then a post is refused `destination-required`;
+   *   absent: the turn's own channel; src/behavior/inner-output.ts) and made with their own, after them; their calls
+   *   pass the gateway as their own initiative (their grants alone) and then innerVerdict: a read runs; with
+   *   `shadow` anything else is only proposed (journalled with `shadow: true`, never run, no call
+   *   mark, nothing marked seen); live, `mayAct()` is asked right before each one (the kill switch)
+   *   (no count of posts refuses one). An answer with no action ends
+   *   `skip` with `reason: 'nothing-to-do'`; after a post that left nothing to show while an intention they woke for is
+   *   still untouched, the steps make one open follow-up request (runSteps: the open line in its note,
+   *   once per turn). The last step still runs one terminal action call of theirs (a post, an
+   *   intention change). The steps of an inner turn run under `wakes.loop`
+   *   (loopSettings with `inner`), not `tools.loop`. The result carries `inner: { actions, intentIds, loop,
+   *   openFollowUp?, turnId }` (`openFollowUp: true` when that
+   *   step was made; `shadow: true` in shadow mode). A
+   *   call that did not work in shadow mode is marked for the rest of the turn only (`turnMarks`).
+   * @param {object} [params.trigger]      Normalized message the turn answers (a call, or an
+   *   overheard line).
+   * @param {TriggerKind} [params.triggerKind]
+   * @param {{ placeId: string, reason: 'routed'|'noticed' }|null} [params.source]  The channel
+   *   this turn is about when it is not `channel` (a call from a channel the bot cannot write in,
+   *   a noticed comment): pulled before anything else and shown in `<channel_view>`. When it
+   *   cannot be pulled a routed turn ends in `error` (`turn: source unavailable`), a noticed one
+   *   in `not-now`. `channel` is where the words go and the one marked busy; the first post
+   *   links to the routed call, or to the newest line of the source shown (none when the budget
+   *   dropped its block).
+   * @param {(() => { id: string, text: string, author?: string }[])|null} [params.queued]  The calls
+   *   still waiting in the queue in this channel (src/behavior/pipeline.ts), read when the request is
+   *   built: the trigger author's own (no `author`) named under `labels.task.queued` (on a part, in
+   *   `labels.task.part`'s `{others}`), another member's (`author`: their display name) under
+   *   `labels.task.queuedOthers`, so the persona leaves them to their own turns; a call so named is
+   *   not counted as answered by this turn (spokeAfterSeeing). Without its label a call is not
+   *   named and the old rule holds for it.
+   * @param {{ id: string, text: string, ts: number }[]|null} [params.added]  Later messages of the
+   *   author folded into this call (src/behavior/pipeline.ts): `labels.task.added` names them.
+   * @param {{ author: string, text: string }[]|null} [params.missed]  A recovery turn's messages
+   *   (trigger kind `missed`, src/behavior/missed.ts), the trigger first: `labels.task.missed`
+   *   names them.
+   * @param {{ id: string, roleIds?: string[] }|null} [params.requester]  The person who asked for
+   *   this turn when it is not the trigger's author: the requester of any skill call the persona makes in it
+   *   (callEnvelope).
+   * @param {(() => boolean)|null} [params.stillDue]  Asked right before anything is posted (dry
+   *   run included); false ends the turn `not-now` (`reason: 'answered-meanwhile'`), nothing posted.
+   * @param {{ kind?: string|null, topic?: string|null, forced?: boolean }|null} [params.diary]  With `mode: 'diary'`
+   *   (src/behavior/diary.ts, no trigger, nowhere): the entry is prepared first
+   *   (prepareDiary: the kind drawn, then the director's scenes or the stored facts; `kind` forces the kind --
+   *   a picture kind while the post may not carry a picture is refused before any request,
+   *   `{ outcome: 'refused', reason: 'pictures', limit }`, diaryPictureGate --
+   *   `topic` is the owner's topic), then written with `diary/task` and the kind's file as
+   *   the task and the frame's diary blocks (src/turn/request/frame.ts). Its speech keeps only
+   *   `<msg>` (every reply attribute dropped, links removed, at most `diary.maxMessages` (3), a
+   *   message left empty not posted) and `<skip/>`; no reaction and no media pick. It runs on the
+   *   step engine with `diary.loop`: only the persona's `draw.create` calls run (any other is refused
+   *   `diary-draw-only`; at most `diary.set.pictures[1]` in a step), each picture staged as it is
+   *   generated and counted against the day's diary pictures then; a picture while the post may
+   *   carry none is refused `daily-cap` (diaryPictureGate). A failed picture holds the post's speech
+   *   with the staged pictures until their next step. Nothing is sent: their speech is held (holdSpeech), a `voice.say`
+   *   keeps its file (diary-turn.ts#diaryVoiceTool), and the entry is recorded (diary-turn.ts#recordEntry; a set kind
+   *   with fewer than `diary.set.minPosted` pictures staged is not: `turn: set short`, `{ outcome: 'refused', reason:
+   *   'set-short' }`). Its outcome carries `diary: { kind, picture, search, messages, pictures }` and the entry
+   *   (`diary.entry`) the mirrors publish (src/behavior/mirror.ts).
+   *
+   * A private chat (`channel` without a place) works like a server turn on behalf of its partner
+   * (the trigger's author, fetched as a member of the served place: privatePartner) with
+   * features.privateLikeServer on (a missing key counts as on): the explicit `<#id>` mentions and
+   * the route hook's ids are pulled from the served place when the partner has View Channel on
+   * them (checkPull), and the search classifier may ask for the server search (recall), its hits
+   * judged by the same rule. It has neither neighbours nor a source, and the channels it
+   * shows move no seen mark, stamp no call of the ring and count for no pending ping there: the
+   * persona answered in private, not on the server. The switch off, or no partner: no pull, no
+   * route hook, no server search, as before.
+   * @returns {Promise<{ outcome: TurnOutcome, mode?: string, dryRun?: boolean,
+   *   delivered?: boolean, reason?: string, limit?: { key: string, used: number, cap: number }|null }>}
+   *   `delivered` on a
+   *   `spoke` turn posted for real: whether anything reached the chat (a reaction put, a message,
+   *   the picked GIF or a diary post's pictures posted; a send that fails stops the
+   *   posting and the turn still ends `spoke` with what reached the chat); `limit` on `outcome:
+   *   'refused'` (a request or token cap; a diary picture gate with `reason: 'pictures'`; a diary
+   *   set short of `diary.set.minPosted` pictures has `reason: 'set-short'` and no `limit`), for
+   *   the caller's limit notice. An answer of the persona cut off at its output cap before any complete
+   *   action (cutOffOf; the skill follow-up's too, when nothing of the turn reached the chat)
+   *   ends `error` with `reason: 'cut-off'`, nothing of it posted. With the journal on (createTurnRunner's `journal`), a turn that
+   *   started there carries its `turnId` and `attemptId` (not a message answered part by part,
+   *   whose parts are journalled each as its own turn). A `skip`, or a `spoke`
+   *   turn posted for real, stamps the calls of the ring it showed (stampShownCalls) -- every
+   *   one but a routed turn's own call, which the caller stamps by this outcome.
+   */
+  function runTurn(params: TurnParams): Promise<TurnResult> {
+    // A turn taken from a queue runs under the interface of its own chat, whatever event woke the queue.
+    return withIface(params?.chat?.iface, () =>
+      withRequestMeta(() => {
+        const wake = (params?.inner as { wake?: { kind?: unknown } } | undefined)?.wake;
+        Object.assign(currentRequestMeta() ?? {}, { service: turnService(params?.mode, wake?.kind) });
+        return runTurnHere(params);
+      })
+    );
+  }
+
+  async function runTurnHere(params: TurnParams): Promise<TurnResult> {
+    // Every attempt that started in the journal (runTurnOnce), closed here, at the one exit.
+    const attempts: Array<unknown> = [];
+    // What every attempt posted in reply to and why it ended (runTurnOnce), for the end hook.
+    const ends: Ends = { replyTargets: [], folded: [], reasons: [], factsShown: null, info: null };
+    // A diary post is nowhere: one called with no chat rides in none.
+    const nowhere = params?.mode === 'diary' && !params.chat ? { chat: null } : {};
+    const tracked = { ...params, ...nowhere, journalAttempts: attempts, turnEnds: ends };
+    let result: TurnResult | undefined;
+    let thrown: unknown = null;
+    try {
+      const first = await runTurnOnce({ ...tracked, maySplit: true });
+      result = first.outcome === 'split' ? await runChain(tracked, first) : first;
+      return result;
+    } catch (err) {
+      thrown = err;
+      throw err;
+    } finally {
+      noteFailedTurn(params, result, ends, thrown);
+      if (attempts.length > 0) await writeTurnRecords(attempts);
+      const request = currentRequestMeta();
+      const outcome = turnOutcome(result, request?.turnId ?? null);
+      if (outcome !== null) await request?.noteOutcome?.(outcome);
+      noteTurnEnd(params, result, ends);
+    }
+  }
+
+  /**
+   * An addressed reply turn: the facts its request showed, and the failure entry of the very message
+   * it answered, are told once a completed answer carried them (any outcome but `error`, `busy`,
+   * `paused`); one that ended `error` or `refused` is kept for the persona's next request in the channel
+   * (`failedTurn`). Never throws.
+   */
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
+  function noteFailedTurn(params: TurnParams, result: TurnResult | undefined, ends: Ends, thrown: unknown): void {
+    try {
+      const { trigger = null, triggerKind = null, mode = null } = params ?? {};
+      const channel = ends.info;
+      if (!channel || mode !== 'reply' || !askedFor(trigger, triggerKind) || !trigger?.id) return;
+      const scope = { placeId: String(channel.id), dmChat: !inRoot(channel) };
+      const at = clock();
+      const outcome = result?.outcome ?? 'error';
+      if (outcome !== 'error' && outcome !== 'busy' && outcome !== 'paused' && outcome !== 'cancelled') {
+        const own = factsOfKind(scope, 'failedTurn', at)
+          .filter((fact) => fact.messageId === String(trigger.id))
+          .map((fact) => fact.id);
+        const told = [...(ends.factsShown ?? []), ...own];
+        if (told.length > 0) facts().markTold(told);
+      }
+      if (outcome !== 'error' && outcome !== 'refused') return;
+      const code =
+        typeof result?.reason === 'string' && result.reason
+          ? result.reason
+          : thrown
+            ? errorCodeOf(thrown)
+            : ends.reasons.includes('too-slow')
+              ? 'too-slow'
+              : ((outcome === 'refused' ? ends.reasons.at(-1) : null) ?? outcome);
+      keepFact(scope, 'failedTurn', { messageId: String(trigger.id), authorId: trigger.authorId ?? null, code }, at);
+    } catch (err) {
+      log.warn('turn: failed turn not kept', { error: err });
+    }
+  }
+
+  /**
+   * What an addressed turn lost, as facts for the persona's next request in the chat: a message that did
+   * not go out (`sendFailed`), calls the loop dropped (`loopCut`) and failed calls they never read the
+   * result of (`callFailed`). Never throws.
+   */
+  function recordTurnFacts(args: { placeId?: string | null }, draft: FactsDraft): void {
+    try {
+      const channel = draft.info;
+      if (!channel) return;
+      const entries: Array<FactInput> = [];
+      if (draft.sendFailure) entries.push({ kind: 'sendFailed', ...draft.sendFailure });
+      if ((draft.loopCut?.dropped ?? 0) > 0 && draft.loopCut)
+        entries.push({
+          kind: 'loopCut',
+          cut: draft.loopCut.reason,
+          droppedCalls: draft.loopCut.dropped,
+          steps: draft.steps ?? 0,
+        });
+      entries.push(...(draft.unseenFailed ?? []));
+      // What the parser left unsaid about the persona's answers and no later request carried.
+      for (const { kind, ...rest } of untoldDiagnostics(draft))
+        entries.push({ kind: 'diagnostic', diagnostic: kind, ...rest });
+      if (entries.length === 0) return;
+      const at = clock();
+      for (const entry of entries) facts().add({ ...entry, placeId: String(channel.id), dmChat: !inRoot(channel), at });
+    } catch (err) {
+      log.warn('turn: facts not kept', { error: err });
+    }
+  }
+
+  /**
+   * Tell the end hook (setOnTurnEnd; src/behavior/missed.ts) how a turn ended, never awaited
+   * and never thrown into the turn: its channel and place, whether it was a private chat or
+   * about another channel (`routed`), its trigger (`{ id, authorId, placeId, ts, content }`,
+   * in process only) and kind, its outcome (`error` when it threw), its reason (the result's,
+   * or `too-slow` for one dropped at its bar), the messages its posts replied to, whether it
+   * was a rehearsal and its journal id.
+   */
+  function noteTurnEnd(params: TurnParams, result: TurnResult | undefined, ends: Ends): void {
+    if (typeof onTurnEnd !== 'function') return;
+    const { trigger = null, triggerKind = null, mode = null, source = null } = params ?? {};
+    const channel = ends.info;
+    const placeId = channel?.id ?? params?.chat?.chatId ?? null;
+    const outcome = result?.outcome ?? 'error';
+    const reason =
+      typeof result?.reason === 'string'
+        ? result.reason
+        : outcome === 'error' && ends.reasons.includes('too-slow')
+          ? 'too-slow'
+          : null;
+    const end: TurnEnd = {
+      iface: params?.chat?.iface,
+      chatId: placeId,
+      dmChat: channel ? !inRoot(channel) : false,
+      routed: Boolean(source),
+      mode,
+      trigger: trigger
+        ? {
+            id: trigger.id ?? null,
+            authorId: trigger.authorId ?? null,
+            placeId: trigger.placeId ?? placeId,
+            ts: trigger.ts ?? null,
+            content: trigger.content ?? '',
+          }
+        : null,
+      triggerKind,
+      outcome,
+      reason,
+      replyTargets: [...new Set(ends.replyTargets)],
+      folded: [...new Set(ends.folded)],
+      turnId: result?.turnId ?? null,
+    };
+    Promise.resolve()
+      // Read when the hook runs, as it is set then (setOnTurnEnd).
+      .then(() => (onTurnEnd as (end: TurnEnd) => unknown)(end))
+      .catch((err: unknown) => log.warn('turn: onTurnEnd failed', { error: err }));
+  }
+
+  /** Why a chain ends before its next part: `paused` (/nep pause), or null. */
+  function chainStop(): string | null {
+    const stateData = store.state.data;
+    return stateData.paused ? 'paused' : null;
+  }
+
+  /**
+   * A message that holds several requests (the splitter's `parts`), answered
+   * part by part: one ordinary turn per part, in order, each with its own
+   * deadline and bar. Turn k's `analyzer` requests (the search classifier, recall, the
+   * route hook, the re-watch) judge part k's text instead of the whole
+   * message, and its request names the part and the others
+   * (buildRequest's `tasks.part`, `labels.task.part`). The first part reuses
+   * the history the whole message's turn fetched and replies as any turn
+   * does; the later ones fetch it afresh (the earlier answers are in it) and
+   * post plain. The persona may answer a part in any way a turn allows,
+   * silence included; a part that fails, is dropped at its bar or refused
+   * does not stop the next. The attention stays the chain's from the
+   * whole message's turn to the end -- nothing else starts in between
+   * (pending calls keep queueing) -- and the idle notifications fire once, at
+   * the end. A pause ends the chain before its next part (`turn:
+   * chain stopped`). While it runs, the parts not started yet are the
+   * author's waiting items (waitingParts); a later message of the author
+   * folded into one of them (addToPart) reaches that part's request as
+   * `tasks.added`. Every part logs `turn: part` with its outcome. Resolves one
+   * result for the message (chainOutcome).
+   */
+  async function runChain(params: TurnParams, { parts, history }: TurnResult): Promise<TurnResult> {
+    const { trigger } = params;
+    // A message that split holds its parts, and its turn its chat.
+    const allParts = parts as Array<string>;
+    const channel = { id: (params.chat as ChatRef).chatId };
+    const total = allParts.length;
+    const chain: Chain = {
+      memoryContext: params.memoryContext,
+      authorId: trigger?.authorId ?? null,
+      parts: allParts,
+      next: 0,
+      added: new Map(),
+    };
+    chains.set(channel.id, chain);
+    const results: Array<TurnResult> = [];
+    try {
+      for (let i = 0; i < total; i += 1) {
+        const index = i + 1;
+        const stop = i > 0 ? chainStop() : null;
+        if (stop) {
+          log.info('turn: chain stopped', { channel: channel.id, reason: stop, index, total });
+          break;
+        }
+        // From here on this part is no longer waiting: nothing more is folded into it.
+        chain.next = index;
+        const plainPosts = i > 0;
+        let result: TurnResult;
+        try {
+          const once = await runTurnOnce({
+            ...params,
+            owned: true,
+            part: { index, total, parts: allParts },
+            reuseHistory: i === 0 ? history : null,
+            // Messages folded into the whole call before it split go with its first part.
+            added: [...(i === 0 && isList(params.added) ? params.added : []), ...(chain.added.get(index) ?? [])],
+            plainPosts,
+          });
+          result = once;
+        } catch (err) {
+          const code = errorCodeOf(err);
+          log.error('turn: failed', { channel: channel.id, code, error: err });
+          result = { outcome: 'error', reason: code };
+        }
+        log.info('turn: part', { channel: channel.id, index, total, outcome: result.outcome });
+        results.push(result);
+      }
+    } finally {
+      chains.delete(channel.id);
+      attention.chat.delete(channel.id);
+      notifyIdle('chat');
+    }
+    return chainOutcome(results);
+  }
+
+  /**
+   * One result for a message answered part by part, as its caller counts a
+   * turn: `spoke` when any part spoke (`delivered` when anything of any part
+   * reached the chat),
+   * else the first part's `skip`, else the first part's result (a refusal
+   * keeps its `limit`).
+   */
+  function chainOutcome(results: Array<TurnResult>): TurnResult {
+    const spoke = results.filter((result) => result.outcome === 'spoke');
+    if (spoke.length > 0) {
+      return {
+        outcome: 'spoke',
+        mode: spoke[0].mode,
+        delivered: spoke.some((result) => result.delivered === true),
+      };
+    }
+    return results.find((result) => result.outcome === 'skip') ?? results[0] ?? { outcome: 'error' };
+  }
+
+  /**
+   * Tell whoever waits that a turn of `lane` has finished: onIdle for the chat lane only (fire-and-forget, same
+   * as the caller of runTurn itself: whatever wants to run next --
+   * src/behavior/pipeline.ts's pending-ping drain, wired in src/index.ts -- must
+   * never hold up, or throw into, the turn that just freed the channel; a service turn frees nothing it waits for),
+   * and the waitIdle() waiters whose lane is free.
+   */
+  function notifyIdle(lane: Lane): void {
+    if (lane === 'chat' && onIdle) {
+      Promise.resolve()
+        // Read when the hook runs, as it is set then (setOnIdle).
+        .then(() => (onIdle as () => unknown)())
+        .catch((err: unknown) => log.warn('turn: onIdle failed', { error: err }));
+    }
+    const ready = idleWaiters.filter((waiter) => isIdle(waiter.lane));
+    idleWaiters = idleWaiters.filter((waiter) => !ready.includes(waiter));
+    for (const waiter of ready) waiter.resolve();
+  }
+
+  return {
+    runTurn,
+    recordTurnFacts,
+    notifyIdle,
+    waitingParts: (placeId, authorId) => {
+      // A Map answers undefined for a key of another type.
+      const chain = chains.get(placeId as string);
+      if (!chain || chain.memoryContext || chain.authorId !== authorId) return [];
+      return chain.parts.map((text, i) => ({ index: i + 1, text })).filter(({ index }) => index > chain.next);
+    },
+    addToPart: (placeId, authorId, given, message) => {
+      // A Map answers undefined for a key of another type, and a part's index compares as a number.
+      const chain = chains.get(placeId as string);
+      const index = given as number;
+      if (
+        !chain ||
+        chain.memoryContext ||
+        chain.authorId !== authorId ||
+        !(index > chain.next) ||
+        index > chain.parts.length
+      )
+        return false;
+      chain.added.set(index, [...(chain.added.get(index) ?? []), message]);
+      return true;
+    },
+    waitIdle: (lane) =>
+      isIdle(lane ?? null)
+        ? Promise.resolve()
+        : new Promise((resolve) => idleWaiters.push({ lane: lane ?? null, resolve })),
+    setOnIdle: (fn) => {
+      onIdle = fn;
+    },
+    setOnTurnEnd: (fn) => {
+      onTurnEnd = fn;
+    },
+  };
+}
+
+/** Whether a value is a list. */
+function isList(value: unknown): value is ReadonlyArray<unknown> {
+  return Array.isArray(value);
+}

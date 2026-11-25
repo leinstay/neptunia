@@ -1,0 +1,77 @@
+// The main arguments of one skill call, as the call mark of the persona's transcript line shows them
+// (src/format.ts#callMarksFor: `[you called web.search (query: "...") : done]`). Rendered from the
+// recorded call (the resolved arguments), never from their wording: only the arguments listed here for
+// the skill (the others for a skill with no row), one line, each value whole, and never a field whose name
+// suggests a secret. Pure.
+
+/** The arguments worth showing per skill, in order. The target (message, place) is shown by the mark itself where it can. */
+const SHOWN: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
+  'web.search': ['query', 'goal'],
+  'web.read': ['url'],
+  'media.look': ['question', 'url', 'item'],
+  'media.find': ['query', 'n'],
+  'memory.search': ['question', 'people', 'place', 'when', 'terms', 'entity', 'predicate', 'as_of', 'historical'],
+  'conversation.read': ['place', 'around', 'before', 'after', 'since', 'last'],
+  'memory.read': ['subject', 'section', 'limit'],
+  'memory.profile.read': ['user', 'section', 'limit', 'since', 'until'],
+  'memory.journal.read': ['day', 'kind', 'n', 'message'],
+
+  'memory.archive.read': ['user', 'kind', 'n'],
+  'places.list': ['filter', 'sort', 'page'],
+  'lore.list': ['query'],
+  'lore.show': ['id'],
+  'draw.create': ['text'],
+  'voice.say': ['text'],
+  'errand.server': ['goal'],
+  'errand.scout': ['goal'],
+  'errand.code': ['goal'],
+  'errand.read': ['id', 'from'],
+  'errand.list': ['id', 'from', 'state', 'since', 'until', 'limit'],
+  'errand.cancel': ['id'],
+  'errand.resolve': ['id', 'from'],
+  'intention.set': ['id', 'text', 'due', 'every', 'place'],
+  'intention.update': ['id', 'text', 'due', 'every', 'place'],
+  'intention.cancel': ['id'],
+  'message.create': [],
+  'message.react.add': ['emoji'],
+  'message.react.remove': ['emoji'],
+});
+
+/** Arguments shown for a skill with no row above. */
+const DEFAULT_SHOWN: ReadonlyArray<string> = Object.freeze(['query', 'name', 'id', 'part']);
+
+/** An argument whose name suggests a secret is never shown. */
+const SECRET_NAME = /key|token|secret|password|passwd|credential|auth|value|confirm/i;
+
+/** One value as a short single-line string; '' when it has nothing to show. */
+function valueText(value: unknown): string {
+  let text: string;
+  if (typeof value === 'string') text = value;
+  else if (typeof value === 'number' || typeof value === 'boolean') text = String(value);
+  else if (Array.isArray(value)) text = value.filter((item) => ['string', 'number'].includes(typeof item)).join(', ');
+  else return '';
+  // One line; nothing that closes the mark or opens a tag.
+  text = text
+    .replace(/\s+/g, ' ')
+    .replace(/[\[\]<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return '';
+  return typeof value === 'string' ? `"${text}"` : text;
+}
+
+/**
+ * The call's main arguments as `name: value, name: value`, or '' when there are none to show. `args` are the resolved
+ * arguments the call ran with.
+ */
+export function callArgsText(skill: string, args: Record<string, unknown> | null | undefined): string {
+  if (!args || typeof args !== 'object') return '';
+  const names = Object.hasOwn(SHOWN, skill) ? SHOWN[skill] : DEFAULT_SHOWN;
+  const parts: Array<string> = [];
+  for (const name of names) {
+    if (SECRET_NAME.test(name) || !Object.hasOwn(args, name)) continue;
+    const text = valueText(args[name]);
+    if (text) parts.push(`${name}: ${text}`);
+  }
+  return parts.join(', ');
+}

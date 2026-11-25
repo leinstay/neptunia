@@ -1,0 +1,505 @@
+// Pure HTML-to-text for web lookup: when someone links a page, the bot reads
+// it and a cheap model condenses what it says, so the page must first become
+// plain readable text -- the article itself, without menus, cookie footers,
+// scripts or markup. Hand-written on purpose (the project keeps one runtime
+// dependency): a small linear tokenizer, never a regex over the whole page
+// that could backtrack, and nothing here ever throws on malformed HTML.
+//
+// The rules, in order:
+//   - comments, `<!doctype>`/`<?xml?>` and the raw-text elements (script,
+//     style, noscript, template, svg) vanish with their contents;
+//   - nav, header, footer, aside, form and title lose their contents (the
+//     title is read separately by `pageTitle`); should that leave nothing at
+//     all (an unclosed `<header>` swallowing the page) the text is taken again
+//     without this step;
+//   - the largest `<article>`/`<main>` is the page when present, else `<body>`,
+//     else the whole document;
+//   - block-level tags become line breaks, table cells a space, other tags
+//     nothing; entities are decoded; whitespace collapses to single spaces and
+//     at most one blank line; control characters and byte-order marks go.
+//
+// Every scan adds the characters or tokens it visits to one step counter,
+// which `readerSteps` reads. Linearity is a property of that count, the same
+// on any machine, where a wall-clock time depends on the load beside it.
+
+const RAW_TEXT = new Set(['script', 'style', 'noscript', 'template', 'svg']);
+const BOILERPLATE = new Set(['nav', 'header', 'footer', 'aside', 'form', 'title']);
+const SCOPES = new Set(['article', 'main']);
+const BLOCK = new Set([
+  'p',
+  'div',
+  'li',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'br',
+  'tr',
+  'blockquote',
+  'pre',
+  'section',
+  'ul',
+  'ol',
+  'dl',
+  'dt',
+  'dd',
+  'table',
+  'hr',
+  'article',
+  'main',
+  'figure',
+  'figcaption',
+  'body',
+]);
+const CELL = new Set(['td', 'th']);
+const ELLIPSIS = '\u2026';
+const TITLE_MAX_CHARS = 300;
+const TITLE_SCAN_CHARS = 64 * 1024;
+
+// Latin-1 letters 0xC0-0xFF by their entity names, plus the usual punctuation.
+const LATIN1_NAMES = [
+  'Agrave',
+  'Aacute',
+  'Acirc',
+  'Atilde',
+  'Auml',
+  'Aring',
+  'AElig',
+  'Ccedil',
+  'Egrave',
+  'Eacute',
+  'Ecirc',
+  'Euml',
+  'Igrave',
+  'Iacute',
+  'Icirc',
+  'Iuml',
+  'ETH',
+  'Ntilde',
+  'Ograve',
+  'Oacute',
+  'Ocirc',
+  'Otilde',
+  'Ouml',
+  'times',
+  'Oslash',
+  'Ugrave',
+  'Uacute',
+  'Ucirc',
+  'Uuml',
+  'Yacute',
+  'THORN',
+  'szlig',
+  'agrave',
+  'aacute',
+  'acirc',
+  'atilde',
+  'auml',
+  'aring',
+  'aelig',
+  'ccedil',
+  'egrave',
+  'eacute',
+  'ecirc',
+  'euml',
+  'igrave',
+  'iacute',
+  'icirc',
+  'iuml',
+  'eth',
+  'ntilde',
+  'ograve',
+  'oacute',
+  'ocirc',
+  'otilde',
+  'ouml',
+  'divide',
+  'oslash',
+  'ugrave',
+  'uacute',
+  'ucirc',
+  'uuml',
+  'yacute',
+  'thorn',
+  'yuml',
+];
+const NAMED_ENTITIES = new Map<string, string>([
+  ['amp', '&'],
+  ['lt', '<'],
+  ['gt', '>'],
+  ['quot', '"'],
+  ['apos', "'"],
+  ['nbsp', ' '],
+  ['ndash', '\u2013'],
+  ['mdash', '\u2014'],
+  ['hellip', '\u2026'],
+  ['laquo', '\u00ab'],
+  ['raquo', '\u00bb'],
+  ['lsquo', '\u2018'],
+  ['rsquo', '\u2019'],
+  ['ldquo', '\u201c'],
+  ['rdquo', '\u201d'],
+  ['bull', '\u2022'],
+  ['middot', '\u00b7'],
+  ['copy', '\u00a9'],
+  ['reg', '\u00ae'],
+  ['trade', '\u2122'],
+  ['deg', '\u00b0'],
+  ['euro', '\u20ac'],
+  ['pound', '\u00a3'],
+  ['yen', '\u00a5'],
+  ['cent', '\u00a2'],
+  ['sect', '\u00a7'],
+  ...LATIN1_NAMES.map((name, i): [string, string] => [name, String.fromCharCode(0xc0 + i)]),
+]);
+
+const TAG_OPEN = /<(\/?)([a-zA-Z][a-zA-Z0-9:-]*)/y;
+const ENTITY = /&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,31});/g;
+// Control characters other than tab/newline, zero-width space and byte-order marks.
+const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f\u200b\ufeff]/g;
+
+let steps = 0;
+
+/** Count the positions `from` up to `to` as visited. A search that finds nothing counts up to the end. */
+function visit(from: number, to: number): void {
+  if (to > from) steps += to - from;
+}
+
+/**
+ * The steps all readers of this module have taken since the process started:
+ * one per character a scan visits and one per token a pass walks. The
+ * difference across a call is that call's work.
+ */
+export function readerSteps(): number {
+  return steps;
+}
+
+/** Decode named (the common set) and numeric entities; unknown ones stay as written. */
+function decodeEntities(text: string): string {
+  visit(0, text.length);
+  return text.replace(ENTITY, (whole: string, body: string) => {
+    if (body[0] !== '#') return NAMED_ENTITIES.get(body) ?? whole;
+    const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+    if (!Number.isFinite(code) || code <= 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return '\ufffd';
+    return String.fromCodePoint(code);
+  });
+}
+
+/**
+ * The end index (of `>`) of a tag whose name ends at `from`. A quote opens an
+ * attribute value only right after `=`, so a bare apostrophe in a malformed
+ * tag does not swallow the page; an unterminated quote falls back to the
+ * first `>`. -1 when there is no `>` at all.
+ */
+function tagEnd(s: string, from: number): number {
+  let quote: string | null = null;
+  let prev = '';
+  for (let j = from; j < s.length; j += 1) {
+    const c = s[j];
+    if (quote) {
+      if (c === quote) quote = null;
+      continue;
+    }
+    if ((c === '"' || c === "'") && prev === '=') quote = c;
+    else if (c === '>') {
+      visit(from, j + 1);
+      return j;
+    }
+    if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') prev = c;
+  }
+  visit(from, s.length);
+  const end = s.indexOf('>', from);
+  visit(from, end === -1 ? s.length : end + 1);
+  return end;
+}
+
+/** Split `s` into `{ type: 'text', value }` and `{ type: 'tag', name, closing, selfClosing }` tokens. */
+/** One piece of a page: a run of text, or a tag with its name (lowercase). */
+type Token = { type: 'text'; value: string } | { type: 'tag'; name: string; closing: boolean; selfClosing: boolean };
+
+function tokenize(s: string): Array<Token> {
+  const tokens: Array<Token> = [];
+  let i = 0;
+  let textStart = 0;
+  const pushText = (end: number): void => {
+    if (end > textStart) tokens.push({ type: 'text', value: s.slice(textStart, end) });
+  };
+  while (i < s.length) {
+    const lt = s.indexOf('<', i);
+    visit(i, lt === -1 ? s.length : lt + 1);
+    if (lt === -1) break;
+    if (s.startsWith('<!--', lt)) {
+      pushText(lt);
+      const end = s.indexOf('-->', lt + 4);
+      visit(lt + 4, end === -1 ? s.length : end + 3);
+      i = textStart = end === -1 ? s.length : end + 3;
+      continue;
+    }
+    if (s[lt + 1] === '!' || s[lt + 1] === '?') {
+      pushText(lt);
+      const end = s.indexOf('>', lt + 2);
+      visit(lt + 2, end === -1 ? s.length : end + 1);
+      i = textStart = end === -1 ? s.length : end + 1;
+      continue;
+    }
+    TAG_OPEN.lastIndex = lt;
+    const m = TAG_OPEN.exec(s);
+    if (!m) {
+      i = lt + 1; // a literal '<' in the text
+      continue;
+    }
+    pushText(lt);
+    const end = tagEnd(s, lt + m[0].length);
+    const stop = end === -1 ? s.length : end;
+    const name = m[2].toLowerCase();
+    const closing = m[1] === '/';
+    tokens.push({ type: 'tag', name, closing, selfClosing: s[stop - 1] === '/' });
+    i = textStart = end === -1 ? s.length : end + 1;
+    if (!closing && RAW_TEXT.has(name)) {
+      const close = new RegExp(`</${name}[\\s/>]`, 'gi');
+      close.lastIndex = i;
+      const found = close.exec(s);
+      visit(i, found ? close.lastIndex : s.length);
+      if (!found) {
+        i = textStart = s.length;
+      } else {
+        const after = s.indexOf('>', found.index);
+        visit(found.index, after === -1 ? s.length : after + 1);
+        i = textStart = after === -1 ? s.length : after + 1;
+      }
+    }
+  }
+  pushText(s.length);
+  return tokens;
+}
+
+/** `tokens` without the contents of the boilerplate elements (nested ones counted). */
+function dropBoilerplate(tokens: Array<Token>): Array<Token> {
+  const depth = new Map<string, number>();
+  let open = 0;
+  const out: Array<Token> = [];
+  visit(0, tokens.length);
+  for (const token of tokens) {
+    if (token.type === 'tag' && BOILERPLATE.has(token.name) && !token.selfClosing) {
+      const current = depth.get(token.name) ?? 0;
+      if (!token.closing) {
+        depth.set(token.name, current + 1);
+        open += 1;
+      } else if (current > 0) {
+        depth.set(token.name, current - 1);
+        open -= 1;
+      }
+      continue;
+    }
+    if (open === 0) out.push(token);
+  }
+  return out;
+}
+
+/** `[start, end)` ranges of the outermost elements named in `names` (unclosed ones run to the end). */
+function elementRanges(tokens: Array<Token>, names: Set<string>): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  let current: { name: string; start: number } | null = null;
+  let depth = 0;
+  visit(0, tokens.length);
+  for (const [idx, token] of tokens.entries()) {
+    if (token.type !== 'tag' || token.selfClosing) continue;
+    if (!current) {
+      if (!token.closing && names.has(token.name)) {
+        current = { name: token.name, start: idx + 1 };
+        depth = 1;
+      }
+      continue;
+    }
+    if (token.name !== current.name) continue;
+    depth += token.closing ? -1 : 1;
+    if (depth === 0) {
+      ranges.push([current.start, idx]);
+      current = null;
+    }
+  }
+  if (current) ranges.push([current.start, tokens.length]);
+  return ranges;
+}
+
+/** Tokens -> normalised plain text (see the header comment). */
+function render(tokens: Array<Token>): string {
+  const parts: Array<string> = [];
+  visit(0, tokens.length);
+  for (const token of tokens) {
+    if (token.type === 'text') parts.push(decodeEntities(token.value).replace(/\s+/g, ' '));
+    else if (BLOCK.has(token.name)) parts.push('\n');
+    else if (CELL.has(token.name)) parts.push(' ');
+  }
+  return parts
+    .join('')
+    .replace(INVISIBLE, '')
+    .split('\n')
+    .map((line) => line.replace(/ {2,}/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** The text of the page's main scope: the largest article/main, else body, else everything. */
+function scopedText(tokens: Array<Token>): string {
+  let best = '';
+  for (const [start, end] of elementRanges(tokens, SCOPES)) {
+    const text = render(tokens.slice(start, end));
+    if (text.length > best.length) best = text;
+  }
+  if (best) return best;
+  const [body] = elementRanges(tokens, new Set(['body']));
+  return render(body ? tokens.slice(body[0], body[1]) : tokens);
+}
+
+/**
+ * Cut a page title `value` to at most `limit` code points, the ellipsis included, at the
+ * last whitespace inside the window (a hard cut only for one very long word).
+ */
+function truncateText(value: string, limit: number): string {
+  visit(0, value.length);
+  const points = Array.from(value);
+  if (points.length <= limit) return value;
+  const room = limit - 1;
+  let cut = -1;
+  for (let i = Math.min(room, points.length - 1); i > 0; i -= 1) {
+    if (/\s/.test(points[i])) {
+      cut = i;
+      break;
+    }
+  }
+  if (cut === -1) cut = room;
+  return `${points.slice(0, cut).join('').trimEnd()}${ELLIPSIS}`;
+}
+
+/**
+ * The readable text of an HTML page (see the header comment for the rules).
+ * Never throws; non-string input reads as an empty page.
+ */
+export function htmlToText(html: string): string {
+  try {
+    const tokens = tokenize(typeof html === 'string' ? html : '');
+    return scopedText(dropBoilerplate(tokens)) || scopedText(tokens);
+  } catch {
+    return '';
+  }
+}
+
+const isSpace = (c: string | undefined): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
+
+/**
+ * Attribute name -> value of one tag's source (the part after the tag name),
+ * names lowercased; attributes without `=` are skipped. One forward pass --
+ * no regex, so a long malformed tag cannot backtrack.
+ */
+function attributes(tagSource: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const s = tagSource;
+  visit(0, s.length);
+  let i = 0;
+  while (i < s.length) {
+    while (i < s.length && (isSpace(s[i]) || s[i] === '/')) i += 1;
+    const nameStart = i;
+    while (i < s.length && !isSpace(s[i]) && s[i] !== '=' && s[i] !== '>' && s[i] !== '/') i += 1;
+    const name = s.slice(nameStart, i).toLowerCase();
+    if (!name) {
+      i += 1;
+      continue;
+    }
+    while (i < s.length && isSpace(s[i])) i += 1;
+    if (s[i] !== '=') continue;
+    i += 1;
+    while (i < s.length && isSpace(s[i])) i += 1;
+    let value: string;
+    if (s[i] === '"' || s[i] === "'") {
+      const close = s.indexOf(s[i], i + 1);
+      value = s.slice(i + 1, close === -1 ? s.length : close);
+      i = close === -1 ? s.length : close + 1;
+    } else {
+      const valueStart = i;
+      while (i < s.length && !isSpace(s[i]) && s[i] !== '>') i += 1;
+      value = s.slice(valueStart, i);
+    }
+    out[name] = value;
+  }
+  return out;
+}
+
+/**
+ * The next opening `<name` tag at or after `from` (case-insensitive, a whole
+ * tag name): `{ start, nameEnd }`, or null. Plain indexOf scanning.
+ */
+function findTag(s: string, lower: string, name: string, from: number): { start: number; nameEnd: number } | null {
+  const needle = `<${name}`;
+  let start = from;
+  let at = lower.indexOf(needle, start);
+  while (at !== -1) {
+    visit(start, at + needle.length);
+    const after = s[at + needle.length];
+    if (after === undefined || after === '>' || after === '/' || isSpace(after))
+      return { start: at, nameEnd: at + needle.length };
+    start = at + 1;
+    at = lower.indexOf(needle, start);
+  }
+  visit(start, s.length);
+  return null;
+}
+
+/** Entities decoded, whitespace collapsed, invisible characters removed, capped. */
+function cleanTitle(raw: string): string | null {
+  const text = decodeEntities(raw).replace(INVISIBLE, '').replace(/\s+/g, ' ').trim();
+  return text ? truncateText(text, TITLE_MAX_CHARS) : null;
+}
+
+/**
+ * The page title: the `<title>` element, else the `og:title` meta, else null.
+ * Entities decoded, whitespace collapsed. Only the first 64 KB of the
+ * document are scanned (the head lives there), with indexOf and the
+ * tokenizer's `tagEnd` -- no backtracking regex, linear on any input.
+ * Never throws.
+ */
+export function pageTitle(html: string): string | null {
+  if (typeof html !== 'string') return null;
+  try {
+    const s = html.slice(0, TITLE_SCAN_CHARS);
+    // Lowercasing ASCII only keeps every index aligned with `s`.
+    visit(0, s.length);
+    const lower = s.replace(/[A-Z]+/g, (m) => m.toLowerCase());
+    const title = findTag(s, lower, 'title', 0);
+    if (title) {
+      const open = tagEnd(s, title.nameEnd);
+      if (open !== -1) {
+        let start = open + 1;
+        let close = lower.indexOf('</title', start);
+        while (close !== -1) {
+          visit(start, close + 8);
+          const after = s[close + 7];
+          if (after === undefined || after === '>' || isSpace(after)) break;
+          start = close + 1;
+          close = lower.indexOf('</title', start);
+        }
+        if (close === -1) visit(start, s.length);
+        const fromTitle = close === -1 ? null : cleanTitle(s.slice(open + 1, close));
+        if (fromTitle) return fromTitle;
+      }
+    }
+    let from = 0;
+    for (let meta = findTag(s, lower, 'meta', from); meta; meta = findTag(s, lower, 'meta', from)) {
+      const end = tagEnd(s, meta.nameEnd);
+      if (end === -1) break; // no `>` left: no further tag can close
+      const attrs = attributes(s.slice(meta.nameEnd, end));
+      const key = (attrs.property ?? attrs.name ?? '').toLowerCase();
+      if (key === 'og:title' && attrs.content) {
+        const fromMeta = cleanTitle(attrs.content);
+        if (fromMeta) return fromMeta;
+      }
+      from = end + 1;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "server",
+  "description": "Searches, checks and reads everything on the machine the engine is installed on, the engine's own code and settings included, and changes nothing. It has no web access.",
+  "prompt": "prompt.md",
+  "limits": {
+    "steps": 20,
+    "seconds": 120
+  },
+  "daily": {
+    "tasks": 40
+  }
+}

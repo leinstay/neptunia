@@ -1,0 +1,191 @@
+// A channel's entry of the server map: what the store keeps about a channel or a thread (src/memory/store.ts,
+// `getChannel`, `touchChannel`), owned by the unit `placeCollection('channel', <place id>)`. The store
+// writes it through the write kind `channel-entry` (session-write.ts) and reads it back through `channelEntryValue`
+// below.
+//
+//   places           the channel (name, topic), under the parent and with the kind the row holds
+//   descriptions     purpose, topics, tone (subject: the channel's place), one legacy version each
+//   operational      kind channel: everything else (day counts, message counts, first and last message, writers,
+//                    notes stamps, ...), kept as it was
+//
+// A write replaces the entry: the rows the value no longer holds are retired (place-holder.ts#retirePlaceAbsent), and a
+// description the persona's session reviewed keeps that version while the entry brings the text it had
+// (session-rows.ts#sessionHold).
+
+import { groupScope } from './scope.ts';
+import { ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './row-columns.ts';
+import type { Spec } from './row-columns.ts';
+import { storageContext } from './storage-context.ts';
+import {
+  heldPlaceRows,
+  holdsPlace,
+  placeHolderOf,
+  preparedPlace,
+  retirePlaceAbsent,
+  stampPlaceRows,
+} from './place-holder.ts';
+import type { PlaceHolder } from './place-holder.ts';
+import { placeCollection, keyText, collectionId } from './unit-keys.ts';
+import { namedIface } from './live-iface.ts';
+import type { UnitKey } from './unit-keys.ts';
+import { writeMapping } from './upsert.ts';
+import { dbOf, isFiniteNumber } from './types.ts';
+import type { Db, MemoryHandle, Row, Rows } from './types.ts';
+
+/** One write of the kind: the whole entry of one channel. */
+export type ChannelEntryWrite = { placeId: string; value: Row };
+
+/** What a write answers: the rows it wrote and the rows it retired. */
+export type ChannelEntryResult = { upserted: number; retired: number };
+
+/** The tables an entry's rows live in. */
+const TABLES = ['places', 'descriptions', 'description_versions', 'operational'];
+
+const PLACE_SPEC: Array<Spec> = [
+  { col: 'native_id', key: 'id', type: 'text' },
+  { col: 'name', key: 'name', type: 'text' },
+  { col: 'topic', key: 'topic', type: 'text' },
+];
+const FIELDS = ['purpose', 'topics', 'tone'];
+
+const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
+const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
+
+/** The rows of the entry `value` of the unit `key`, owned by `holder`, `unitId` the unit's id. */
+function channelEntryRows(
+  db: Db,
+  key: UnitKey,
+  value: Row,
+  unitId: string,
+  holder: PlaceHolder,
+  writeIface?: string
+): Rows {
+  const ctx = storageContext(db, key, writeIface);
+  const iface = ifaceOf(ctx);
+  const placeId = ctx.subjectId ?? unitId;
+  const rows: Rows = {};
+  const { cols, rest } = split(value, PLACE_SPEC);
+  const scope = groupScope(iface);
+  put(rows, 'places', {
+    id: placeId,
+    iface,
+    kind: typeof ctx.subjectPlace?.kind === 'string' ? ctx.subjectPlace.kind : 'channel',
+    ...cols,
+    parent_id: typeof ctx.subjectPlace?.parent_id === 'string' ? ctx.subjectPlace.parent_id : null,
+    scope_kind: 'group',
+    extra: null,
+    retired_at: null,
+  });
+  for (const field of FIELDS) {
+    const text = value[field];
+    if (typeof text !== 'string') continue;
+    const id = `desc:${placeId}:${field}`;
+    put(rows, 'descriptions', {
+      id,
+      subject_kind: 'place',
+      subject_id: placeId,
+      field,
+      ...scope,
+      current_version: `${id}:legacy`,
+    });
+    put(rows, 'description_versions', {
+      id: `${id}:legacy`,
+      description_id: id,
+      text,
+      author: 'import',
+      written_at: null,
+      chars: [...text].length,
+      kept: null,
+      removed: null,
+      added: null,
+      reason: null,
+      origin: 'legacy',
+      extra: null,
+      position: 0,
+    });
+    delete rest[field];
+  }
+  // The entry's operational row keeps the key it was first stored under.
+  const stored = preparedPlace(
+    db,
+    "SELECT owner FROM operational WHERE kind = 'channel' AND writer = ? AND holder_id = ? ORDER BY rowid LIMIT 1"
+  ).get(holder.writer, holder.holder_id);
+  put(rows, 'operational', {
+    kind: 'channel',
+    owner: stored ? stored.owner : placeId,
+    value: JSON.stringify(rest),
+  });
+  return stampPlaceRows(rows, holder);
+}
+
+/** The entry its rows give back. */
+function channelEntryOf(rows: Rows): Row {
+  const place = rows.places[0];
+  const operational = rowsOf(rows, 'operational')[0];
+  const obj = join(place, parseExtra(operational?.value), PLACE_SPEC);
+  const versions = new Map(rowsOf(rows, 'description_versions').map((row) => [row.description_id, row]));
+  for (const description of rowsOf(rows, 'descriptions')) {
+    const version = versions.get(description.id);
+    if (version) obj[String(description.field)] = version.text;
+  }
+  return obj;
+}
+
+/**
+ * Stores the whole entry the unit `key` holds (a place's `channel` unit) inside the caller's transaction and retires
+ * what it no longer holds.
+ */
+export function writeChannelEntry(
+  db: Db,
+  key: UnitKey,
+  value: Row,
+  { at, iface }: { at: string; iface?: string }
+): ChannelEntryResult {
+  const id = collectionId(key);
+  const holder = placeHolderOf(key)!; // a `channel` unit always has its holder columns (place-holder.ts)
+  const mapping = channelEntryRows(db, key, value, id, holder, iface);
+  const upserted = writeMapping(db, mapping, { at });
+  const retired = retirePlaceAbsent(db, holder, mapping, at);
+  return { upserted, retired };
+}
+
+/** A write as the writer receives it, checked. */
+export function channelEntryWriteOf(update: Row): ChannelEntryWrite {
+  if (!filled(update.placeId)) throw coded('CHANNEL_ENTRY_PLACE');
+  if (!isPlainObject(update.value)) throw coded('CHANNEL_ENTRY_VALUE');
+  return { placeId: update.placeId, value: update.value };
+}
+
+/** Whether `key` names a channel's entry. */
+export const isChannelEntryKey = (key: UnitKey | undefined): boolean => key?.kind === 'channel';
+
+/** The write of a unit update of a channel's entry (a value write of the place's own `channel` unit), else null. */
+export function channelEntryOfUnit(update: Row): ChannelEntryWrite | null {
+  const key = update.key as UnitKey | undefined;
+  if (update.op !== 'value' || !key || !isChannelEntryKey(key) || key.subject?.type !== 'place') return null;
+  if (keyText(placeCollection('channel', key.subject.id)) !== keyText(key)) return null;
+  return channelEntryWriteOf({ placeId: key.subject.id, value: update.value ?? {} });
+}
+
+/** The write kind `channel-entry` on the writer connection (session-write.ts). */
+export function applyChannelEntryWrite(handle: MemoryHandle, update: Row): ChannelEntryResult {
+  const write = channelEntryWriteOf(update);
+  const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
+  const key = placeCollection('channel', write.placeId);
+  return handle.transaction(() =>
+    writeChannelEntry(dbOf(handle), key, write.value, { at, iface: namedIface(update) ?? undefined })
+  );
+}
+
+/** Whether the database holds the channel's entry the unit `key` names. */
+export function channelEntryHeld(db: Db, key: UnitKey): boolean {
+  const holder = placeHolderOf(key);
+  return holder !== null && holdsPlace(db, holder, 'operational');
+}
+
+/** The entry the unit `key` holds (a place's `channel` unit), or not found when the database holds none. */
+export function channelEntryValue(db: Db, key: UnitKey): { found: true; value: unknown } | { found: false } {
+  const holder = placeHolderOf(key);
+  if (!holder || !channelEntryHeld(db, key)) return { found: false };
+  return { found: true, value: channelEntryOf(heldPlaceRows(db, holder, TABLES)) };
+}

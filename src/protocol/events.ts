@@ -1,0 +1,335 @@
+// The inbound half of the protocol: what an interface tells the core. Thirteen kinds, each a plain
+// serialisable object -- no platform object survives into it, every id is an opaque string the
+// adapter alone knows how to build -- with `kind`, `iface` (the adapter's namespace), `at` (ms
+// since the epoch), `id` (an opaque event id for dedup) and, for what happens in a chat,
+// `chat`. A direct chat is a chat of kind `dm`, never a separate event; a mention
+// of the persona is the `addressing` of a message, never a second event. `scheduler.tick`,
+// `errand.done` and `inner.wake` are the core's own (its clock, its errands and its inner-life
+// scheduler): an adapter never sends them.
+// Contracts only: the shapes are checked by validate.ts; building them is the adapter's job.
+
+/** The message kind: a new message, an edit (`edit`), or a deletion (`deleted`). */
+export const MESSAGE_RECEIVED = 'message.received';
+/** A reaction put on (`added`) or taken off a message. */
+export const REACTION_CHANGED = 'reaction.changed';
+/** An owner command asked through the interface; answered by a `command.result` action. */
+export const COMMAND_REQUESTED = 'command.requested';
+/** A member joined, left or changed in a root. */
+export const MEMBERSHIP_CHANGED = 'membership.changed';
+/** A member's voice state changed (joined, left or moved a voice chat, muted, ...). */
+export const VOICE_CHANGED = 'voice.changed';
+/** A member's presence changed: their status or what they are doing. */
+export const PRESENCE_CHANGED = 'presence.changed';
+/** Everyone's voice state and presence at one moment, sent to seed or replace what the core holds. */
+export const PRESENCE_SNAPSHOT = 'presence.snapshot';
+/** A chat was created, updated or deleted. */
+export const CHAT_CHANGED = 'chat.changed';
+/** The interface lost its connection to the platform, or got it back. */
+export const CONNECTION_CHANGED = 'connection.changed';
+/** The persona was added to a root, found in one their settings do not list, or left one. */
+export const ROOT_CHANGED = 'root.changed';
+/** The core's own clock. */
+export const SCHEDULER_TICK = 'scheduler.tick';
+/** One of the persona's errands ended. */
+export const ERRAND_DONE = 'errand.done';
+/** The inner-life scheduler found something due for the persona (src/behavior/inner.ts). */
+export const INNER_WAKE = 'inner.wake';
+
+/** Every inbound event kind. */
+export const EVENT_KINDS = Object.freeze([
+  MESSAGE_RECEIVED,
+  REACTION_CHANGED,
+  COMMAND_REQUESTED,
+  SCHEDULER_TICK,
+  ERRAND_DONE,
+  MEMBERSHIP_CHANGED,
+  VOICE_CHANGED,
+  INNER_WAKE,
+  PRESENCE_CHANGED,
+  PRESENCE_SNAPSHOT,
+  CHAT_CHANGED,
+  CONNECTION_CHANGED,
+  ROOT_CHANGED,
+]);
+
+/** The kinds the core emits itself; every other kind comes from an interface. */
+export const CORE_KINDS = Object.freeze([SCHEDULER_TICK, ERRAND_DONE, INNER_WAKE]);
+
+/** Every chat kind. */
+export const CHAT_KINDS = Object.freeze(['channel', 'dm', 'thread']);
+
+/**
+ * The chat types of a chat (`chat.chatType`): a one-to-one chat, a group chat outside a root,
+ * a channel of a root, a thread.
+ */
+export const CHAT_CHAT_TYPES = Object.freeze(['dm', 'group_dm', 'channel', 'thread']);
+
+/** What happened to a member (`membership.changed`). */
+export const MEMBERSHIP_CHANGES = Object.freeze(['joined', 'left', 'updated']);
+
+/** What a member is doing on the platform (`presence.changed`). */
+export const PRESENCE_STATUSES = ['online', 'idle', 'dnd', 'offline', 'unknown'] as const;
+
+/** The kinds of activity a presence lists. */
+export const ACTIVITY_KINDS = ['playing', 'streaming', 'listening', 'watching', 'competing', 'other'] as const;
+
+/** What happened to a chat (`chat.changed`). */
+export const CHAT_CHANGES = Object.freeze(['created', 'updated', 'deleted']);
+
+/**
+ * What happened to a root (`root.changed`): the persona was just added to it (`joined`), found in it at the start of
+ * the interface with the persona's settings not listing it (`present`), or taken out of it (`left`).
+ */
+export const ROOT_CHANGES = Object.freeze(['joined', 'present', 'left']);
+
+/** The states of an interface's connection (`connection.changed`). */
+export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
+
+/**
+ * Where an event happened. `rootId`: the native id of the place at the top of the chat's tree (none for a
+ * direct chat); `name`, `topic`: what the people in it see, null when unknown.
+ * `parentId`, `parentKind`: the place that contains this one, of any kind and at any depth (a server, a channel); a
+ * thread with no declared kind sits in a channel. A grouping of rooms in a platform's sidebar is no place and is never
+ * declared. `authorityId`: the authority that issued this chat's id, the interface's native one when absent.
+ * `chatType` (optional, CHAT_CHAT_TYPES): a one-to-one chat, a group chat, a channel or a
+ * thread; `partnerId` (optional): the other person of a one-to-one chat, null when unknown.
+ */
+export type Chat = {
+  id: string;
+  kind: 'channel' | 'dm' | 'thread';
+  rootId?: string | null;
+  name?: string | null;
+  topic?: string | null;
+  parentId?: string | null;
+  parentKind?: string;
+  authorityId?: string;
+  chatType?: 'dm' | 'group_dm' | 'channel' | 'thread';
+  partnerId?: string | null;
+};
+
+/** A member's picture: `hash` identifies it, `url` is where to fetch it; either is null when unknown. */
+export type Avatar = { hash: string | null; url: string | null };
+
+/**
+ * A message the text of another message links to: where it is (`iface`, `chatId`, `messageId`), `url` (the
+ * address of the message on its platform, null when it has none) and `text`, the span of the text that names it as
+ * written, so the core can replace exactly that span.
+ */
+export type MessageReference = {
+  iface: string;
+  chatId: string;
+  messageId: string;
+  url: string | null;
+  text: string;
+};
+
+/**
+ * Who wrote a message: `self` is the persona's own member, `bot` another automated one.
+ * `avatar` (optional): the hash and the address of their picture, each null when unknown.
+ */
+export type Author = { id: string; name: string | null; self: boolean; bot: boolean; avatar?: Avatar };
+
+/**
+ * One message, as the core reads it. `content`: the text as the chat shows it (mentions read as names, links to
+ * embedded media cut out). `sourceText` (optional, `content` when absent): the text as written, with mentions in the
+ * core's `<@id>` grammar, which edit detection and the journal's reconciliation compare. `system` (optional, false when
+ * absent): the platform's own message (a member joined, a pin, a boost), which no author writes. `at`: when it was written. `replyToId`: the message it
+ * replies to (a forward replies to nothing); `replyPingAccountId`: the replied-to author when only
+ * the reply notified them; `forwardedFrom`: the name of the chat a forward came from.
+ * A custom emoji stands in `content` as the token `<emoji:ID>`, with `ID` the platform id of an entry of `emojis`; the
+ * core turns each token into the emoji's stable name before it stores or shows the line. A reaction with a custom
+ * emoji is `{ emoji: '<emoji:ID>', name, animated, count, mine }`, `name` its platform name; one with a unicode emoji
+ * is `{ emoji, count, mine }`.
+ * `attachments`, `links`, `forwarded`, `stickers`, `emojis`, `reactions` keep the shapes the
+ * core's media module reads (src/media/classify.ts). `messageRefs` (optional): the messages the text links to, as
+ * `MessageReference`s, in the order they are written.
+ */
+export type Message = {
+  id: string;
+  author: Author;
+  content: string;
+  sourceText?: string;
+  system?: boolean;
+  at: number;
+  replyToId: string | null;
+  replyPingAccountId: string | null;
+  forwardedFrom: string | null;
+  attachments: Array<object>;
+  links: Array<object>;
+  forwarded: Array<object>;
+  stickers: Array<object>;
+  emojis: Array<object>;
+  reactions: Array<object>;
+  editedAt?: number | null;
+  messageRefs?: Array<MessageReference>;
+};
+
+/**
+ * How a message addresses others: whether it mentions the persona (`mentioned`) or replies to
+ * one of the persona's messages (`replyToSelf`, as far as the adapter knows without asking the platform
+ * again), and every member and chat it mentions. `mentionedUsers` (optional): the name
+ * the message's text reads for each mentioned member (`{ id, name }`).
+ */
+export type Addressing = {
+  mentioned: boolean;
+  replyToSelf: boolean;
+  mentionedAccountIds: Array<string>;
+  mentionedUsers?: Array<{ id: string; name: string }>;
+  mentionedChatIds: Array<string>;
+};
+
+/**
+ * `message.received`. An edit carries the same message id with `edit: true` and `previous`, the message as it was
+ * (null when the adapter did not hold it); a deletion carries `message.id` with `deleted: true` and, when the
+ * adapter still knew them, `message.at` and `message.author`; an edit the adapter could not read whole carries only
+ * `message.id` with `edit: true, partial: true` (the core asks the adapter for the rest).
+ */
+export type MessageReceived = {
+  kind: 'message.received';
+  iface: string;
+  at: number;
+  id: string;
+  chat: Chat;
+  message: Message | { id: string; at?: number; author?: Author };
+  addressing?: Addressing;
+  edit?: boolean;
+  deleted?: boolean;
+  partial?: boolean;
+  previous?: Message | null;
+};
+
+/**
+ * `reaction.changed`: `emoji.name` is the emoji itself (a unicode one) or a custom emoji's name,
+ * `emoji.id` a custom emoji's id. `authorId` is the author of the reacted message when the
+ * adapter knows it (null or absent otherwise). `cleared` marks a removal of many at once: `'emoji'`
+ * (every reaction of one emoji taken off) or `'all'` (every reaction taken off); then `added` is
+ * false, `accountId` may be null or absent, and with `'all'` so may `emoji`.
+ */
+export type ReactionChanged = {
+  kind: 'reaction.changed';
+  iface: string;
+  at: number;
+  id: string;
+  chat: Chat;
+  messageId: string;
+  emoji: { name: string | null; id?: string } | null;
+  accountId: string | null;
+  added: boolean;
+  authorId?: string | null;
+  cleared?: 'emoji' | 'all';
+};
+
+/**
+ * `membership.changed`: `change` says what happened to the member `accountId` of the root
+ * `placeId`; `member` is who they are now (absent when they left and the adapter no longer knows).
+ */
+export type MembershipChanged = {
+  kind: 'membership.changed';
+  iface: string;
+  at: number;
+  id: string;
+  placeId: string;
+  accountId: string;
+  change: 'joined' | 'left' | 'updated';
+  member?: { id: string; name: string | null; bot: boolean; avatar?: Avatar };
+};
+
+/**
+ * `voice.changed`: `chatId` is the voice chat the member is in now (null: none),
+ * `previousId` the one they were in (null: none); the flags are what the adapter knows.
+ * `name` (optional): the name people see for the member, null when unknown; `camera` (optional): whether their camera is on.
+ */
+export type VoiceChanged = {
+  kind: 'voice.changed';
+  iface: string;
+  at: number;
+  id: string;
+  placeId: string;
+  accountId: string;
+  name?: string | null;
+  chatId: string | null;
+  previousId: string | null;
+  muted?: boolean;
+  deafened?: boolean;
+  streaming?: boolean;
+  camera?: boolean;
+};
+
+/** One thing a member is doing: its `kind`, `name`, and the `details` and `state` lines the platform shows (empty when none). */
+export type Activity = {
+  kind: 'playing' | 'streaming' | 'listening' | 'watching' | 'competing' | 'other';
+  name: string;
+  details: string;
+  state: string;
+};
+
+/** A member's presence: `name` is what people see for them, null when unknown. */
+export type PresenceState = {
+  accountId: string;
+  name: string | null;
+  status: 'online' | 'idle' | 'dnd' | 'offline' | 'unknown';
+  activities: Array<Activity>;
+};
+
+/** A member's voice state as a snapshot lists it: the fields of `voice.changed` without the envelope. */
+export type VoiceState = Omit<VoiceChanged, 'kind' | 'iface' | 'at' | 'id'>;
+
+/** `presence.changed`: one member's presence now. */
+export type PresenceChanged = { kind: 'presence.changed'; iface: string; at: number; id: string } & PresenceState;
+
+/** `presence.snapshot`: every voice state and presence the interface knows at `at`. It replaces what the core holds. */
+export type PresenceSnapshot = {
+  kind: 'presence.snapshot';
+  iface: string;
+  at: number;
+  id: string;
+  voice: Array<VoiceState>;
+  presence: Array<PresenceState>;
+};
+
+/** `chat.changed`: `chat` as it is now (as it was, for a deletion). */
+export type ChatChanged = {
+  kind: 'chat.changed';
+  iface: string;
+  at: number;
+  id: string;
+  chat: Chat;
+  change: 'created' | 'updated' | 'deleted';
+};
+
+/** `connection.changed`: the interface's link to its platform dropped (`lost`) or came back (`resumed`). */
+export type ConnectionChanged = {
+  kind: 'connection.changed';
+  iface: string;
+  at: number;
+  id: string;
+  state: 'lost' | 'resumed';
+};
+
+/** `root.changed`: a root of the interface, with its native id and name, joined, found or left. */
+export type RootChanged = {
+  kind: 'root.changed';
+  iface: string;
+  at: number;
+  id: string;
+  root: { id: string; name: string };
+  /** The moment the bot joined the root, milliseconds since the epoch, when the platform tells one. */
+  joinedAt?: number;
+  change: 'joined' | 'present' | 'left';
+};
+
+/** `scheduler.tick`: the core's clock, `at` only. */
+export type SchedulerTick = { kind: 'scheduler.tick'; at: number };
+
+/**
+ * `inner.wake`: the core's inner-life scheduler (src/behavior/inner.ts) found something due: an
+ * intention, a deadline of an errand the persona waits for, or their daily review. `id` is always given
+ * (the wake's own, so a second listing of the same due item is the same event); `wake` is the
+ * scheduler's record (`kind` one of `intention_due`, `review`, `errand_deadline`, `attend`, `feedback`, `heartbeat`).
+ */
+export type InnerWake = {
+  kind: 'inner.wake';
+  at: number;
+  id: string;
+  wake: { kind: string };
+};

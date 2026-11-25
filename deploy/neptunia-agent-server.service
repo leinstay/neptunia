@@ -1,0 +1,90 @@
+# systemd unit of the agent `server` (src/agent-runner/): its errand runner.
+#
+# A separate, unprivileged process that runs read-only errands on this server
+# (`codex exec -s read-only` in the mode `read`), one errand at a
+# time: it reads files and runs read-only shell commands to answer questions
+# about the machine. The backend runs from
+# <private>/subharness/<backend>/, which holds its binary and its login.
+# Its network reaches only the local resolver, Cloudflare's ranges, where
+# chatgpt.com, api.openai.com and auth.openai.com sit, and Anthropic's own
+# ranges for the claude backend (IPAddressAllow; everything else denied), and
+# it writes only its own out dir and the backend's folder. The
+# read-only guarantee is this unit (ProtectSystem=strict, no write paths) plus
+# Codex's read-only sandbox, not a command filter. What it may DISCLOSE is cut
+# by the engine per scope (src/agent-runner/policy.ts), not by the OS here.
+#
+# It reads what the user `neptunia` can read, not everything like root: Codex
+# sandboxes its commands with bubblewrap, which refuses to start while a
+# capability is ambient (AmbientCapabilities=CAP_DAC_READ_SEARCH failed with
+# "Unexpected capabilities but not setuid"), so the unit holds no ambient
+# capability. AF_NETLINK is allowed because bubblewrap opens a netlink socket
+# to set up loopback in its new network namespace.
+#
+# `neptunia setup` renders this template for the installing user
+# (deploy/README.md). The sandbox below is the mode `read`; `agent mode
+# server <mode>` in the chat sets the mode, which the next `neptunia setup`
+# renders into the unit: `full` drops the mount
+# sandbox (ProtectSystem, ProtectHome and the bind and write paths) and `sudo`
+# also drops NoNewPrivileges and the capability bounding set.
+# Logs:    journalctl -u neptunia-agent-server -f
+
+[Unit]
+Description=neptunia server errand agent
+After=network.target
+
+[Service]
+Type=simple
+User=neptunia
+Group=neptunia-discord-interface
+WorkingDirectory=/opt/neptunia/app
+ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --unit server
+# Node's folder goes on the PATH; the backend is started by its path in the private layer.
+Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
+# The bot's data directory, set as in the core unit (deploy/neptunia-core.service).
+# The runner reads the local agents and prompts under agents/ of NEPTUNIA_DATA_DIR
+# (the tracked agents/ stay in the checkout; a local prompt this
+# user cannot read is skipped with one warning and the tracked prompt is used),
+# and in a filtered scope withholds NEPTUNIA_DATA_DIR (src/agent-runner/policy.ts);
+# it writes nothing under it. A deployment that keeps everything in the checkout
+# deletes the line.
+Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
+Restart=on-failure
+RestartSec=5
+
+# No capability beyond the one the bounding set names, and none ambient.
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+
+# Network only to the local resolver stub and to the model APIs. chatgpt.com,
+# api.openai.com and OpenRouter sit behind Cloudflare; the first range line is
+# Cloudflare's published IPv4 ranges, which hold the addresses of those hosts.
+# api.anthropic.com sits in Anthropic's own ranges, 160.79.104.0/23 and
+# 2607:6bc0::/48. Everything else, the private ranges and the cloud metadata
+# address included, is denied.
+IPAddressDeny=any
+IPAddressAllow=127.0.0.53/32
+IPAddressAllow=173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22
+IPAddressAllow=160.79.104.0/23 2607:6bc0::/48
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+# The whole system is read-only; the agent writes only its own state (out) dir,
+# the runtime socket dir and the backend's folder <private>/subharness/<backend>/
+# (its sessions, logs and login), which `neptunia setup` binds after ProtectHome=
+# while a backend is on. The rest of the home is an empty tmpfs, with ~/.local
+# read-only.
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/neptunia/.local
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+StateDirectory=neptunia-agent-server
+RuntimeDirectory=neptunia-agent-server
+RuntimeDirectoryMode=0750
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=neptunia-agent-server
+
+[Install]
+WantedBy=multi-user.target

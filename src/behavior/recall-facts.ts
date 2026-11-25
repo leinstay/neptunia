@@ -1,0 +1,212 @@
+// How a turn's recall reads the one retrieval service (src/memory/db/retrieve.ts): the read itself, under the settings read
+// now, and the excerpts its facts become in the prefetch. recall-run.ts is the caller; the wording is the request's.
+
+import { log } from '../log.ts';
+import { handleOf } from './handles.ts';
+import { RECALL_DEFAULTS } from './recall.ts';
+import { objectMeaning } from '../memory/db/object-vectors.ts';
+import { dbSettings } from '../memory/db/recall.ts';
+import { retrieveMemory } from '../memory/db/retrieve.ts';
+import type { RetrieveDeps } from '../memory/db/retrieve.ts';
+import type { Context } from '../memory/db/scope.ts';
+import type { MemoryPage } from '../memory/db/semantic-types.ts';
+import type { Config, Db } from '../memory/db/types.ts';
+import { memoryQueryFor, retrievalBounds } from '../memory/retrieval-input.ts';
+import type { RetrievalInput } from '../memory/retrieval-input.ts';
+
+/**
+ * One read for a turn under its own context. Null while the retrieval settings are absent or when the read fails: the turn
+ * keeps what the source search found. The turn has searched the sources itself, so the service does not.
+ */
+export async function memoryPage(given: {
+  db: unknown;
+  ctx: unknown;
+  input: RetrievalInput;
+  config: unknown;
+  prefetch: unknown;
+  now: () => number;
+  embedQuery: RetrieveDeps['embedQuery'];
+  model: unknown;
+  plainClaims?: boolean;
+}): Promise<MemoryPage | null> {
+  const config = given.config as Config;
+  if (!config?.memoryDb?.retrieval) return null;
+  try {
+    const bounds = retrievalBounds(
+      { recall: { prefetch: given.prefetch }, memoryDb: config.memoryDb },
+      given.input.purpose
+    );
+    const recall = dbSettings(config);
+    return await retrieveMemory(given.db as Db, given.ctx as Context, memoryQueryFor(given.input, bounds), {
+      now: given.now,
+      embedQuery: given.embedQuery,
+      model: typeof given.model === 'string' ? given.model : null,
+      sources: false,
+      plainClaims: given.plainClaims,
+      recall,
+      minSimilarity: recall?.minMeaning,
+    });
+  } catch (err) {
+    log.warn('recall: retrieval failed', {
+      purpose: given.input.purpose,
+      code: (err as { code?: unknown } | null)?.code ?? null,
+    });
+    return null;
+  }
+}
+
+/**
+ * An episode a search found by meaning: its id, its date when it has one, what happened, and `who`, the handle of the
+ * person it is about as the search names that person's lines (null for a place's episode).
+ */
+export type FoundEpisode = { id: string; date: string | null; text: string; who: string | null };
+/** `memoryDb.retrieval.episodes` when missing or broken: config.json's value. */
+const EPISODES_FALLBACK = 3;
+
+/** The value at a path of plain objects, undefined where one is missing. */
+const pathOf = (value: unknown, keys: ReadonlyArray<string>): unknown =>
+  keys.reduce<unknown>(
+    (at, key) => (at !== null && typeof at === 'object' ? (at as Record<string, unknown>)[key] : undefined),
+    value
+  );
+
+const settingOf = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : fallback;
+
+/**
+ * The episodes a `memory.search` query meets by meaning under the turn's context, best first and at most
+ * `memoryDb.retrieval.episodes`: their vectors (object-vectors.ts#objectMeaning) at or above `recall.db.minMeaning`, each
+ * read under its episode's own audience. None without the query's vector. Asks no model.
+ */
+export function searchEpisodes(given: {
+  db: unknown;
+  ctx: unknown;
+  vector: unknown;
+  model: unknown;
+  config: unknown;
+}): Array<FoundEpisode> {
+  const limit = settingOf(pathOf(given.config, ['memoryDb', 'retrieval', 'episodes']), EPISODES_FALLBACK);
+  const vector = given.vector as ArrayLike<number> | null;
+  if (limit === 0 || !vector || typeof given.model !== 'string') return [];
+  const floor = pathOf(given.config, ['recall', 'db', 'minMeaning']);
+  const minMeaning = typeof floor === 'number' ? floor : RECALL_DEFAULTS.db.minMeaning;
+  const db = given.db as Db;
+  const read = db.prepare('SELECT id, subject_id, date, what, quote FROM episodes WHERE id = ? AND retired_at IS NULL');
+  const hits = objectMeaning(db, given.ctx as Context, { vector, model: given.model, kinds: ['episode'], minMeaning });
+  return hits.slice(0, limit).flatMap((hit) => {
+    const row = read.get(hit.itemId);
+    const text = [row?.what, row?.quote].find((one) => typeof one === 'string' && one.trim() !== '');
+    return row && typeof text === 'string'
+      ? [
+          {
+            id: hit.itemId,
+            date: typeof row.date === 'string' ? row.date : null,
+            text,
+            who: typeof row.subject_id === 'string' ? `@${handleOf(row.subject_id)}` : null,
+          },
+        ]
+      : [];
+  });
+}
+
+/** A prefetch's query: the trigger's words, its partner and speaker, the place it was issued for. */
+export function prefetchInput(ctx: unknown, text: unknown, speaker: ReadonlyArray<string>): RetrievalInput {
+  const issued = ctx as Context;
+  const partner = issued.kind === 'dm' && typeof issued.person === 'string' ? [issued.person] : [];
+  return {
+    purpose: 'prefetch',
+    text: typeof text === 'string' ? text : '',
+    people: [...new Set([...partner, ...speaker])],
+    place: typeof issued.destination === 'string' ? issued.destination : null,
+    entities: [],
+  };
+}
+
+/**
+ * A page's facts as excerpts. A name alone says nothing a turn can use, and a plain claim's home is the profile blocks, so a
+ * memory with no structured fact adds nothing to a request.
+ */
+export function factExcerpts(page: MemoryPage | null): Array<{
+  source: 'semantic';
+  versionId: string;
+  state: string;
+  polarity: string;
+  lines: string;
+  text: string;
+}> {
+  return (page?.assertions ?? [])
+    .filter((fact) => fact.assertionKind !== 'label' && fact.assertionKind !== 'text')
+    .map((fact) => ({
+      source: 'semantic',
+      versionId: fact.versionId,
+      state: fact.state,
+      polarity: fact.polarity,
+      lines: fact.text,
+      text: fact.text,
+    }));
+}
+
+/** The stored facts of a persona's search: their question and their filters, under the turn's context. */
+export function searchFacts(given: {
+  db: unknown;
+  ctx: unknown;
+  text: unknown;
+  retrieval: unknown;
+  config: unknown;
+  prefetch: unknown;
+  now: () => number;
+  vector: unknown;
+  model: unknown;
+}): Promise<MemoryPage | null> {
+  const filters = (given.retrieval ?? {}) as {
+    entity?: unknown;
+    predicate?: unknown;
+    asOf?: unknown;
+    historical?: unknown;
+  };
+  const { vector } = given;
+  return memoryPage({
+    db: given.db,
+    ctx: given.ctx,
+    input: {
+      purpose: 'search',
+      text: typeof given.text === 'string' ? given.text : '',
+      anchors: typeof filters.entity === 'string' && filters.entity ? [{ kind: 'entity', id: filters.entity }] : [],
+      predicates: typeof filters.predicate === 'string' && filters.predicate ? [filters.predicate] : [],
+      recordedBefore: typeof filters.asOf === 'string' ? filters.asOf : null,
+      historical: filters.historical === true,
+    },
+    config: given.config,
+    prefetch: given.prefetch,
+    now: given.now,
+    embedQuery: vector ? () => Promise.resolve(vector as ArrayLike<number>) : null,
+    model: given.model,
+  });
+}
+
+/** The stored facts of a prefetch, or a wake's own `retrieval` instead of the turn's query. */
+export function prefetchFacts(given: {
+  db: unknown;
+  ctx: unknown;
+  retrieval: RetrievalInput | null;
+  text: unknown;
+  speaker: ReadonlyArray<string>;
+  config: unknown;
+  prefetch: unknown;
+  now: () => number;
+  laneVectors: unknown;
+  model: unknown;
+}): Promise<MemoryPage | null> {
+  const vectors = given.laneVectors as Promise<ReadonlyArray<ArrayLike<number>> | null> | null;
+  return memoryPage({
+    db: given.db,
+    ctx: given.ctx,
+    input: given.retrieval ?? prefetchInput(given.ctx, given.text, given.speaker),
+    config: given.config,
+    prefetch: given.prefetch,
+    now: given.now,
+    embedQuery: vectors ? () => vectors.then((all) => all?.[0] ?? null) : null,
+    model: given.model,
+    plainClaims: false,
+  });
+}

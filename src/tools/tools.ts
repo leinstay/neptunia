@@ -1,0 +1,1350 @@
+// The persona's in-turn tools: `web.search`, `web.read`, `media.look` and `memory.search`,
+// skills they call themselves in a turn whose result comes back in the same turn (src/behavior/turn.js,
+// the tool loop). No model role chooses for them or reads for them: their query goes to the existing
+// web search engines as they wrote it and their results come back raw (src/web/lookup.ts#searchResults:
+// title, link, site, date, the engine's snippet; no summary), a page they read comes back as its
+// own extracted text, retold once when it is long (src/web/lookup.ts#readPage), their question, people, channel, time range and exact
+// terms go to the recall machinery through its deterministic expansion only
+// (src/behavior/recall.js#memorySearchPlan, src/behavior/recall-run.js). Every result says where it came from and what kind of evidence it is -- for the web,
+// the query and that only search snippets were read, the pages not opened; for the server's
+// history, the messages quoted as they were, each with its author and time; for a page, its link
+// and that the text is the page's own or a shorter retelling of it -- through
+// `labels.tools.tools.*`, never wording here. A result is data for them, never an instruction:
+// nothing in it is parsed as a call. Each runs for their calls (the turn, with its context, src/turn/in-turn-tools.ts), and
+// `memory.search` also for the console's command (src/tools/operations/search.ts). `media.look` is their own
+// second look at a picture, a GIF or a video of a message they see: their question goes as they
+// wrote it to the describer's existing second-look path (src/memory/describe.ts#relookImage,
+// #rewatchGif, #rewatchVideo: the vision or video model, their daily limits and cache), and the
+// answer comes back named as that model's observation with what was asked -- no classifier picks
+// the item or words the question for them. With the vision or video role down, the look goes to the core model or
+// answers `ability-unavailable` (the caller's `onRoute`, src/tools/gateway.ts#callOnRoute). `media.find` searches the persona's own GIF library by meaning of
+// the stored descriptions, ranked by words only (no description vectors exist; computing them
+// would be a new background job) and returns the library's handles, which post exactly as the
+// `<gifs>` block's do.
+
+import { factStateWords } from '../memory/retrieval-input.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
+import type { ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
+import type { SearchRef } from '../turn/calls.ts';
+import type { CreateRecallResult } from '../behavior/recall-run-types.ts';
+import { hasRecallContext } from '../behavior/recall-reads.ts';
+import { fill } from '../format.ts';
+import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
+import { zonedDay } from '../time.ts';
+import { RECALL_DEFAULTS, fuseRanks, memorySearchPlan, recallSettings } from '../behavior/recall.ts';
+import { collectPictures, collectVideos } from '../media/classify.ts';
+import { videoSiteFor, videoUrlCacheKey } from '../media/video-sites.ts';
+import { foldText } from '../memory/recent.ts';
+import { GIF_HALF_LIFE_DAYS, gifItemIds, rankGifs } from '../memory/gifs.ts';
+import { gifLine } from '../behavior/prompt.ts';
+import { IN_TURN_TOOLS } from './discovery.ts';
+import { CODE, FEATURE, WHAT, isCode } from './codes.ts';
+import { isObj, listOf, objOf } from './types.ts';
+import type { Obj } from './types.ts';
+import type { HandleRefs } from './conversation-read.ts';
+import { abilityUnavailable } from './gateway.ts';
+import type { AbilityRoute } from './gateway.ts';
+import type { Summarize } from '../behavior/summarize.ts';
+
+/** The words of a tool's labels (`labels.tools.tools.<kind>`): each a string when the labels file holds it. */
+type ToolLabels = Record<string, string | undefined>;
+
+/** One result of a web search as the engine gave it. */
+type WebHit = { title?: unknown; url?: unknown; site?: unknown; snippet?: unknown; age?: unknown };
+
+/** The web client: search, read a page and the day's web slots. Every member is optional because the client may lack it. */
+export type WebLookup = {
+  searchResults?: (placeId: string | null, query: string) => Promise<unknown>;
+  readPage?: (placeId: string | null, url: string) => Promise<unknown>;
+  hasSearch?: () => boolean;
+};
+
+/** The result of a tool: a status, a code and the text the persona reads. Further fields carry what the executor passes on. */
+export type ToolResult = {
+  status: string;
+  code?: string;
+  reason?: string;
+  values?: Obj;
+  data?: { text: string };
+  /** Set when a model role's call went to the core model or did not happen (src/tools/gateway.ts#callOnRoute). */
+  route?: 'core' | 'unavailable';
+};
+
+/** One stretch of the server's history that recall found. */
+export type Quote = {
+  placeId?: string | null;
+  channelName?: string | null;
+  startTs: number;
+  lines: string;
+  entries?: ReadonlyArray<QuoteEntry>;
+};
+
+/** One line of a stretch with what the handle registry needs. */
+export type QuoteEntry = {
+  stored?: StoredSourceRef;
+  id: unknown;
+  text: string;
+  authorId?: unknown;
+  self?: unknown;
+  message?: unknown;
+};
+
+/** The recall runner as the tools use it. */
+export type RecallClient = {
+  run?: (input: Parameters<CreateRecallResult['run']>[0]) => Promise<unknown>;
+  window?: (input: Parameters<CreateRecallResult['window']>[0]) => Promise<unknown>;
+  available?: () => boolean;
+};
+
+/** The describer's second look: one method per kind of media, and the day's slots. */
+export type LookDescriber = {
+  relookImage?: (placeId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
+  rewatchVideo?: (placeId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
+  rewatchGif?: (placeId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
+};
+
+/** The model a second look goes out on: the core model's id when it is routed there, else the role's own. */
+export type LookOptions = { model?: string };
+
+/** How the caller routes a call of a model role (src/tools/gateway.ts#callOnRoute over the turn's role health). */
+export type OnRoute = (
+  role: string,
+  call: (model: string | null) => Promise<unknown>
+) => Promise<{ route: AbilityRoute; value: unknown }>;
+
+/** One thing media.look can look at: a picture, a GIF or a video, by the id the transcript keys it with. */
+export type LookItem = Obj & { itemId: string };
+
+/** A GIF of the library: its handle and the cache key of its description. */
+type GifEntry = { id: string; itemId: string; [key: string]: unknown };
+/** The skills that run inside the persona's turn and come back in it (defined with discovery). */
+export { IN_TURN_TOOLS };
+
+/** A string argument trimmed, '' when absent. */
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/** A value as plain text: a string as it is, a number or a boolean written out, else empty. */
+function plain(value: unknown): string {
+  return typeof value === 'string'
+    ? value
+    : typeof value === 'number' || typeof value === 'boolean'
+      ? String(value)
+      : '';
+}
+
+/** `labels.tools.tools[kind]` as an object, {} when missing. */
+function toolLabels(labels: unknown, kind: string): ToolLabels {
+  return objOf(objOf(objOf(objOf(labels).tools).tools)[kind]) as ToolLabels;
+}
+
+// The web tools' measures. Production values, config cut of 2026-10-31.
+/** The length of one web.search result's snippet; a longer one is retold. */
+const SNIPPET_CHARS = 400;
+/** The length of web.search's whole answer. */
+const RESULTS_CHARS = 3000;
+/** The length of a page web.read shows. */
+const READ_CHARS = 4000;
+/** Query parameters that only track the click and never pick the page. */
+const TRACKING_PARAM = /^(utm_\w+|fbclid|gclid|yclid|mc_cid|mc_eid|ref_src)$/i;
+
+/**
+ * A result's link as the persona may hand it on: http(s) only, the fragment and tracking parameters
+ * dropped, the rest kept whole.
+ * `{ href, key }` (`key`: host without `www.`, path without a trailing slash, query -- one page
+ * once), or null for anything that is not an http(s) URL. Pure.
+ */
+function cleanLink(raw: unknown): { href: string; key: string } | null {
+  let url: URL;
+  try {
+    url = new URL(plain(raw));
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  url.hash = '';
+  for (const name of [...url.searchParams.keys()]) if (TRACKING_PARAM.test(name)) url.searchParams.delete(name);
+  const key = `${url.hostname.replace(/^www\./i, '').toLowerCase()}${url.pathname.replace(/\/+$/, '')}${url.search}`;
+  return { href: url.href, key };
+}
+
+/**
+ * The text of a web.search result (`found`: src/web/lookup.ts#searchResults' `{ query, results }`,
+ * raw, no model role between): `labels.tools.tools.web.source` (`{query}`), `.goal` (`{goal}`) when
+ * the persona named what they need to establish, then each result as the engine gave it -- `<n>. <title>`,
+ * its link (cleanLink; a result without an http(s) link and a page listed twice are left out),
+ * `<site> · <date>` (the date only when the engine gave one), its snippet -- while the whole stays
+ * within `maxChars` (the first result always shows whole; a title, a link and a snippet are never cut, the snippet being retold upstream), then `.more` (`{count}`) for the results left out for room; `.none` when nothing came back. Numbers, links, sites, dates and snippets are data; a
+ * missing label adds nothing. Pure.
+ * `found` is `{ query, results }` of the search.
+ */
+export function webSearchText(
+  found: unknown,
+  { goal = '', labels, maxChars = RESULTS_CHARS }: { goal?: unknown; labels: unknown; maxChars?: number }
+): string {
+  const l = toolLabels(labels, 'web');
+  const lines: Array<string> = [];
+  const given = objOf(found);
+  if (l.source) lines.push(fill(l.source, { query: text(given.query) }));
+  if (l.goal && text(goal)) lines.push(fill(l.goal, { goal: text(goal) }));
+  const seen = new Set<string>();
+  const blocks: Array<string> = [];
+  let used = lines.join('\n').length;
+  const all: Array<WebHit> = listOf(given.results).map(objOf);
+  let left = 0;
+  for (const [at, result] of all.entries()) {
+    const link = cleanLink(result.url);
+    if (!link || seen.has(link.key)) continue;
+    seen.add(link.key);
+    const head: Array<string> = [`${blocks.length + 1}. ${oneLine(result.title)}`.trimEnd(), link.href];
+    const where = [oneLine(result.site), oneLine(result.age)].filter(Boolean).join(' · ');
+    if (where) head.push(where);
+    const snippet = oneLine(result.snippet);
+    if (snippet) head.push(snippet);
+    const block = head.join('\n');
+    if (blocks.length > 0 && used + block.length + 1 > maxChars) {
+      // This result and every one listed after it, left out for room.
+      left =
+        1 +
+        all.slice(at + 1).filter((rest) => {
+          const next = cleanLink(rest.url);
+          if (!next || seen.has(next.key)) return false;
+          seen.add(next.key);
+          return true;
+        }).length;
+      break;
+    }
+    blocks.push(block);
+    used += block.length + 1;
+  }
+  if (blocks.length === 0) {
+    if (l.none) lines.push(l.none);
+    return lines.join('\n');
+  }
+  if (left > 0 && l.more) {
+    // The closing line takes room too: results give way to it until the whole fits (the first stays).
+    const more = l.more;
+    const closing = (): string => fill(more, { count: String(left) });
+    while (blocks.length > 1 && used + closing().length + 1 > maxChars) {
+      used -= (blocks.pop() ?? '').length + 1;
+      left += 1;
+    }
+    return [...lines, ...blocks, closing()].join('\n');
+  }
+  return [...lines, ...blocks].join('\n');
+}
+
+/**
+ * The text of a web.read result (`page`: src/web/lookup.ts#readPage's `{ url, title, text, retold }`):
+ * `labels.tools.tools.read.source` (`{url}`: where the page ended up, `{maxChars}`), `.title`
+ * (`{title}`) when the page has one, the page's text as the reader gave it, then `.retold` when that
+ * text is the summarizer's retelling of a longer page. A missing label adds nothing. Pure.
+ * `page` is `{ url, title, text, retold }` of the page read.
+ */
+export function webReadText(
+  page: unknown,
+  { labels, maxChars = READ_CHARS }: { labels: unknown; maxChars?: number }
+): string {
+  const l = toolLabels(labels, 'read');
+  const lines: Array<string> = [];
+  const read = objOf(page);
+  if (l.source) lines.push(fill(l.source, { url: text(read.url), maxChars: String(maxChars) }));
+  const title = oneLine(read.title);
+  if (l.title && title) lines.push(fill(l.title, { title }));
+  lines.push(plain(read.text).trim());
+  if (read.retold === true && l.retold) lines.push(l.retold);
+  return lines.join('\n');
+}
+
+function quoteReference(entry: QuoteEntry & { n: number }, placeId: string | null | undefined): SearchRef {
+  return {
+    n: entry.n,
+    id: plain(entry.id),
+    placeId: placeId ?? null,
+    authorId: entry.authorId == null ? null : plain(entry.authorId),
+    self: entry.self === true,
+    message: entry.message,
+    stored: entry.stored,
+  };
+}
+
+/** The line that names a sample, under its label; nothing for a search whose words matched. */
+const sampledLine = (l: ToolLabels, sampled: boolean | undefined): Array<string> =>
+  sampled === true && l.sampled ? [l.sampled] : [];
+
+/**
+ * The text of a memory.search result (`quotes`: recall's stretches, `{ channelName, startTs,
+ * lines }`): `labels.tools.tools.memory.source`, then per stretch `.window` (`{date}`: its first
+ * line's day as `YYYY-MM-DD` in `timezone`, `{channel}`: its channel's name) and its lines as they
+ * were (time and author on each); `.none` when there is none. Each stretch is cut on its own at
+ * `windowChars` (its last lines dropped, then `.windowCut` with `{dropped}`, the number of lines
+ * dropped); the whole result is counted stretch by stretch against `maxChars`: a stretch that does
+ * not fit whole is left out with every one after it, and a closing `.windowsLeft` (`{count}`,
+ * `{where}`: each left-out stretch's channel and day, comma-joined) says what the persona did not get. The
+ * first stretch always stays. A missing label adds nothing.
+ *
+ * With `sampled` (the search answered with a sample across the time and place it named) `.sampled` follows the source
+ * line, only when a stretch is shown.
+ *
+ * With `hidden` (the search found that a better match exists only in a private chat this one may not open) a
+ * last line, `.hidden`, says so: no text, no count. Shown with or without stretches.
+ *
+ * With `refs` (`{ next(): number, take(shown): void }`, the turn's handle registry) and a stretch's
+ * `entries` (`{ id, text, authorId, self, message }` per line), each quoted line starts with a `#N`
+ * handle numbered on from `refs.next()`, `.handles` follows the source line, and the lines that
+ * stayed in the text after the cuts are handed to `refs.take` (`{ n, id, placeId, authorId, self,
+ * message }`); a line cut away is never registered. Otherwise pure.
+ */
+export function memorySearchText(
+  quotes: ReadonlyArray<Quote> | null | undefined,
+  {
+    labels,
+    timezone = 'UTC',
+    windowChars = RECALL_DEFAULTS.quoteWindowChars,
+    maxChars = RECALL_DEFAULTS.quoteMaxChars,
+    refs = null,
+    hidden = false,
+    sampled,
+  }: {
+    labels: unknown;
+    timezone?: string;
+    windowChars?: number;
+    maxChars?: number;
+    refs?: HandleRefs | null;
+    hidden?: boolean;
+    sampled?: boolean;
+  }
+): string {
+  const l = toolLabels(labels, 'memory');
+  const lines: Array<string> = l.source ? [l.source] : [];
+  let counter = refs ? refs.next() : 0;
+  const numbered = (quote: Quote): Array<QuoteEntry & { n: number; shown: string }> | null => {
+    if (!refs || !Array.isArray(quote.entries) || quote.entries.length === 0) return null;
+    const entries: ReadonlyArray<QuoteEntry> = quote.entries;
+    const list = entries.map((entry) => ({ ...entry, n: counter++, shown: `#${counter - 1} ${entry.text}` }));
+    return list;
+  };
+  let handled = false;
+  const candidates: ReadonlyArray<Quote> = Array.isArray(quotes) ? quotes : [];
+  const shown = candidates.filter(
+    (quote) => typeof quote.lines === 'string' && quote.lines.trim() && Number.isFinite(quote.startTs)
+  );
+  if (shown.length === 0) {
+    if (l.none) lines.push(l.none);
+    if (hidden && l.hidden) lines.push(l.hidden);
+    return lines.join('\n');
+  }
+  lines.push(...sampledLine(l, sampled));
+  const headLines = lines.length;
+  const kept: Array<{ block: Array<string>; where: string; size: number; stayed: Array<SearchRef> }> = [];
+  const left: Array<string> = [];
+  let used = lines.join('\n').length;
+  const bounded = Number.isFinite(maxChars) && maxChars > 0;
+  for (const quote of shown) {
+    const day = zonedDay(quote.startTs, timezone);
+    const channelName = plain(quote.channelName);
+    const block: Array<string> = [];
+    if (l.window) block.push(fill(l.window, { date: day, channel: channelName }));
+    const entries = numbered(quote);
+    const quoted = cutWindowLines(entries ? entries.map((entry) => entry.shown).join('\n') : quote.lines, windowChars);
+    block.push(quoted.text);
+    // The entries still in the text: whole entries from the top, up to the lines that stayed.
+    const stayed: Array<SearchRef> = [];
+    if (entries) {
+      let remaining = quoted.text.split('\n').length;
+      for (const entry of entries) {
+        if (remaining <= 0) break;
+        stayed.push(quoteReference(entry, quote.placeId));
+        remaining -= entry.shown.split('\n').length;
+      }
+    }
+    if (quoted.dropped > 0 && l.windowCut) block.push(fill(l.windowCut, { dropped: String(quoted.dropped) }));
+    const where = [channelName, day].filter(Boolean).join(' ');
+    const size = block.join('\n').length + 1;
+    if (left.length > 0 || (kept.length > 0 && bounded && used + size > maxChars)) {
+      left.push(where);
+      continue;
+    }
+    kept.push({ block, where, size, stayed });
+    used += size;
+  }
+  // The closing line takes room too: windows give way to it until the whole fits.
+  const closing = (): string =>
+    left.length > 0 && l.windowsLeft ? fill(l.windowsLeft, { count: String(left.length), where: left.join(', ') }) : '';
+  while (bounded && kept.length > 1 && used + closing().length + 1 > maxChars) {
+    const dropped = kept.pop();
+    if (!dropped) break;
+    used -= dropped.size;
+    left.unshift(dropped.where);
+  }
+  for (const { block, stayed } of kept) {
+    lines.push(...block);
+    if (refs && stayed.length > 0) {
+      refs.take(stayed);
+      handled = true;
+    }
+  }
+  if (handled && l.handles) lines.splice(headLines, 0, l.handles);
+  if (closing()) lines.push(closing());
+  if (hidden && l.hidden) lines.push(l.hidden);
+  return lines.join('\n');
+}
+
+/** One stretch's lines cut at `limit` characters: whole lines from the top (the first always stays, clamped when alone too long), how many were dropped. */
+function cutWindowLines(value: string, limit: number): { text: string; dropped: number } {
+  const all = value.split('\n');
+  if (!Number.isFinite(limit) || limit <= 0 || value.length <= limit) return { text: value, dropped: 0 };
+  const kept: Array<string> = [];
+  let used = 0;
+  for (const line of all) {
+    const add = line.length + (kept.length > 0 ? 1 : 0);
+    if (kept.length > 0 && used + add > limit) break;
+    kept.push(line);
+    used += add;
+  }
+  const only = kept[0];
+  if (kept.length === 1 && only !== undefined && only.length > limit) kept[0] = clampWithEllipsis(only, limit);
+  return { text: kept.join('\n'), dropped: all.length - kept.length };
+}
+
+/** A web.search result with its snippet retold when it runs over SNIPPET_CHARS and `summarize` is wired. */
+async function retoldHit(result: unknown, summarize: Summarize | undefined): Promise<unknown> {
+  const hit = objOf(result);
+  const snippet = oneLine(hit.snippet);
+  if (!summarize || Array.from(snippet).length <= SNIPPET_CHARS) return result;
+  return { ...hit, snippet: await summarize(snippet, { maxChars: SNIPPET_CHARS, kind: 'text' }) };
+}
+
+/**
+ * One web.search: `args.query` (the persona's words, as they wrote them) through `lookup.searchResults` (the
+ * existing engines, their cache, the results raw, no
+ * summary), `args.goal` only echoed back with the result. `not_configured` (`not-configured`)
+ * without the client, the feature or a search engine; `invalid`
+ * (`invalid-args`) without a query; `failed` with `daily-cap` once the day's web slots are spent,
+ * `error` when the search gave nothing back; the lookup's own failures by their code: `not-configured`,
+ * `invalid` (`empty-query`), `cap`, `failed` (`provider`, with the last engine status in `values.status`); else `ok` with webSearchText as its `data.text`,
+ * each snippet over SNIPPET_CHARS retold by `summarize`, all of them side by side (whole with no `summarize`). Never
+ * throws.
+ */
+export async function runWebSearch({
+  lookup,
+  config,
+  labels,
+  placeId,
+  args,
+  summarize,
+}: {
+  lookup: WebLookup | null;
+  config?: unknown;
+  labels: unknown;
+  placeId: string | null;
+  args: unknown;
+  summarize?: Summarize | undefined;
+}): Promise<ToolResult> {
+  try {
+    const given = objOf(args);
+    const query = text(given.query);
+    if (!query) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
+    const searchCfg = objOf(objOf(objOf(config).web).quickSearch);
+    const feature = FEATURE.quickSearch;
+    if (!lookup || typeof lookup.searchResults !== 'function')
+      return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature, reason: 'no-engine' } };
+    if (searchCfg.enabled === false)
+      return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature, reason: 'disabled' } };
+    const answer = await lookup.searchResults(placeId, query);
+    if (!isObj(answer)) return { status: 'failed', code: CODE.ERROR };
+    const found = answer;
+    // The lookup's own coded failure (src/web/lookup.ts#searchResults): said as it was.
+    if (found.failed) {
+      const failure = objOf(found.failed);
+      const code = plain(failure.code);
+      const named = {
+        feature,
+        reason: plain(failure.reason),
+        ...(failure.engine === undefined ? {} : { engine: plain(failure.engine) }),
+      };
+      if (code === CODE.NOT_CONFIGURED) return { status: 'not_configured', code, values: named };
+      if (code === CODE.EMPTY_QUERY) return { status: 'invalid', code };
+      if (code === CODE.PROVIDER)
+        return {
+          status: 'failed',
+          code,
+          // The wording names `{status}`: an engine that gave none, on a timeout say, is named there instead.
+          values: { ...named, status: plain(failure.status ?? failure.engine) },
+        };
+      return code === CODE.CAP
+        ? { status: 'failed', code: CODE.CAP, values: { what: WHAT.search } }
+        : { status: 'failed', code: CODE.ERROR };
+    }
+    const results = await Promise.all(listOf(found.results).map((result) => retoldHit(result, summarize)));
+    const shown = webSearchText(
+      { ...found, results, query: found.query ?? query },
+      { goal: given.goal, labels, maxChars: RESULTS_CHARS }
+    );
+    return { status: 'ok', data: { text: shown } };
+  } catch {
+    return { status: 'failed', code: CODE.ERROR };
+  }
+}
+
+/** An http(s) link inside a message's text: up to the first space or angle bracket. */
+const LINK_IN_TEXT = /https?:\/\/[^\s<>]+/i;
+
+/**
+ * The first http(s) link written in `text` (a message's own words), or null: what web.read
+ * reads of a message whose link the platform did not embed. Pure.
+ */
+export function firstLinkIn(value: unknown): string | null {
+  const match = typeof value === 'string' ? LINK_IN_TEXT.exec(value) : null;
+  return match?.[0] ?? null;
+}
+
+/** The page codes of src/web/lookup.ts#readPage that mean the call itself was not right. */
+const READ_INVALID = new Set(['scheme']);
+
+/** The answer for a page with no text: its source line under the address it ended at, then the `none` label. */
+function emptyRead(labels: unknown, url: string, maxChars: number): ToolResult {
+  const l = toolLabels(labels, 'read');
+  return {
+    status: 'ok',
+    data: {
+      text: [l.source ? fill(l.source, { url, maxChars: String(maxChars) }) : '', l.none ?? '']
+        .filter(Boolean)
+        .join('\n'),
+    },
+  };
+}
+
+/**
+ * One web.read: the page at `args.url`, or the first link of the message `args.message` names
+ * (an id the persona's `#N` resolved to: `linkOf(id)`, the caller's, resolves to a url or null), through
+ * `lookup.readPage` (the SSRF-guarded fetcher, no model request).
+ * `invalid` (`invalid-args`) without either, (`no-link`) when that message holds no link, and
+ * (`scheme`) for a url that is not http(s); `not_configured` (`not-configured`) without the
+ * client; `failed` with the page's code (`private`, `type`, `size`, `http`,
+ * `timeout`, ...); `ok` with webReadText (READ_CHARS) as its `data.text`, or
+ * `.none` when the page had no text. Never throws.
+ */
+export async function runWebRead({
+  lookup,
+  labels,
+  placeId,
+  args,
+  linkOf = null,
+}: {
+  lookup: WebLookup | null;
+  config?: unknown;
+  labels: unknown;
+  placeId: string | null;
+  args: unknown;
+  linkOf?: ((messageId: string) => string | null | Promise<string | null>) | null;
+}): Promise<ToolResult> {
+  try {
+    const given = objOf(args);
+    let url = text(given.url);
+    const messageId = text(given.message);
+    if (!url && !messageId) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url:required' };
+    if (!lookup || typeof lookup.readPage !== 'function')
+      return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
+    if (!url) {
+      url = text(typeof linkOf === 'function' ? await linkOf(messageId) : null);
+      if (!url) return { status: 'invalid', code: CODE.NO_LINK };
+    }
+    const page = objOf(await lookup.readPage(placeId, url));
+    const maxChars = READ_CHARS;
+    if (page.ok === true) return { status: 'ok', data: { text: webReadText(page, { labels, maxChars }) } };
+    const reason = plain(page.reason ?? CODE.ERROR);
+    if (reason === 'empty') return emptyRead(labels, text(page.url) || url, maxChars);
+    if (reason === CODE.NOT_CONFIGURED)
+      return { status: 'not_configured', code: reason, values: { feature: FEATURE.web } };
+    // A page code the catalogue knows is told as it is (an HTTP status rides along); any other is `error`.
+    const code = isCode(reason) ? reason : CODE.ERROR;
+    return {
+      status: READ_INVALID.has(code) ? 'invalid' : 'failed',
+      code,
+      ...(code === CODE.HTTP && page.status !== undefined ? { values: { status: plain(page.status) } } : {}),
+      ...(code === CODE.TIMEOUT ? { values: { what: WHAT.page } } : {}),
+    };
+  } catch {
+    return { status: 'failed', code: CODE.ERROR };
+  }
+}
+
+/**
+ * The stored facts of a search as lines: `.facts`, one `.fact` per fact (`{state}` from `labels.prefetch.factStates`, the persona's words as they
+ * wrote them) and `.factsCut` when more exist. Nothing without a fact. Pure.
+ */
+function factLines(found: Obj, labels: unknown): Array<string> {
+  const facts = listOf(found.assertions).filter(isObj);
+  if (facts.length === 0) return [];
+  const l = toolLabels(labels, 'memory');
+  const states = objOf(objOf(objOf(labels).prefetch).factStates) as ToolLabels;
+  const lines = l.facts ? [l.facts] : [];
+  for (const fact of facts) {
+    if (l.fact) lines.push(fill(l.fact, { state: factStateWords(fact, states), text: plain(fact.text) }));
+  }
+  if (found.factsCut === true && l.factsCut) lines.push(l.factsCut);
+  return lines;
+}
+
+/**
+ * The episodes a search found by meaning as lines: one `.episode` each (`{date}`, `{text}`), or `.episodeWith` with
+ * `{who}`, the person an episode is about, since the found moments of several people stand together. Nothing without
+ * one. Pure.
+ */
+function episodeLines(found: Obj, labels: unknown): Array<string> {
+  const l = toolLabels(labels, 'memory');
+  return listOf(found.episodes)
+    .filter(isObj)
+    .flatMap((one) => {
+      const who = typeof one.who === 'string' ? one.who : null;
+      const line = who === null ? l.episode : l.episodeWith;
+      return line ? [fill(line, { date: plain(one.date), who: who ?? '', text: plain(one.text) })] : [];
+    });
+}
+
+/**
+ * The lines that open a search's text: `.far` when nothing found was close (the nearest lines below it may be
+ * unrelated), then `.degraded` when the meaning index was not reached. Pure.
+ */
+function leadLines(found: Obj, l: ToolLabels): Array<string> {
+  const far = found.far === true && l.far ? [l.far] : [];
+  const degraded = objOf(found.outcome).degraded === true && l.degraded ? [l.degraded] : [];
+  return [...far, ...degraded];
+}
+
+/** The persona's filters of the stored facts; a moment that is no date is refused by the caller. */
+function factFilters(
+  given: Obj
+): { entity: string; predicate: string; asOf: string | null; historical: boolean } | null {
+  const when = text(given.asOf);
+  const at = when === '' ? null : Date.parse(when);
+  if (at !== null && !Number.isFinite(at)) return null;
+  return {
+    entity: text(given.entity),
+    predicate: text(given.predicate),
+    asOf: at === null ? null : new Date(at).toISOString(),
+    historical: given.historical === true,
+  };
+}
+
+/** A search needs words or an entity, and a moment that is a date. */
+function searchRefusal(plan: unknown, retrieval: ReturnType<typeof factFilters>): ToolResult | null {
+  if (retrieval === null) return { status: 'invalid', code: CODE.NO_QUERY, reason: 'args.as_of' };
+  return !plan && retrieval.entity === '' ? { status: 'invalid', code: CODE.NO_QUERY } : null;
+}
+
+/** An entity-only read searches no line. */
+const serverPlan = <TPlan>(plan: TPlan | null | undefined) => plan ?? { forms: [], who: [], from: null, to: null };
+
+function memoryTimezone(config: unknown): string {
+  const zone = objOf(objOf(config).bot).timezone;
+  return typeof zone === 'string' ? zone : 'UTC';
+}
+
+/**
+ * One memory.search: the persona's `question`, `people`, `when` and `terms` as memorySearchPlan reads them
+ * (the stored profiles for the names, `recall.maxForms`, `bot.timezone`, read now), their
+ * `channel` (already an id) bounding the stretches, then `recall.run`, the recall runner's search with its daily cap and
+ * its rails, over the turn's `history` (its lines are left out: the persona sees them already) and `decorate`.
+ * `not_configured` without the runner or while it is not available; `not_configured`
+ * (`unsupported`) in a private chat without its partner; `invalid` (`no-query`) when nothing is
+ * left to search; else `ok` with memorySearchText as its `data.text`. With `args.anchor` (a message id: the
+ * executor resolves a `#N`) the call is a window read instead (`recall.window`: `move` `up` | `down`, `messages`
+ * or `minutes`): the same text, `invalid` (`unknown-message`) for an anchor that cannot be opened,
+ * `not_configured` while the runner has no database to read. `asker` is the user id of whoever asked (the trigger's
+ * author): the hidden-DM marker is set only for that person's own private chat; the window read gets it too.
+ * `memoryContext` (optional): the turn's execution context, handed to the recall runner. Never throws.
+ */
+export async function runMemorySearch({
+  recall,
+  store,
+  config,
+  labels,
+  placeId,
+  snapshot = null,
+  channel,
+  partnerId = null,
+  selfId = null,
+  selfName = '',
+  history = [],
+  decorate = null,
+  args,
+  now = Date.now(),
+  refs = null,
+  asker = null,
+  memoryContext = null,
+  resolvedAnchor,
+  historyRef,
+}: {
+  recall: RecallClient | null;
+  store?: { listUserProfiles: () => unknown } | null;
+  config: unknown;
+  labels: unknown;
+  placeId: string | null;
+  snapshot?: unknown;
+  channel?: { rootId?: unknown } | null;
+  partnerId?: string | null;
+  selfId?: string | null;
+  selfName?: string;
+  history?: ReadonlyArray<unknown>;
+  decorate?: unknown;
+  args: unknown;
+  now?: number;
+  refs?: HandleRefs | null;
+  asker?: string | null;
+  memoryContext?: unknown;
+  resolvedAnchor?: ResolvedRecallAnchor;
+  historyRef?: ChatRef;
+}): Promise<ToolResult> {
+  try {
+    if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available()))
+      return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+    if (!hasRecallContext({ channel, partnerId, memoryContext }))
+      return { status: 'not_configured', code: CODE.UNSUPPORTED };
+    const settings = recallSettings(objOf(config));
+    const timezone = memoryTimezone(config);
+    const given = objOf(args);
+    // An `anchor` makes the call a window read: the lines up or down from that message, no search.
+    if (resolvedAnchor || text(given.anchor)) {
+      if (typeof recall.window !== 'function') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+      const count = (value: unknown): number | null =>
+        Number.isInteger(value) && (value as number) > 0 ? (value as number) : null;
+      const read = objOf(
+        await recall.window({
+          placeId,
+          snapshot,
+          channel,
+          partnerId,
+          selfName,
+          history: [...history],
+          anchor: text(given.anchor),
+          resolvedAnchor,
+          historyRef,
+          move: text(given.move) === 'down' ? 'down' : 'up',
+          messages: count(given.messages),
+          minutes: count(given.minutes),
+          decorate,
+          asker,
+          ...(memoryContext ? { memoryContext } : {}),
+        })
+      );
+      const kind = objOf(read.outcome).kind ?? null;
+      if (kind === 'not-configured') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+      if (kind === 'unknown-anchor') return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: 'args.anchor' };
+      if (kind === 'error' || !Array.isArray(read.quotes)) return { status: 'failed', code: CODE.ERROR };
+      return {
+        status: 'ok',
+        data: {
+          text: memorySearchText(read.quotes as Array<Quote>, {
+            labels,
+            timezone,
+            windowChars: settings?.quoteWindowChars,
+            maxChars: settings?.quoteMaxChars,
+            refs,
+          }),
+        },
+      };
+    }
+    const plan = memorySearchPlan({
+      question: text(given.question),
+      people: text(given.people),
+      terms: text(given.terms),
+      when: text(given.when),
+      placeId: text(given.placeId) || null,
+      profiles: storedRecallProfiles(store, placeId),
+      selfId,
+      selfName,
+      maxForms: settings?.maxForms,
+      timezone,
+      now,
+    });
+    const retrieval = factFilters(given);
+    const refused = searchRefusal(plan, retrieval);
+    if (refused !== null) return refused;
+    const candidate = { id: null, content: text(given.question), authorId: asker };
+    const found = objOf(
+      await recall.run({
+        placeId,
+        snapshot,
+        channel,
+        partnerId,
+        selfName,
+        history: [...history],
+        historyRef,
+        candidate,
+        terms: text(given.terms),
+        server: { ...serverPlan(plan), ...(given.mine === true ? { mine: true } : {}) },
+        decorate,
+        retrieval,
+        ...(memoryContext ? { memoryContext } : {}),
+      })
+    );
+    const outcome = objOf(found.outcome);
+    const quotes: Array<Quote> = Array.isArray(found.quotes) ? (found.quotes as Array<Quote>) : [];
+    const shown = (): string =>
+      memorySearchText(quotes, {
+        labels,
+        timezone,
+        windowChars: settings?.quoteWindowChars,
+        maxChars: settings?.quoteMaxChars,
+        refs,
+        hidden: found.hidden === true,
+        sampled: found.sampled === true,
+      });
+    // A run that did not search says so; an empty search that ran stays an ok with `memory.none`.
+    if (outcome.kind === 'daily-cap') return { status: 'denied', code: CODE.DAILY_CAP };
+    if (outcome.kind === 'not-configured') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+    if (outcome.kind === 'not-visible') return { status: 'denied', code: CODE.CHANNEL_NOT_VISIBLE };
+    if (outcome.kind === 'error') return { status: 'failed', code: CODE.ERROR };
+    if (outcome.kind === 'timeout')
+      return quotes.length > 0
+        ? { status: 'partial', code: CODE.TIMEOUT, values: { what: WHAT.search }, data: { text: shown() } }
+        : { status: 'failed', code: CODE.TIMEOUT, values: { what: WHAT.search } };
+    const l = toolLabels(labels, 'memory');
+    const lines = [...leadLines(found, l), shown(), ...factLines(found, labels), ...episodeLines(found, labels)];
+    if (typeof outcome.failed === 'number' && outcome.failed > 0 && l.partial)
+      lines.push(fill(l.partial, { failed: String(outcome.failed), total: plain(outcome.total) }));
+    return { status: 'ok', data: { text: lines.join('\n') } };
+  } catch {
+    return { status: 'failed', code: CODE.ERROR };
+  }
+}
+
+/** The most lines a `find` of conversation.read returns. */
+export const CHAT_FIND_MAX = 8;
+
+/** What a `find` gives: the matching lines of the chat, best first, or the code of why it could not search. */
+export type ChatFind = { status: 'ok'; lines: Array<Obj> } | { status: 'failed'; code: string; values?: Obj };
+
+/**
+ * One `find` of conversation.read: the persona's words as the `question` of a memory.search (memorySearchPlan, `recall.run`,
+ * over the turn's `placeId`: the same search, one embedding, words alone when the embedding fails), narrowed to the stored place `place`
+ * and run under the turn's `memoryContext`. The lines of the read's `window` are left out of the matches as the turn's
+ * history is left out of a search (recall-reads.ts#historyExclusions: a stored line by its `stored`, any other by its id
+ * in `windowRef`'s chat).
+ * Gives at most CHAT_FIND_MAX close lines, best first (src/memory/db/recall.ts#isClose), none when nothing is close.
+ * `failed` with `not-configured`, `daily-cap`, `timeout` or `error` when the search did not run. Never throws.
+ */
+export async function runChatFind({
+  recall,
+  store = null,
+  config,
+  placeId,
+  place,
+  words,
+  window,
+  windowRef,
+  channel,
+  snapshot = null,
+  partnerId = null,
+  selfId = null,
+  selfName = '',
+  asker = null,
+  memoryContext = null,
+  now = Date.now(),
+}: {
+  recall: RecallClient | null;
+  store?: { listUserProfiles: () => unknown } | null;
+  config: unknown;
+  placeId: string | null;
+  place: string;
+  words: string;
+  window: ReadonlyArray<Obj>;
+  windowRef?: ChatRef;
+  channel: { rootId?: unknown } | null;
+  snapshot?: unknown;
+  partnerId?: string | null;
+  selfId?: string | null;
+  selfName?: string;
+  asker?: string | null;
+  memoryContext?: unknown;
+  now?: number;
+}): Promise<ChatFind> {
+  try {
+    if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available()))
+      return { status: 'failed', code: CODE.NOT_CONFIGURED };
+    const settings = recallSettings(objOf(config));
+    const plan = memorySearchPlan({
+      question: words,
+      profiles: storedRecallProfiles(store, placeId),
+      selfId,
+      selfName,
+      maxForms: settings?.maxForms,
+      timezone: memoryTimezone(config),
+      now,
+    });
+    const found = objOf(
+      await recall.run({
+        placeId,
+        snapshot,
+        channel,
+        partnerId,
+        selfName,
+        history: [...window],
+        ...(windowRef ? { historyRef: windowRef } : {}),
+        candidate: { id: null, content: words, authorId: asker },
+        server: { ...serverPlan(plan), place },
+        lines: CHAT_FIND_MAX,
+        ...(memoryContext ? { memoryContext } : {}),
+      })
+    );
+    const kind = objOf(found.outcome).kind;
+    if (kind === 'daily-cap') return { status: 'failed', code: CODE.DAILY_CAP };
+    if (kind === 'not-configured') return { status: 'failed', code: CODE.NOT_CONFIGURED };
+    if (kind === 'timeout') return { status: 'failed', code: CODE.TIMEOUT, values: { what: WHAT.search } };
+    if (kind !== 'searched' && kind !== undefined) return { status: 'failed', code: CODE.ERROR };
+    return { status: 'ok', lines: listOf(found.lines).filter(isObj).slice(0, CHAT_FIND_MAX) };
+  } catch {
+    return { status: 'failed', code: CODE.ERROR };
+  }
+}
+
+function storedRecallProfiles(
+  store: { listUserProfiles: () => unknown } | null | undefined,
+  placeId: string | null
+): Array<Obj> {
+  if (!placeId || typeof store?.listUserProfiles !== 'function') return [];
+  return listOf(store.listUserProfiles()).filter(isObj);
+}
+
+/** The most second looks the persona may take in one turn. */
+export function lookPerTurn(): number {
+  return 2;
+}
+
+/**
+ * What media.look can look at in one normalized message, in the order the message shows them
+ * (src/media/classify.ts#collectPictures: attachments, then embeds, the forwarded parts after),
+ * numbered 1.. by that order: an attached or embedded picture (`image`), a GIF (`gif`: watched
+ * as a clip), a video (`video`: an attachment, or a link of a `videoSites` site --
+ * collectVideos -- listed once, where it first shows; one without a preview picture after the
+ * rest). Stickers are not looked at again. [] for no message. Pure.
+ */
+export function lookableMedia(
+  message: unknown,
+  { videoSites = [] }: { videoSites?: unknown } = {}
+): Array<{ kind: 'image' | 'gif' | 'video'; item: LookItem }> {
+  if (!isObj(message)) return [];
+  const videos = collectVideos(message, { videoSites: Array.isArray(videoSites) ? (videoSites as Array<string>) : [] });
+  const videoById = new Map<string, LookItem>(videos.map((video) => [video.itemId, video as LookItem]));
+  const seen = new Set<string>();
+  const out: Array<{ kind: 'image' | 'gif' | 'video'; item: LookItem }> = [];
+  for (const item of collectPictures(message)) {
+    if (!item.itemId || seen.has(item.itemId)) continue;
+    const video = videoById.get(item.itemId);
+    if (video) out.push({ kind: 'video', item: video });
+    else if (item.kind === 'image' || item.kind === 'gif') out.push({ kind: item.kind, item });
+    else continue;
+    seen.add(item.itemId);
+  }
+  for (const video of videos) {
+    if (seen.has(video.itemId)) continue;
+    seen.add(video.itemId);
+    out.push({ kind: 'video', item: video });
+  }
+  return out;
+}
+
+/**
+ * The text of a media.look result: `labels.tools.tools.look.image` for a picture, `.video` for
+ * a video or a GIF (watched as a clip), each with `{name}` (the item's name) and `{question}`
+ * (what was asked), then the model's answer as it gave it. A missing label adds nothing. Pure.
+ */
+export function mediaLookText(
+  {
+    kind,
+    name = '',
+    question = '',
+    text: answer = '',
+  }: { kind: string; name?: string; question?: string; text?: string },
+  { labels }: { labels: unknown }
+): string {
+  const l = toolLabels(labels, 'look');
+  const label = kind === 'image' ? l.image : l.video;
+  const lines: Array<string> = [];
+  if (label) lines.push(fill(label, { name: oneLine(name), question: oneLine(question) }));
+  lines.push(answer.trim());
+  return lines.join('\n');
+}
+
+/**
+ * The describer's second look for each kind: a picture through the vision model like a caption, a video and a GIF
+ * through the video model.
+ */
+const LOOKS: Readonly<
+  Record<'image' | 'video' | 'gif', { method: 'relookImage' | 'rewatchVideo' | 'rewatchGif'; role: 'vision' | 'video' }>
+> = Object.freeze({
+  image: { method: 'relookImage', role: 'vision' },
+  video: { method: 'rewatchVideo', role: 'video' },
+  gif: { method: 'rewatchGif', role: 'video' },
+});
+
+/**
+ * `item` with the place of the message that holds it, where the describer reads a fresh address of an attachment: a
+ * turn of the persona's own stands in no chat, so the turn's place does not name the message's.
+ */
+function placedItem(item: LookItem, message: Obj): LookItem {
+  return typeof message.placeId === 'string' && message.placeId ? { ...item, placeId: message.placeId } : item;
+}
+
+/** The look on its route: through `onRoute` when the caller routes, else on the role's own model. */
+function lookOnRoute(
+  onRoute: OnRoute | null,
+  role: string,
+  call: (model: string | null) => Promise<unknown>
+): Promise<{ route: AbilityRoute | null; value: unknown }> {
+  if (typeof onRoute === 'function') return onRoute(role, call);
+  return call(null).then((value) => ({ route: null, value }));
+}
+
+/**
+ * One media.look: the picture, GIF or video number `args.item` (1.., default 1; lookableMedia's
+ * order) of the message `args.message` names, or (`args.url`, exactly one of the two) a video link of a
+ * `media.video.sites` site (`not-video-site` otherwise, `data.text` from `labels.tools.tools.look.notVideoSite`, `{sites}`; the
+ * engine fetches no other host) looked at as a chat's video link is, with `name` the link itself. A message is an id the persona's `#N` resolved to (`mediaOf(id)`, the
+ * caller's, gives the normalized message or null). The item is looked at again with the `args.question` as
+ * they wrote it through the describer's second look (relookImage, rewatchGif, rewatchVideo: their
+ * daily counters, their cache, `llm.maxRequestsPerDay`). `invalid` (`invalid-args`) without a
+ * message-or-url (both or neither) or a question, an unparseable url, or with an item the message does not hold; `invalid`
+ * (`unknown-message`, reason `message-deleted` for a deleted one) when the message is not one the persona sees, (`no-media`) when it holds nothing to
+ * look at; `not_configured` (`not-configured`) without the describer or its second look for that
+ * kind; `failed` with `daily-cap` when the
+ * describer's `videoCapsLeft()` says the day's second looks are spent (a video also needs a video
+ * slot, a GIF a GIF watch slot), with `turn-cap` when `takeTurnSlot()` (the caller's per-turn
+ * count, asked only once every other check passed) refuses, with `error` when the second look
+ * gave nothing back; else `ok` with mediaLookText as its `data.text`. Never throws.
+ */
+export async function runMediaLook({
+  describer,
+  config,
+  labels,
+  placeId,
+  args,
+  mediaOf,
+  takeTurnSlot = null,
+  onRoute = null,
+}: {
+  describer: LookDescriber | null;
+  config: unknown;
+  labels: unknown;
+  placeId: string | null;
+  args: unknown;
+  mediaOf: (messageId: string) => unknown;
+  takeTurnSlot?: (() => boolean) | null;
+  onRoute?: OnRoute | null;
+}): Promise<ToolResult> {
+  try {
+    const given = objOf(args);
+    const messageId = text(given.message);
+    const link = text(given.url);
+    const question = text(given.question);
+    const mediaCfg = objOf(objOf(config).media);
+    if (messageId && link) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url|message:one' };
+    if (!messageId && !link) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url|message:one' };
+    if (!question) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.question:required' };
+    let kind: 'image' | 'gif' | 'video';
+    let item: LookItem;
+    if (link) {
+      let parsed = null;
+      try {
+        parsed = new URL(link);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:'))
+        return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url:bad' };
+      const sites = objOf(mediaCfg.video).sites;
+      const site = Array.isArray(sites) ? videoSiteFor(link, sites) : null;
+      if (!site) {
+        const notVideo = toolLabels(labels, 'look').notVideoSite;
+        const list = Array.isArray(sites) ? sites.join(', ') : '';
+        return {
+          status: 'invalid',
+          code: CODE.NOT_VIDEO_SITE,
+          ...(notVideo ? { data: { text: fill(notVideo, { sites: list }) } } : {}),
+        };
+      }
+      if (!describer) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+      kind = 'video';
+      item = {
+        source: 'link',
+        messageId: null,
+        itemId: videoUrlCacheKey(link),
+        kind: 'link',
+        url: link,
+        site,
+        name: link,
+        durationSec: null,
+      };
+    } else {
+      if (!describer) return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+      const message = objOf(typeof mediaOf === 'function' ? await mediaOf(messageId) : null);
+      if (Object.keys(message).length === 0) return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE };
+      // A placeholder line of a deleted message: gone, whatever it held.
+      if (message.deleted === true)
+        return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: CODE.MESSAGE_DELETED };
+      const media = lookableMedia(message, { videoSites: objOf(mediaCfg.video).sites });
+      if (media.length === 0) return { status: 'invalid', code: CODE.NO_MEDIA };
+      const wanted = given.item;
+      const n = wanted === undefined || wanted === null || wanted === '' ? 1 : Number(wanted);
+      const chosen = media[n - 1];
+      if (!Number.isInteger(n) || n < 1 || chosen === undefined)
+        return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.item:range' };
+      kind = chosen.kind;
+      item = placedItem(chosen.item, message);
+    }
+    const look = LOOKS[kind];
+    if (typeof describer?.[look.method] !== 'function') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+    if (typeof takeTurnSlot === 'function' && !takeTurnSlot()) return { status: 'failed', code: CODE.TURN_CAP };
+    const looked = await lookOnRoute(onRoute, look.role, (model) =>
+      Promise.resolve(describer?.[look.method]?.(placeId, item, question, model ? { model } : {}))
+    );
+    if (looked.route?.kind === 'unavailable') return abilityUnavailable(looked.route);
+    const answer = objOf(looked.value);
+    const said = typeof answer.text === 'string' ? answer.text.trim() : '';
+    if (!said) return failedLook(answer);
+    return {
+      ...(looked.route?.kind === 'core' ? { route: 'core' } : {}),
+      status: 'ok',
+      data: {
+        text: mediaLookText(
+          { kind, name: plain(item.name), question: text(answer.question) || question, text: said },
+          { labels }
+        ),
+      },
+    };
+  } catch {
+    return { status: 'failed', code: CODE.ERROR };
+  }
+}
+
+/** A second look with no answer: the error failure, with why when the provider cut it short twice (`filter`, `cut`). */
+function failedLook(answer: Obj): ToolResult {
+  return typeof answer.failed === 'string'
+    ? { status: 'failed', code: CODE.ERROR, reason: answer.failed }
+    : { status: 'failed', code: CODE.ERROR };
+}
+
+/** `media.find` result count: the default and the most one call returns. */
+export const FIND_DEFAULT = 5;
+export const FIND_MAX = 10;
+/** A word shorter than this is matched whole only; from it on a shared stem of this many letters counts as a near match. */
+const STEM_MIN = 4;
+
+/** The words of `value` folded for comparison (lower case, no accents), letters and digits only, one letter words dropped. */
+function wordsOf(value: unknown): Array<string> {
+  return foldText(value)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((word) => word.length > 1);
+}
+
+/** How well query word `q` matches document word `d`: 1 equal, 0.6 one starts with the other (both at least STEM_MIN long), else 0. */
+function wordScore(q: string, d: string): number {
+  if (q === d) return 1;
+  if (q.length >= STEM_MIN && d.length >= STEM_MIN && (d.startsWith(q) || q.startsWith(d))) return 0.6;
+  return 0;
+}
+
+/** A query's embedding and the media vectors of the library rows of the same model, by item id (src/memory/db/gif-library.ts). */
+export type GifMeaning = { vector: ArrayLike<number>; vectors: ReadonlyMap<string, ArrayLike<number>> };
+
+/** The cosine of two vectors of one length; null for another length or a zero vector. */
+function cosineOf(a: ArrayLike<number>, b: ArrayLike<number> | undefined): number | null {
+  if (!b || a.length !== b.length || a.length === 0) return null;
+  let dot = 0;
+  let aa = 0;
+  let bb = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    dot += a[i] * b[i];
+    aa += a[i] * a[i];
+    bb += b[i] * b[i];
+  }
+  return aa > 0 && bb > 0 ? dot / Math.sqrt(aa * bb) : null;
+}
+
+/**
+ * findGifs with the words' fit: the entries best first, at most `n`, and whether one holds every word of the query.
+ * With `meaning`, the entries whose caption vector meets the query's at or above `recall.db.minMeaning` (0.35) form a
+ * second list fused with the words by rank; an entry that holds every word comes first, in the words' order.
+ */
+function gifMatches(
+  gifs: unknown,
+  mediaCache: Obj | null,
+  query: string,
+  {
+    n = FIND_DEFAULT,
+    halfLifeDays = GIF_HALF_LIFE_DAYS,
+    meaning = null,
+  }: { n?: unknown; halfLifeDays?: number; meaning?: GifMeaning | null } = {}
+): { entries: Array<GifEntry>; hasEveryWord: boolean } {
+  const wanted = [...new Set(wordsOf(query))];
+  if (wanted.length === 0) return { entries: [], hasEveryWord: false };
+  const count = Number.isFinite(Number(n)) && Number(n) >= 1 ? Math.min(FIND_MAX, Math.floor(Number(n))) : FIND_DEFAULT;
+  const scored: Array<{ entry: GifEntry; score: number; at: number; full: boolean }> = [];
+  const meant: Array<{ entry: GifEntry; close: number; at: number }> = [];
+  for (const [at, ranked] of (rankGifs(gifs, halfLifeDays) as Array<GifEntry>).entries()) {
+    const entry = ranked;
+    const cached = objOf(mediaCache?.[entry.itemId]);
+    if (Object.keys(cached).length === 0 || cached.miss) continue;
+    const words = wordsOf(typeof cached.text === 'string' ? cached.text : '');
+    if (words.length === 0) continue;
+    let score = 0;
+    let fitted = 0;
+    for (const q of wanted) {
+      let best = 0;
+      for (const d of words) best = Math.max(best, wordScore(q, d));
+      score += best;
+      if (best > 0) fitted += 1;
+    }
+    if (score > 0) scored.push({ entry, score, at, full: fitted === wanted.length });
+    const close = meaning ? cosineOf(meaning.vector, meaning.vectors.get(entry.itemId)) : null;
+    if (close !== null && close >= RECALL_DEFAULTS.db.minMeaning) meant.push({ entry, close, at });
+  }
+  scored.sort((a, b) => b.score - a.score || a.at - b.at);
+  const hasEveryWord = scored.some((one) => one.full);
+  if (meant.length === 0) return { entries: scored.slice(0, count).map((item) => item.entry), hasEveryWord };
+  meant.sort((a, b) => b.close - a.close || a.at - b.at);
+  const first = scored.filter((one) => one.full).map((one) => one.entry);
+  const fused = fuseRanks([scored.map((one) => one.entry), meant.map((one) => one.entry)])
+    .map((one) => one.id as GifEntry) // the entries the two lists hold
+    .filter((entry) => !first.includes(entry));
+  return { entries: [...first, ...fused].slice(0, count), hasEveryWord };
+}
+
+/**
+ * The library's GIFs that match `query`, best first: each entry's stored description (from the
+ * describer cache) scored word by word against the query's words (folded: case and accents ignored,
+ * so descriptions in either language match; the best match of each query word counts); entries scoring nothing are left
+ * out, ties keep the library's own rank (most used and most recent first). At most `n` (1..FIND_MAX,
+ * FIND_DEFAULT when not a number). With `meaning`, the GIF descriptions' vectors rank a second list (gifMatches). Pure.
+ * `gifs` is the stored library (store.getGifs) and `mediaCache` the describer cache's entries of its GIFs (store.mediaEntries), read only.
+ * The entries come back best first, `id` the handle.
+ */
+export function findGifs(
+  gifs: unknown,
+  mediaCache: Obj | null,
+  query: string,
+  options: { n?: unknown; halfLifeDays?: number; meaning?: GifMeaning | null } = {}
+): Array<GifEntry> {
+  return gifMatches(gifs, mediaCache, query, options).entries;
+}
+
+/**
+ * The text of a media.find result: `labels.tools.tools.find.source` (`{query}`, `{count}`), then one
+ * line per GIF (its handle and stored description, gifLine:
+ * `labels.gifs.entry`); `labels.tools.tools.find.none` when there is none. A missing
+ * label adds nothing. Pure.
+ * `found` is findGifs' entries.
+ */
+export function mediaFindText(
+  found: ReadonlyArray<GifEntry>,
+  {
+    query = '',
+    labels,
+    mediaCache = null,
+  }: { query?: string; labels: unknown; mediaCache?: Obj | null; config?: unknown }
+): string {
+  const l = toolLabels(labels, 'find');
+  const lines: Array<string> = [];
+  if (found.length === 0) {
+    if (l.source) lines.push(fill(l.source, { query: oneLine(query), count: '0' }));
+    if (l.none) lines.push(l.none);
+    return lines.join('\n');
+  }
+  if (l.source) lines.push(fill(l.source, { query: oneLine(query), count: String(found.length) }));
+  for (const entry of found) lines.push(gifLine(entry, mediaCache, objOf(labels), { ownMarkHours: 0, now: 0 }));
+  return lines.join('\n');
+}
+
+type MediaFindStore = {
+  getGifs?: () => unknown;
+  mediaEntries?: (placeId: string, keys?: Iterable<string>) => unknown;
+  gifMediaVectors?: (model: string | null) => ReadonlyMap<string, ArrayLike<number>>;
+} | null;
+type MediaFindInput = {
+  store: MediaFindStore;
+  config: unknown;
+  labels: unknown;
+  placeId: string | null;
+  args: unknown;
+};
+
+/** The checked arguments of a media.find, or the refusal of them. */
+function mediaFindArgs({
+  store,
+  placeId,
+  args,
+}: MediaFindInput): { query: string; given: unknown; gifs: unknown; mediaCache: Obj | null } | ToolResult {
+  const asked = objOf(args);
+  const query = text(asked.query);
+  if (!query || wordsOf(query).length === 0)
+    return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
+  if (!store || typeof store.getGifs !== 'function' || !placeId)
+    return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+  const given = asked.n;
+  if (
+    given !== undefined &&
+    given !== null &&
+    given !== '' &&
+    (!Number.isInteger(Number(given)) || Number(given) < 1 || Number(given) > FIND_MAX)
+  )
+    return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.n:range' };
+  const gifs = store.getGifs();
+  // The descriptions of the library's GIFs, read by their item ids in one query.
+  const cache = typeof store.mediaEntries === 'function' ? store.mediaEntries(placeId, gifItemIds(gifs)) : null;
+  return { query, given, gifs, mediaCache: isObj(cache) ? cache : null };
+}
+
+/**
+ * One media.find: the persona's `args.query` (their words) against the descriptions of the place's GIF library
+ * (src/memory/gifs.ts, the describer cache), `args.n` results (default 5, at most 10). Reads only; no
+ * model request, no cap. `invalid` (`invalid-args`) without a query or one with no word in it;
+ * `not_configured` without the store or while `features.gifs` is false (read now); else `ok` with
+ * mediaFindText as its `data.text` -- an empty result is an ok with `find.none`. Never throws.
+ */
+export function runMediaFind(input: MediaFindInput): ToolResult {
+  try {
+    const checked = mediaFindArgs(input);
+    if ('status' in checked) return checked;
+    const { query, given, gifs, mediaCache } = checked;
+    const found = findGifs(gifs, mediaCache, query, { n: given });
+    const { labels, config } = input;
+    return { status: 'ok', data: { text: mediaFindText(found, { query, labels, mediaCache, config }) } };
+  } catch {
+    return { status: 'failed', code: CODE.ERROR };
+  }
+}
+
+/**
+ * media.find in a turn: runMediaFind, and when no GIF holds every word of the query, the query's embedding from
+ * `findMeaning` (graph-find.ts#createFindMeaning, within its deadline) ranks the captions' vectors of its model beside
+ * the words. A query the words answer in full sends no embedding, and a late or failed one leaves the words' answer.
+ */
+export async function mediaFind(
+  input: MediaFindInput & {
+    findMeaning?: {
+      fetch: (text: string) => Promise<{ vector: ArrayLike<number> | null; model: string | null } | null>;
+    } | null;
+  }
+): Promise<ToolResult> {
+  try {
+    const checked = mediaFindArgs(input);
+    if ('status' in checked) return checked;
+    const { query, given, gifs, mediaCache } = checked;
+    let found = gifMatches(gifs, mediaCache, query, { n: given });
+    const { store, findMeaning, labels, config } = input;
+    if (!found.hasEveryWord && findMeaning && typeof store?.gifMediaVectors === 'function') {
+      const meant = await findMeaning.fetch(query);
+      if (meant?.vector)
+        found = gifMatches(gifs, mediaCache, query, {
+          n: given,
+          meaning: { vector: meant.vector, vectors: store.gifMediaVectors(meant.model ?? null) },
+        });
+    }
+    return { status: 'ok', data: { text: mediaFindText(found.entries, { query, labels, mediaCache, config }) } };
+  } catch {
+    return { status: 'failed', code: CODE.ERROR };
+  }
+}

@@ -1,0 +1,48 @@
+// The settings schema of `errands` (src/config/schema.ts): one entry per key, in the order of config/config.json.
+
+import type { SchemaEntry } from '../schema.ts';
+
+export const ERRANDS: ReadonlyArray<SchemaEntry> = [
+  {
+    'key': 'errands.opencodePath',
+    'types': ['string'],
+    'reader': 'bin/neptunia.ts',
+    'default': '/opt/opencode/bin/opencode',
+    'text': 'The OpenCode executable that `neptunia subharness opencode login` copies when opencode is absent',
+  },
+  {
+    'key': 'errands.toolResultChars',
+    'types': ['number'],
+    'reader': 'bin/neptunia.ts',
+    'default': 6000,
+    'text': 'Cap on each tool result the agent sees',
+  },
+  {
+    'key': 'errands.keepFilesHours',
+    'types': ['number'],
+    'reader': 'bin/neptunia.ts',
+    'default': 24,
+    'text': "Hours a task's output files are kept",
+  },
+  {
+    'key': 'errands.maxOpen',
+    'types': ['number'],
+    'reader': 'src/errands/store.ts',
+    'default': 3,
+    'text': 'Errands open at once, all agents together',
+  },
+  {
+    'key': 'errands.resultMaxChars',
+    'types': ['number'],
+    'reader': 'src/turn/inputs.ts',
+    'default': 3000,
+    'text': "Characters of an errand's result in the `<errand_result>` block",
+  },
+  {
+    'key': 'errands.resultRetrySeconds',
+    'types': ['number'],
+    'reader': 'src/errands/turns.ts',
+    'default': 30,
+    'text': 'Seconds before a result turn is tried again',
+  },
+];

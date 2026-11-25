@@ -1,0 +1,57 @@
+// Carries the door receipt beside the protocol event into every live message producer.
+
+import { holdIfPaused } from './core-pause.ts';
+import { nameEventMedia } from './stable-names.ts';
+import type { MediaNamer } from './stable-names.ts';
+import type { MessageHandler } from './pipeline.ts';
+import type { EventHandlerContext } from '../interface/door.ts';
+import type { Context } from '../memory/db/scope.ts';
+import type { MessageReceived } from '../protocol/events.ts';
+import type { MessageReadOptions } from '../pipeline/types.ts';
+
+type ProducerDeps = {
+  store: unknown;
+  /** The store's stable names of custom emoji and stickers, given to every message before anything reads it. */
+  names: MediaNamer;
+  onMessage: MessageHandler;
+  observeDirectory: (event: MessageReceived) => unknown;
+  offerAvatar: (event: MessageReceived) => unknown;
+  issueInternalContext: () => Context;
+};
+
+export function createMessageProducers(
+  deps: ProducerDeps
+): (event: MessageReceived, context: EventHandlerContext) => Promise<void> {
+  return async (given: MessageReceived, context: EventHandlerContext): Promise<void> => {
+    const event = nameEventMedia(given, deps.names);
+    holdIfPaused(event, context, deps.store);
+    const sender = context.authenticated;
+    const options: MessageReadOptions = {
+      memoryContext:
+        sender?.kind === 'cli' && (!context.ingest || context.ingest.principal === sender.name)
+          ? deps.issueInternalContext()
+          : undefined,
+      acceptedEvent: context.receipt
+        ? Object.freeze({
+            eventId: context.receipt.eventId,
+            locator: Object.freeze({
+              iface: event.iface,
+              chatId: event.chat.id,
+              messageId: event.message.id,
+            }),
+            receipt: context.receipt,
+          })
+        : undefined,
+    };
+    deps.observeDirectory(event);
+    if (event.deleted) return deps.onMessage.onMessageDelete(event, options);
+    if (event.edit) return deps.onMessage.onMessageUpdate(event, options);
+    deps.offerAvatar(event);
+    // A message resent after a lost link is a backlog: kept as history, and no turn starts over it.
+    if ((event as { replayed?: unknown }).replayed === true) {
+      await deps.onMessage.catchUp(event as MessageReceived & { raw: object }, { trigger: false });
+      return;
+    }
+    return deps.onMessage(event, options);
+  };
+}

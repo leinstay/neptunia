@@ -1,0 +1,648 @@
+// Operations: `memory.*` and `memory.private.read`: what the persona remembers -- one member's profile and private layer, the channel map, the server notes, the recent lines, the archive and the journal. Nothing here deletes stored memory.
+// The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
+// the operation's `ctx` as the command context.
+
+import { internalContext } from '../../memory/db/scope.ts';
+import type { MemoryDbService } from '../../memory/db/service.ts';
+import { accountOf, personOfMember, placeOfChat, sharedPlaceOf } from '../../memory/addresses.ts';
+import { opensPrivate } from '../../memory/open-private.ts';
+import { directChatPlaceIds } from '../../memory/db/places-read.ts';
+import { readAffinityChanges, AFFINITY_CHANGES_DEFAULT } from '../../memory/affinity-changes.ts';
+import type { AffinityChange } from '../../memory/affinity-changes.ts';
+import {
+  emptyAffinity,
+  affinityBand,
+  roundScore,
+  sortEpisodesForDisplay,
+  channelActivity,
+  ARCHIVE_KINDS,
+  archiveEntry,
+  journalLine,
+  turnView,
+} from '../../memory/index.ts';
+import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from './catalog.ts';
+import { effectiveAffinity } from '../../behavior/private.ts';
+import { log } from '../../log.ts';
+import { clampAtBoundary } from '../../memory/clamp.ts';
+import { DAY_MS, utcDay, zonedDay } from '../../time.ts';
+import { formatClock } from '../../format.ts';
+import { liveRecent, recentSettings } from '../../memory/recent.ts';
+import {
+  JOURNAL_N_DEFAULT,
+  JOURNAL_N_MAX,
+  JOURNAL_DAY_RE,
+  NONE,
+  isoDay,
+  MEMORY_SHOW_DEFAULT_LIMIT,
+  MEMORY_SHOW_MAX_LIMIT,
+  dateMs,
+  buildProfileSummary,
+  orderedSectionLines,
+  rawMemoryShowView,
+  interestLine,
+  detailLine,
+  episodeLine,
+  aliasLine,
+  affinityView,
+  channelTopWritersText,
+  channelTableLine,
+  numberedNotes,
+  archivedText,
+  messageRefOf,
+  windowBound,
+} from './shared.ts';
+import { defineOp, perEnv, invalid } from './registry.ts';
+import type { Env } from './env.ts';
+import { CODE } from '../codes.ts';
+import { idText, objOf, textOf } from '../types.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
+import type { Db } from '../../memory/db/types.ts';
+import { MEMORY_LIMITS } from '../../memory/text-limits.ts';
+
+/** The list sections of `memory show` (aliases, interests, details): the profile field, the config keys and the line. */
+const LIST_SECTIONS: Readonly<
+  Record<
+    string,
+    {
+      field: string;
+      halfLife: string;
+      shown: string;
+      line: (item: Untyped, resolve: (text: unknown) => string) => string;
+    }
+  >
+> = Object.freeze({
+  aliases: { field: 'aliases', halfLife: 'aliasHalfLifeDays', shown: 'maxAliases', line: (item) => aliasLine(item) },
+  interests: { field: 'interests', halfLife: 'interestHalfLifeDays', shown: 'maxInterests', line: interestLine },
+  details: { field: 'details', halfLife: 'detailHalfLifeDays', shown: 'maxDetails', line: detailLine },
+});
+
+/** One list section of `memory show` in the order asked and cut at `limit`; `(none)` when it holds nothing. */
+function listSectionText(
+  items: ReadonlyArray<Untyped> | null | undefined,
+  {
+    order,
+    limit,
+    halfLifeDays,
+    maxShown,
+    formatLine,
+  }: {
+    order: 'rank' | 'recent';
+    limit: number;
+    halfLifeDays?: number;
+    maxShown?: number;
+    formatLine: (item: Untyped) => string;
+  }
+): string {
+  const lines = orderedSectionLines(items ?? [], {
+    order,
+    limit,
+    ...(halfLifeDays === undefined ? {} : { halfLifeDays }),
+    ...(maxShown === undefined ? {} : { maxShown }),
+    formatLine,
+    dateOf: (item: Untyped) => dateMs(item.lastSeen ?? item.firstSeen),
+  });
+  return lines.length ? lines.join('\n') : NONE;
+}
+
+/** The owner's view of one person across their DMs, or of one DM place, as the stored records say it. */
+function privateView(env: { memoryDb?: unknown }, args: Obj): string {
+  const database = env.memoryDb as MemoryDbService | undefined;
+  if (!database) throw invalid('the memory database is not open');
+  const context = internalContext();
+  const view =
+    args.person !== undefined
+      ? database.privateByPerson(idText(args.person), context)
+      : database.privateByPlace(idText(args.place), context);
+  if (!view.found) {
+    throw invalid(
+      'nothing stored under that id',
+      args.person !== undefined ? CODE.PERSON_NOT_FOUND : CODE.PLACE_NOT_FOUND
+    );
+  }
+  return JSON.stringify(view, null, 2);
+}
+
+/**
+ * `memory.profile.read section:changes`: the attitude changes of every person, or of the one `accountId` names, newest
+ * first, narrowed by `since`, `until` and `limit` (default 25, max 100). Read only, so it works while paused.
+ */
+function affinityChanges(env: Env, args: Obj): string {
+  env.freshenIfPaused();
+  const memoryDb = env.memoryDb as MemoryDbService | null | undefined;
+  if (!memoryDb) throw invalid('the memory database is not open');
+  const since = windowBound(args.since, 'since');
+  const until = windowBound(args.until, 'until');
+  const asked = args.limit;
+  const limit = typeof asked === 'number' && Number.isInteger(asked) && asked >= 1 ? asked : AFFINITY_CHANGES_DEFAULT;
+  const accountId = idText(args.accountId);
+  const personId = accountId ? personOfMember(env.store, accountId) : null;
+  if (accountId && personId === null) throw invalid(`no person for ${accountId}`, CODE.NOT_FOUND);
+  const changes = readAffinityChanges({
+    memoryDb,
+    log,
+    filter: {
+      personId,
+      since: since === null ? null : new Date(since).toISOString(),
+      until: until === null ? null : new Date(until).toISOString(),
+      limit,
+    },
+  });
+  if (changes.length === 0) return 'no attitude changes';
+  const { resolve } = env.tokenResolver();
+  return changes.map((change) => affinityChangeLine(change, resolve)).join('\n');
+}
+
+/** One change as a line: time, person, the move, the score after and the reason. */
+function affinityChangeLine(change: AffinityChange, resolve: (text: unknown) => string): string {
+  const who = change.name ? `${change.name} (${change.personId})` : change.personId;
+  const move = `${change.applied >= 0 ? '+' : ''}${change.applied} -> ${roundScore(change.score)}`;
+  return `${change.at} ${who} ${move}${change.reason ? `: ${resolve(change.reason)}` : ''}`;
+}
+
+/** Where a restored line goes: the DM place of a private item, the place of a place item, else the persona. */
+function archiveHolderOf(
+  store: { dmHomeOf?: (accountId: string) => string | null },
+  scope: { private?: boolean; user?: string; place?: string } | null | undefined
+): string | null {
+  if (scope?.place) return scope.place;
+  return scope?.private === true && scope.user ? (store.dmHomeOf?.(scope.user) ?? null) : null;
+}
+
+/**
+ * Whether the archive list leaves an entry out: a member's item unless that member was asked for, and a private item
+ * anywhere but in the DM it belongs to, so a group's read and a member's name never reach one. `open`
+ * (`context.memory.openPrivate`) shows a private item everywhere.
+ */
+function leftOutOfList(entry: Untyped, accountId: string | null, placeId: string | null, open: boolean): boolean {
+  if (entry?.scope?.private === true) return !open && entry.scope.place !== placeId;
+  return !accountId && typeof entry?.scope?.user === 'string';
+}
+
+/**
+ * The archives `memory.archive.read` reads: the place's, or every community's with none, then each direct chat's with
+ * `context.memory.openPrivate`, then the persona's.
+ */
+function archiveHolders(store: unknown, placeId: string | null, config: unknown, memoryDb: unknown) {
+  // The tool environment holds the store and the memory service untyped.
+  const places = store as { topPlaces: () => Array<string> };
+  const service = memoryDb as { database(): Db | null } | null | undefined;
+  const db = opensPrivate(config) ? service?.database() : null;
+  const directChats = db ? directChatPlaceIds(db).filter((dm) => dm !== placeId) : [];
+  return [...(placeId ? [placeId] : places.topPlaces()), ...directChats, null];
+}
+
+/**
+ * The journal a message's turn is looked for in: the place's, or with `iface` (`context.memory.openPrivate`) the
+ * journal of the chat a link names.
+ */
+function turnJournalOf(store: unknown, placeId: string | null, linked: unknown, iface: string | null | undefined) {
+  // The link's place comes from the untyped arguments of the tool call.
+  return typeof linked === 'string' && linked && iface !== null ? sharedPlaceOf(store, { id: linked }, iface) : placeId;
+}
+
+const handlers = perEnv((env) => {
+  const {
+    hot,
+    store,
+    reads,
+    port,
+    archive,
+    journal,
+    assertNotPaused,
+    freshenIfPaused,
+    requirePlaceId,
+    tokenResolver,
+    requireProfile,
+  } = env;
+
+  /**
+   * Sectioned, human-readable view of one member's profile — see
+   * src/tools/operations/catalog.ts#MEMORY_SHOW_SECTIONS for the choices and the header
+   * comments of `buildProfileSummary`/`orderedSectionLines`/
+   * `rawMemoryShowView` for what each section does. `section` defaults to
+   * `'summary'`; `order` to `'rank'`; `limit` to 25 (1..100) — anything else
+   * given falls back to these defaults rather than throwing, since this is a
+   * read-only command. Every section except `'raw'` resolves `<@id>` tokens
+   * in free text via `fromTokens(..., 'analyzer')`, the same as the analyzer's
+   * own input view.
+   */
+  function cmdMemoryShow(args: Obj, context: OpContext) {
+    freshenIfPaused();
+    const accountId = idText(args.accountId);
+    if (!accountId) throw invalid('a user is required');
+
+    const placeId = requirePlaceId(context);
+    const profile = requireProfile(placeId, accountId);
+
+    const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
+    const requested = typeof args.section === 'string' ? args.section : '';
+    const section = MEMORY_SHOW_SECTIONS.includes(requested) ? requested : 'summary';
+    const order = args.order === 'recent' ? 'recent' : 'rank';
+    const asked = args.limit;
+    const limit =
+      typeof asked === 'number' && Number.isInteger(asked) && asked >= 1 && asked <= MEMORY_SHOW_MAX_LIMIT
+        ? asked
+        : MEMORY_SHOW_DEFAULT_LIMIT;
+    const { nameOf, resolve } = tokenResolver();
+
+    if (section === 'raw') return rawMemoryShowView(profile, memoryCfg);
+
+    if (section === 'character') return resolve(profile.character) || '(empty)';
+    if (section === 'style') return resolve(profile.style) || '(empty)';
+    if (section === 'relationship') return resolve(profile.relationship) || '(empty)';
+
+    if (section === 'affinity') return affinityView(profile.affinity, resolve);
+
+    const list = LIST_SECTIONS[section];
+    if (list) {
+      return listSectionText(profile[list.field], {
+        order,
+        limit,
+        halfLifeDays: memoryCfg[list.halfLife],
+        maxShown: memoryCfg[list.shown],
+        formatLine: (item: Untyped) => list.line(item, resolve),
+      });
+    }
+
+    if (section === 'episodes') {
+      const episodes = profile.episodes ?? [];
+      if (!episodes.length) return NONE;
+      const ordered =
+        order === 'recent'
+          ? [...episodes].sort((a, b) => dateMs(b.addedAt ?? b.date) - dateMs(a.addedAt ?? a.date))
+          : sortEpisodesForDisplay(episodes);
+      return ordered
+        .slice(0, limit)
+        .map((ep) => episodeLine(ep, resolve))
+        .join('\n');
+    }
+
+    return buildProfileSummary(profile, memoryCfg, nameOf);
+  }
+
+  /**
+   * `memory.channel.read [channel]`: with a channel, that channel's full stored note (the platform's
+   * facts, the stored purpose/topics/tone, counters, activity verdict and top
+   * writers); without one, a compact table of every stored channel, sorted by last message desc.
+   * `<@id>` tokens in `purpose`/`topics`/`tone` are resolved the same way `memory.show` resolves
+   * free-text fields (`fromTokens(..., 'analyzer')`).
+   */
+  function cmdMemoryChannel(args: Obj, context: OpContext) {
+    freshenIfPaused();
+    const placeId = requirePlaceId(context);
+
+    const now = Date.now();
+    const { nameOf, resolve } = tokenResolver();
+
+    const chatId = idText(args.placeId);
+    if (chatId) {
+      const channel = store.getChannel(placeOfChat(store, { id: chatId }));
+      if (!channel) throw invalid(`no channel entry for ${chatId}`, CODE.NOT_FOUND);
+
+      const activity = channelActivity(channel, now);
+      const writers = channelTopWritersText(channel.topWriters, nameOf);
+
+      return [
+        `name: ${channel.name || '-'}`,
+        `topic: ${channel.topic || '-'}`,
+        `purpose: ${resolve(channel.purpose) || '(empty)'}`,
+        `topics: ${resolve(channel.topics) || '(empty)'}`,
+        `tone: ${resolve(channel.tone) || '(empty)'}`,
+        `messages: ${channel.messageCount ?? 0}`,
+        `first message: ${isoDay(channel.firstMessageAt)}`,
+        `last message: ${isoDay(channel.lastMessageAt)}`,
+        `activity: ${activity}`,
+        `top writers: ${writers || NONE}`,
+        `updatedAt: ${channel.updatedAt ?? '-'}`,
+      ].join('\n');
+    }
+
+    const channels = store.listChannels(placeId);
+    if (channels.length === 0) return NONE;
+
+    return [...channels]
+      .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0))
+      .map((channel) => channelTableLine(channel, channelActivity(channel, now)))
+      .join('\n');
+  }
+
+  /**
+   * `memory.server.read`: the stored place-wide notes (`patterns`, `starters`, numbered
+   * in-jokes and self facts -- src/memory/store.ts#getPlace) plus counts of what else this place has
+   * stored (profiles, channel notes, lore entries) and when the place notes were last updated.
+   * `<@id>` tokens are resolved the same way `memory.show`/`memory.channel` resolve free text.
+   */
+  function cmdMemoryServer(_args: Obj, context: OpContext): string {
+    freshenIfPaused();
+    const placeId = requirePlaceId(context);
+
+    const place = store.getPlace(placeId);
+    const { resolve } = tokenResolver();
+
+    return [
+      `patterns: ${resolve(place.patterns) || '(empty)'}`,
+      `starters: ${resolve(place.starters) || '(empty)'}`,
+      `in-jokes:\n${numberedNotes(place.injokes, resolve)}`,
+      `self facts:\n${numberedNotes(place.self, resolve)}`,
+      `profiles stored: ${store.countUsers()}`,
+      `channel notes stored: ${store.listChannels(placeId).length}`,
+      `lore entries: ${store.getLore(placeId).length}`,
+      `updatedAt: ${place.updatedAt ?? '-'}`,
+    ].join('\n');
+  }
+
+  /**
+   * `memory.recent.read`: the place's live recent lines (src/memory/recent.ts#liveRecent over
+   * `memory.recentHours`), newest moment first, one per line: date and time in `bot.timezone`, the
+   * source channel (`#name` when a channel note stores one, else its id), the weight and the text
+   * with `<@id>` tokens resolved like the other memory views. Expired lines are not shown. Read
+   * only, so it works while paused (`freshenIfPaused`); the reply is chunked by
+   * the interface's command handler like every long view.
+   */
+  function cmdMemoryRecent(_args: Obj, context: OpContext): string {
+    freshenIfPaused();
+    const placeId = requirePlaceId(context);
+
+    const settings = recentSettings(hot.config);
+    if (!settings) return 'recent memory is off';
+
+    const live = liveRecent(store.getRecent(placeId).lines, {
+      now: Date.now(),
+      hours: settings.hours,
+    }) as Array<Untyped>;
+    if (live.length === 0) return 'no live recent lines';
+
+    const timezone = hot.config?.bot?.timezone || 'UTC';
+    const { resolve } = tokenResolver();
+    const channelText = (chatId: string): string => {
+      const name = store.getChannel(placeOfChat(store, { id: chatId }))?.name;
+      return name ? `#${name}` : String(chatId);
+    };
+    const lines = [...live]
+      .sort((a, b) => b.at - a.at || (Number(b.id) || 0) - (Number(a.id) || 0))
+      .map(
+        (line) =>
+          `${zonedDay(line.at, timezone)} ${formatClock(line.at, timezone)}  ${channelText(line.placeId)}  w${line.weight}  ${resolve(line.text)}`
+      );
+    return [`recent lines: ${live.length} live, window ${settings.hours} h`, ...lines].join('\n');
+  }
+
+  /**
+   * `memory.archive.read [user] [kind] [n]`: the newest `n` (1..100, default 20) entries of the place's archive,
+   * newest first: with a member, those scoped to them; without one, the server-level ones (no member scope), and every
+   * direct chat's with `context.memory.openPrivate`. `kind` narrows to one item kind. One line each: the UTC day the
+   * item left, the event, the kind, the item id and its text (tokens resolved, cut to 160 characters). Read only; the
+   * archive is streamed and only the newest `n` are kept. With no place: the persona's and every community's.
+   */
+  async function cmdMemoryArchive(args: Obj, context: OpContext) {
+    const placeId = env.resolvedPlaceId(context);
+    if (!archive) return 'the archive is not available';
+    const given = args.kind ?? null;
+    const kind = typeof given === 'string' ? given : null;
+    if (given !== null && (kind === null || !ARCHIVE_KINDS.includes(kind)))
+      throw invalid(`unknown kind; one of: ${ARCHIVE_KINDS.join(', ')}`);
+    const asked = args.n;
+    const n = typeof asked === 'number' && Number.isInteger(asked) ? Math.min(100, Math.max(1, asked)) : 20;
+    const accountId = args.accountId ? accountOf(store, idText(args.accountId)) : null;
+    const newest: Array<Untyped> = [];
+    for (const holder of archiveHolders(store, placeId, hot.config, env.memoryDb))
+      for await (const entry of archive.iterate(holder, {
+        scope: accountId ? { user: accountId } : null,
+        kinds: kind ? [kind] : null,
+      })) {
+        if (leftOutOfList(entry, accountId, placeId, opensPrivate(hot.config))) continue;
+        newest.push(entry);
+        if (newest.length > n) newest.shift();
+      }
+    if (newest.length === 0) return NONE;
+    const { resolve } = tokenResolver();
+    return newest
+      .reverse()
+      .map(
+        (entry) =>
+          `${String(entry.recordedAt ?? '').slice(0, 10)}  ${entry.event}  ${entry.itemKind}  ${entry.itemId}  ${clampAtBoundary(archivedText(entry, resolve), 160)}`
+      )
+      .join('\n');
+  }
+
+  /**
+   * `memory.restore <itemId>`: the item's newest archived version back into its hot list
+   * (store.restoreArchived: under its own id, not pinned), then a `restored` line in the archive
+   * (by `owner`). Idempotent: an item already hot changes nothing and writes nothing. Refused
+   * while paused.
+   */
+  async function cmdMemoryRestore(args: Obj, context: OpContext) {
+    assertNotPaused();
+    const placeId = requirePlaceId(context);
+    const itemId = textOf(args.itemId).trim();
+    if (!itemId) throw invalid('an item id is required');
+    if (!archive || typeof store.restoreArchived !== 'function') throw new Error('the archive is not available');
+    const versions = ((await archive.find(itemId)) as Array<Untyped>).filter(
+      (entry: Untyped) => entry.event !== 'restored'
+    );
+    if (versions.length === 0) throw invalid(`no archived item ${itemId}`, CODE.NOT_FOUND);
+    const latest = versions.at(-1);
+    const result = store.restoreArchived(placeId, latest);
+    if (!result.restored) {
+      if (result.reason === 'hot') return `${latest.itemKind} ${itemId} is already in memory; nothing changed`;
+      if (result.reason === 'no-profile') throw new Error(`no stored memory to restore ${itemId} into`);
+      throw new Error(`a ${latest.itemKind} cannot be restored`);
+    }
+    const item = typeof result.item === 'string' ? { itemId: latest.itemId, text: result.item } : result.item;
+    const line = archiveEntry(item, {
+      itemKind: latest.itemKind,
+      event: 'restored',
+      scope: latest.scope,
+      by: 'owner',
+      participants: latest.participants,
+    });
+    try {
+      await archive.append(archiveHolderOf(store as never, latest.scope as never), [line]);
+    } catch (error) {
+      return `restored ${latest.itemKind} ${itemId}; the archive line failed (${idText(objOf(error).code) || 'error'})`;
+    }
+    return `restored ${latest.itemKind} ${itemId}`;
+  }
+
+  /**
+   * The turn that posted the message `reference` names (an id or a link), whole: the turn is searched in the day the
+   * message was posted, which the interface says (`fetchMessages`).
+   */
+  async function turnOfMessage(placeId: string | null, reference: unknown, context: OpContext): Promise<string> {
+    const ref = await messageRefOf(reference, reads);
+    const { messageId } = ref;
+    const chatId = ref.placeId ?? env.chatOf(context);
+    const fetched =
+      chatId !== null && reads && port ? await reads.fetchMessages({ iface: port.iface, chatId }, [messageId]) : null;
+    const at = fetched?.messages.at(0)?.event?.message.at ?? null;
+    if (at === null) throw invalid(`no message ${messageId} to date its turn by`, CODE.UNKNOWN_MESSAGE);
+    const where = turnJournalOf(store, placeId, ref.placeId, opensPrivate(hot.config) ? port?.iface : null);
+    const found = typeof journal.findTurn === 'function' ? await journal.findTurn(where, { messageId, at }) : null;
+    if (!found)
+      throw invalid(
+        `no turn of the persona posted message ${messageId} (searched ${utcDay(at)} and ${utcDay(at + DAY_MS)})`,
+        CODE.NOT_FOUND
+      );
+    return turnView(found);
+  }
+
+  /**
+   * `memory.journal.read [day] [kind] [n] [message]`: the last `n` (1..50, default 20) journal records of
+   * one UTC day (default today), of one kind or all, as short lines (src/memory/journal.ts#journalLine).
+   * With `message` (`messageId`: an id or a message link; the persona's call gives `#N`, resolved
+   * to the id by src/tools/executors.ts#resolveCall) the turn that posted that message instead,
+   * whole (journal.findTurn over the message's snowflake time, shown by turnView), the other
+   * options ignored; a message no turn of the place journal posted is `not-found`. With no place: the persona's
+   * journal, the turns they ran with none. Read only, so it works while paused.
+   */
+  async function cmdMemoryJournal(args: Obj, context: OpContext) {
+    if (!journal) return 'the journal is not available';
+    const placeId = env.resolvedPlaceId(context);
+    if (args.messageId !== undefined && args.messageId !== null && args.messageId !== '')
+      return turnOfMessage(placeId, args.messageId, context);
+    const day = args.day ?? utcDay(Date.now());
+    if (typeof day !== 'string' || !JOURNAL_DAY_RE.test(day)) throw invalid('day must be YYYY-MM-DD');
+    const wantedKind = args.kind ?? 'all';
+    const kind = typeof wantedKind === 'string' ? wantedKind : '';
+    if (!JOURNAL_KINDS.includes(kind)) throw invalid(`kind must be one of: ${JOURNAL_KINDS.join(', ')}`);
+    const n = args.n ?? JOURNAL_N_DEFAULT;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > JOURNAL_N_MAX)
+      throw invalid(`n must be 1..${JOURNAL_N_MAX}`);
+
+    const records = await journal.read(placeId, { day, kind: kind === 'all' ? null : kind, n });
+    if (records.length === 0) return `no journal records on ${day}${kind === 'all' ? '' : ` (${kind})`}`;
+    return [
+      `journal ${day}${kind === 'all' ? '' : ` (${kind})`}: last ${records.length}`,
+      ...records.map(journalLine),
+    ].join('\n');
+  }
+
+  /**
+   * `memory.private.read`: one member's private layer, with the same line
+   * formats as `memory show`'s sections, under the public profile's current
+   * name (the user id when there is none). Adds the private and the effective
+   * attitude (src/behavior/private.js#effectiveAffinity -- what the persona
+   * feels in the DM), today's DM reply count against the member's cap (the
+   * numbers the gate decides on, src/behavior/private.js#privateRepliesToday). No "shown cap"
+   * divider: in a DM the private items are ranked together with the public
+   * ones. No private layer -> a plain answer, not an error.
+   */
+  function cmdPrivateShow(args: Obj) {
+    freshenIfPaused();
+    if (args.person !== undefined || args.place !== undefined) return privateView(env, args);
+    const accountId = idText(args.accountId);
+    if (!accountId) throw invalid('a user is required');
+
+    const publicProfile = store.getUser(accountOf(store, accountId));
+    const name = publicProfile?.names?.[0];
+    const label = name ? `${name} (id:${accountId})` : String(accountId);
+
+    const priv = store.getPrivate(accountOf(store, accountId));
+    if (!priv) return `No private memory for this member: ${label}.`;
+
+    const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
+    const { resolve } = tokenResolver();
+
+    const privateAffinity = priv.affinity ?? emptyAffinity();
+    const effective = effectiveAffinity(publicProfile?.affinity, privateAffinity);
+    const privateReason = resolve(privateAffinity.reason);
+
+    const section = (title: string, items: ReadonlyArray<unknown>, lines: ReadonlyArray<string>): Array<string> => [
+      `${title} (${items.length} stored):`,
+      ...lines.map((line) => `  ${line}`),
+    ];
+    const interests = priv.interests ?? [];
+    const details = priv.details ?? [];
+    const episodes = priv.episodes ?? [];
+
+    return [
+      `private memory: ${label}`,
+      `private affinity: ${roundScore(privateAffinity.score ?? 0)} (${affinityBand(privateAffinity.score ?? 0)})${privateReason ? ` — ${privateReason}` : ''}`,
+      `effective affinity: ${roundScore(effective.score)} (${affinityBand(effective.score)})`,
+      `first seen: ${priv.firstSeen ? priv.firstSeen.slice(0, 10) : '-'} · last seen: ${priv.lastSeen ? priv.lastSeen.slice(0, 10) : '-'}`,
+      `relationship: ${resolve(priv.relationship) || '(empty)'}`,
+      ...section(
+        'interests',
+        interests,
+        orderedSectionLines(interests, {
+          order: 'rank',
+          limit: MEMORY_SHOW_DEFAULT_LIMIT,
+          halfLifeDays: memoryCfg.interestHalfLifeDays,
+          formatLine: (it) => interestLine(it, resolve),
+          dateOf: (it: Untyped) => dateMs(it.lastSeen ?? it.firstSeen),
+        })
+      ),
+      ...section(
+        'details',
+        details,
+        orderedSectionLines(details, {
+          order: 'rank',
+          limit: MEMORY_SHOW_DEFAULT_LIMIT,
+          halfLifeDays: memoryCfg.detailHalfLifeDays,
+          formatLine: (d) => detailLine(d, resolve),
+          dateOf: (d: Untyped) => dateMs(d.lastSeen ?? d.firstSeen),
+        })
+      ),
+      ...section(
+        'episodes',
+        episodes,
+        sortEpisodesForDisplay(episodes)
+          .slice(0, MEMORY_SHOW_DEFAULT_LIMIT)
+          .map((ep) => episodeLine(ep, resolve))
+      ),
+    ].join('\n');
+  }
+
+  return {
+    cmdMemoryShow,
+    cmdMemoryChannel,
+    cmdMemoryServer,
+    cmdMemoryRecent,
+    cmdMemoryArchive,
+    cmdMemoryRestore,
+    cmdMemoryJournal,
+    cmdPrivateShow,
+  };
+});
+
+defineOp({
+  name: 'memory.profile.read',
+  rights: { kind: 'read' },
+  run: (args, ctx) =>
+    args.section === 'changes' ? affinityChanges(ctx.env, args) : handlers(ctx.env).cmdMemoryShow(args, ctx),
+});
+defineOp({
+  name: 'memory.channel.read',
+  rights: { kind: 'read' },
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryChannel(args, ctx),
+});
+defineOp({
+  name: 'memory.server.read',
+  rights: { kind: 'read' },
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryServer(args, ctx),
+});
+defineOp({
+  name: 'memory.recent.read',
+  rights: { kind: 'read' },
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryRecent(args, ctx),
+});
+defineOp({
+  name: 'memory.journal.read',
+  rights: { kind: 'read' },
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryJournal(args, ctx),
+});
+defineOp({
+  name: 'memory.archive.read',
+  rights: { kind: 'read' },
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryArchive(args, ctx),
+});
+defineOp({
+  name: 'memory.restore',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryRestore(args, ctx),
+});
+defineOp({
+  name: 'memory.private.read',
+  rights: { kind: 'read' },
+  run: (args, ctx) => handlers(ctx.env).cmdPrivateShow(args),
+});

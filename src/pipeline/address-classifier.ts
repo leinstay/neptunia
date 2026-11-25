@@ -1,0 +1,245 @@
+// The address classifier's call about one line of a group place (prompts/classify/address.md): its verdict `yes`,
+// `overheard` or `no`. A failed call opens for a line that carries the interface's flag, so nobody who addressed the
+// persona is dropped in silence, and for an unflagged line that keeps an active one-to-one exchange.
+// createMessageHandler (src/behavior/pipeline.ts) builds it once with createAddressClassifier; the door
+// (src/pipeline/follow-up.ts) calls it.
+
+import { parseAddressAnswer } from '../behavior/mention.ts';
+import { roleRequestOptions } from '../llm/openrouter.ts';
+import { roleModel } from '../llm/roles.ts';
+import { log } from '../log.ts';
+import { MINUTE_MS } from '../time.ts';
+import type { ClassifierParams, ClassifierRequest } from './classifier-request.ts';
+import type { Conv, Line, PipelineConfig, PipelineHot, PipelineLlm, PipelineMissed } from './types.ts';
+
+/** How recent a one-to-one exchange keeps a line when the classifier fails. Production value, config cut of 2026-10-31. */
+const FAIL_OPEN_MINUTES = 3;
+
+/** What the address classifier answers. */
+export type AddressAnswer = 'yes' | 'overheard' | 'no';
+
+/** The schema of the address classifier's answer, handed to the client as `responseFormat`: `{ "answer": ... }`. */
+export const ADDRESS_FORMAT = {
+  name: 'address',
+  schema: {
+    type: 'object',
+    properties: { answer: { type: 'string', enum: ['yes', 'overheard', 'no'] } },
+    required: ['answer'],
+    additionalProperties: false,
+  },
+};
+
+/** What createAddressClassifier reads: the dependencies of createMessageHandler and its other parts' functions. */
+export type AddressClassifierContext = {
+  hot: PipelineHot;
+  llm: PipelineLlm | null | undefined;
+  now: () => number;
+  getSelfName: (placeId: string) => string;
+  missed: PipelineMissed | null;
+  buildClassifierRequest: (params: ClassifierParams) => Promise<ClassifierRequest | null>;
+};
+
+export type ClassifyAddress = (
+  channel: Conv,
+  normalized: Line,
+  gate: { config: PipelineConfig; flagged: boolean },
+  ownPrefill?: Promise<void> | null
+) => Promise<AddressAnswer>;
+
+/**
+ * Whether a follow-up whose address classifier failed (threw, or answered nothing
+ * or no readable object) still belongs to an active one-to-one exchange, from the channel
+ * `history` its request fetched (normalized, oldest first, without the
+ * candidate): the persona's latest line before `candidate` was posted at most
+ * `minutes` before it; that line (with their lines right before it, one
+ * multi-line answer) replied only to messages of the candidate's author, or -- no
+ * reply target found in `history` -- a message of that author directly
+ * preceded it; and nobody but that author wrote between it and `candidate`.
+ * False otherwise, and with `minutes` not above 0. Pure.
+ */
+function activeExchangeWith(
+  history: Array<Line>,
+  candidate: { authorId: string; ts: number },
+  minutes: number
+): boolean {
+  if (!(minutes > 0) || !Array.isArray(history)) return false;
+  const before = history.filter((m) => m && Number.isFinite(m.ts) && m.ts <= candidate.ts);
+  let last = -1;
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    if (before[i].self) {
+      last = i;
+      break;
+    }
+  }
+  if (last < 0 || candidate.ts - before[last].ts > minutes * MINUTE_MS) return false;
+  if (before.slice(last + 1).some((m) => m.authorId !== candidate.authorId)) return false;
+  let first = last;
+  while (first > 0 && before[first - 1].self) first -= 1;
+  const byId = new Map(history.map((m) => [m?.id, m]));
+  const targets = before
+    .slice(first, last + 1)
+    .map((m) => (m.replyToId ? byId.get(m.replyToId) : null))
+    .filter((m) => m && !m.self);
+  // The filter above keeps only the lines found.
+  if (targets.length > 0) return targets.every((m) => (m as Line).authorId === candidate.authorId);
+  return first > 0 && before[first - 1].authorId === candidate.authorId;
+}
+
+export function createAddressClassifier({
+  hot,
+  llm,
+  now,
+  getSelfName,
+  missed,
+  buildClassifierRequest,
+}: AddressClassifierContext): { classifyAddress: ClassifyAddress } {
+  let missingAddressPromptLogged = false;
+
+  /**
+   * One classifier call for `normalized` (the gate already passed): logs the verdict and resolves the answer
+   * (parseAddressAnswer); the caller starts the turn and owns the in-flight slot. A flagged line that could not be
+   * judged (no model, no prompt, a failed build or call) is a `yes`. A failed call on an unflagged line is a `yes` while
+   * it keeps an active one-to-one exchange (activeExchangeWith, within FAIL_OPEN_MINUTES), a `no` otherwise;
+   * `follow-up: fail-open` says which.
+   */
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.ts in stage 5d, a pure move
+  async function classifyAddress(
+    channel: Conv,
+    normalized: Line,
+    { config, flagged }: { config: PipelineConfig; flagged: boolean },
+    ownPrefill: Promise<void> | null = null
+  ): Promise<AddressAnswer> {
+    const placeId = channel.id;
+    const mentionCfg = config.mention;
+    const startedAt = now();
+    // A served channel is in a root, so it has its id.
+    const selfName = getSelfName(channel.rootId as string);
+    let request: ClassifierRequest | null = null;
+    let buildFailed = false;
+    try {
+      const prompts = hot.prompts;
+      request = await buildClassifierRequest({
+        prompt: prompts?.['classify/address'],
+        config,
+        prompts,
+        channel,
+        selfName,
+        normalized,
+        ownPrefill,
+      });
+    } catch (err) {
+      buildFailed = true;
+      log.warn('follow-up: building the classifier request failed', { channel: placeId, error: err });
+    }
+
+    if (!request) {
+      // Only a really missing prompt latches its one warning; a failed build was logged above.
+      if (!buildFailed && !missingAddressPromptLogged) {
+        missingAddressPromptLogged = true;
+        log.warn('follow-up: prompts["classify/address"] is missing, every follow-up is treated as "no"', {});
+      }
+      // A failed build is a failed gate (src/behavior/missed.ts); a missing prompt is the deployment's.
+      const unjudged = flagged ? 'yes' : 'no';
+      if (buildFailed)
+        missed?.noteFact({
+          reason: flagged ? 'gate-failopen' : 'gate-failed',
+          message: normalized,
+          failure: 'build-failed',
+          iface: channel.iface,
+        });
+      log.info('follow-up: verdict', {
+        channel: placeId,
+        author: normalized.authorId,
+        verdict: unjudged,
+        answer: unjudged,
+        ms: now() - startedAt,
+      });
+      return unjudged;
+    }
+
+    // No model to ask: a flagged line opens as it does on a failed call, and nothing failed.
+    let answer: AddressAnswer = flagged && !llm ? 'yes' : 'no';
+    let failure: 'classifier-failed' | 'empty' | 'unparsed' | null = null; // set when the call gave no answer
+    if (llm) {
+      // Read once: the request and its empty-answer warning name the same model.
+      const model: unknown = roleModel(config, 'analyzer', 'address');
+      try {
+        // A classifier call skipped by the daily cap (DailyCapError, thrown
+        // synchronously before any fetch) lands here exactly like any other
+        // error -- "no", logged, no request ever left the process.
+        const completion = await llm.complete(
+          [
+            { role: 'system', content: request.system },
+            { role: 'user', content: request.user },
+          ],
+          {
+            model,
+            // An `analyzer` request: on llm.analyzerTimeoutMs, never the turn-length llm.timeoutMs, and
+            // hedged (llm.hedge) -- while this call is in flight it holds the channel's follow-up
+            // slot, and every untagged line there is only held.
+            ...roleRequestOptions(config, {
+              role: 'analyzer',
+              maxOutputTokens: mentionCfg.followUpMaxOutputTokens,
+              purpose: 'address',
+            }),
+            responseFormat: ADDRESS_FORMAT,
+          }
+        );
+        // A completion carries its text (src/llm/openrouter.ts#complete).
+        const done = completion as { text?: unknown };
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's answer as it came, read as text
+        const said = String(done.text ?? '');
+        const parsed = parseAddressAnswer(said);
+        if (parsed) {
+          answer = parsed;
+        } else {
+          // Nothing at all (typically a reasoning model that spent its whole output cap thinking) or an answer that is
+          // not the object is a failed call, not a silent "no".
+          failure = said.trim() ? 'unparsed' : 'empty';
+          log.warn('follow-up: classifier failed', { channel: placeId, reason: failure, model: model ?? null });
+        }
+      } catch (err) {
+        answer = 'no';
+        log.warn('follow-up: classifier failed', { channel: placeId, error: err });
+        failure = 'classifier-failed';
+      }
+    }
+
+    // A failed call (provider slowness, a timeout) does not drop a line that addressed the persona, nor a line from
+    // the member the persona is talking with one to one right now.
+    let open = false;
+    if (failure) {
+      open =
+        flagged ||
+        activeExchangeWith(
+          request.history,
+          { authorId: normalized.authorId, ts: normalized.ts ?? now() },
+          FAIL_OPEN_MINUTES
+        );
+      log.info('follow-up: fail-open', { channel: placeId, author: normalized.authorId, reason: failure, open });
+      if (open) answer = 'yes';
+    }
+    // A failed gate is a fact for the missed-answer registry (src/behavior/missed.ts), let through or not.
+    if (failure)
+      missed?.noteFact({
+        reason: open ? 'gate-failopen' : 'gate-failed',
+        message: normalized,
+        failure,
+        iface: channel.iface,
+      });
+
+    // `verdict` is the two-way projection (overheard counts as yes), `answer` the word itself.
+    const verdict = answer === 'no' ? 'no' : 'yes';
+    log.info('follow-up: verdict', {
+      channel: placeId,
+      author: normalized.authorId,
+      verdict,
+      answer,
+      ms: now() - startedAt,
+    });
+    if (answer === 'no') missed?.noteNotAddressed?.(normalized, channel.iface);
+    return answer;
+  }
+
+  return { classifyAddress };
+}

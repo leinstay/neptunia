@@ -1,0 +1,403 @@
+// A member is stored and passed to the model as an id token, never as a
+// nickname -- display names change daily, so free text that names
+// someone by nickname rots the moment they rename (see
+// docs/prompt-contract.md, "Members are referred to by id, never by
+// nickname"). This module reads the tokens back out:
+//
+//   fromTokens   tokens -> display text, on the way OUT: the member's current
+//                name for the chat model, `name (id:123...)` for the analyzer
+//   tokenIds     the member ids a stored text's tokens name
+//
+// The `<@id>` token is the core's own grammar for a member in a stored text, whatever the interface a member came
+// from: text written with it parses the same on every platform, and the ids it holds are the interface's opaque ones.
+// Message links are not read here: an interface puts them on a message as references (docs/interfaces.md).
+//
+// Pure, no platform SDK dependency: `nameOf` is injected so the caller decides
+// where a display name comes from.
+//
+// It also owns two text primitives other modules share: `ID_DIGITS` (the id range every id pattern is built from) and
+// the whole-word test (`isWordChar`, `occursAsWholeWord`) used by name
+// triggers, lore keys and the `<people>` name scan, with its ending-tolerant
+// variant (`occursAsWordStem`) used by recall's forms. And the lesson teacher
+// rule (`TEACHER_TOKEN_RE`): which member taught the persona a
+// thing (src/memory/archive.ts and src/behavior/recall.js read it).
+//
+// Channels go the same way back out: `linkChannels` turns the `#handle` (exactly, from the
+// request's channel directory) or else the `#name` the
+// persona writes into the `<#id>` link the chat shows as a channel, and `linkMessageNumbers` turns a
+// transcript number `#93` into the jump link of that message.
+// A written channel name is matched by its core too (`channelCore`, `matchChannel`): the name
+// without leading and trailing emoji or symbols, folded, since models copy those unreliably.
+// A URL the persona writes is never rewritten on the way out (`URL_PATTERN`, `outsideUrls`):
+// a `#name` or `@name` inside it is part of the address.
+
+import { foldText } from './recent.ts';
+
+/**
+ * The digits of a member id, as a regex source: the one id range every
+ * pattern that reads an id out of text is built from (`<@id>` tokens,
+ * `(id:...)` markers, a taught item's `from`).
+ */
+export const ID_DIGITS = '\\d{17,20}';
+
+/**
+ * An http(s) URL as written in a text, as a regex source: from the scheme up to
+ * the next whitespace or angle bracket (a `<url>` keeps its brackets outside).
+ * The one pattern for the URLs the persona reads (the interface package caps
+ * their length), the ones the persona writes (left alone on the way out), and the ones
+ * src/memory/clamp.ts#stripUrls takes out of every text their memory stores.
+ */
+export const URL_PATTERN = 'https?:\\/\\/[^\\s<>]+';
+
+/**
+ * `text` with `convert` applied to every stretch outside its URLs
+ * (URL_PATTERN), the URLs kept exactly as written. `convert` may get ''. Pure.
+ */
+export function outsideUrls(text: string, convert: (part: string) => string): string {
+  let result = '';
+  let index = 0;
+  for (const match of text.matchAll(new RegExp(URL_PATTERN, 'g'))) {
+    result += convert(text.slice(index, match.index)) + match[0];
+    index = match.index + match[0].length;
+  }
+  return result + convert(text.slice(index));
+}
+
+const TOKEN_RE = new RegExp(`<@(${ID_DIGITS})>`, 'g');
+
+/**
+ * A lesson's teacher in its stored form: the whole value is exactly one `<@id>` token (group 1 =
+ * the id). No `g` flag, so the shared pattern keeps no state between calls.
+ */
+export const TEACHER_TOKEN_RE = new RegExp(`^<@(${ID_DIGITS})>$`);
+
+/**
+ * Resolve every `<@id>` token in `text` back to display text.
+ * `mode: 'chat'` -> the member's current name alone (so `@name` mention
+ * resolution downstream still works); `mode: 'analyzer'` -> `name (id:123...)`.
+ * `nameOf(id)` returning anything other than a non-empty string leaves that
+ * token exactly as written (an id the caller cannot currently resolve).
+ */
+export function fromTokens(
+  text: string,
+  nameOf: ((id: string) => string | null | undefined) | null | undefined,
+  mode: 'chat' | 'analyzer'
+): string {
+  if (typeof text !== 'string' || !text) return text;
+  return text.replace(TOKEN_RE, (whole: string, id: string) => {
+    const name = typeof nameOf === 'function' ? nameOf(id) : null;
+    if (typeof name !== 'string' || !name) return whole;
+    return mode === 'analyzer' ? `${name} (id:${id})` : name;
+  });
+}
+
+/**
+ * The member ids `text` names through `<@id>` tokens, each once, in the order
+ * they first appear -- how a stored text's member list is computed by code
+ * rather than taken from the model (src/memory/recent.ts). An `(id:...)`
+ * marker is not a token; a non-string `text` names nobody.
+ */
+export function tokenIds(text: unknown): Array<string> {
+  if (typeof text !== 'string' || !text) return [];
+  return [...new Set(Array.from(text.matchAll(TOKEN_RE), (match) => match[1] ?? ''))];
+}
+
+/**
+ * Whether `ch` is a word character: a letter, a digit or an underscore, in any
+ * script. `undefined` (before the start or past the end of a string) is not.
+ */
+export function isWordChar(ch: string | undefined): boolean {
+  return ch !== undefined && /[\p{L}\p{N}_]/u.test(ch);
+}
+
+/**
+ * Whether `needleLower` occurs in `haystackLower` as a whole word/phrase
+ * (Unicode-aware boundaries, see `isWordChar`). Every occurrence is tried, so
+ * one inside a longer word does not hide a later whole one; an empty needle
+ * never occurs.
+ */
+export function occursAsWholeWord(haystackLower: string, needleLower: string): boolean {
+  if (!needleLower) return false;
+  let from = 0;
+  for (;;) {
+    const at = haystackLower.indexOf(needleLower, from);
+    if (at === -1) return false;
+    const before = haystackLower[at - 1];
+    const after = haystackLower[at + needleLower.length];
+    if (!isWordChar(before) && !isWordChar(after)) return true;
+    from = at + 1;
+  }
+}
+
+/** A form word this long or longer matches by its stem (occursAsWordStem). */
+const STEM_MIN_WORD = 5;
+/** Letters cut from a form word's end to make its stem. */
+const STEM_CUT = 2;
+/** The shortest stem. */
+const STEM_MIN = 4;
+/** How many letters a matched text word may run past the form word. */
+const STEM_MAX_EXTRA = 3;
+
+/** The words of `text`: maximal runs of word characters (`isWordChar`), each as its code points. */
+function wordsOf(text: string): Array<Array<string>> {
+  const words: Array<Array<string>> = [];
+  let current: Array<string> | null = null;
+  for (const ch of text) {
+    if (isWordChar(ch)) (current ??= []).push(ch);
+    else if (current) {
+      words.push(current);
+      current = null;
+    }
+  }
+  if (current) words.push(current);
+  return words;
+}
+
+/** Whether the text word `word` matches the form word `formWord` (both code point arrays) by the stem rule. */
+function wordMatches(word: ReadonlyArray<string>, formWord: ReadonlyArray<string>): boolean {
+  const whole = formWord.length < STEM_MIN_WORD || formWord.some((ch) => /\p{N}/u.test(ch));
+  if (whole) return word.length === formWord.length && word.every((ch, i) => ch === formWord[i]);
+  const stem = Math.max(STEM_MIN, formWord.length - STEM_CUT);
+  if (word.length < stem || word.length > formWord.length + STEM_MAX_EXTRA) return false;
+  for (let i = 0; i < stem; i += 1) if (word[i] !== formWord[i]) return false;
+  return true;
+}
+
+/**
+ * Whether `form` occurs in `text` allowing word endings, both already folded
+ * (src/memory/recent.ts#foldText) -- recall's matching of a form against stored
+ * text, tolerant of inflection. Words are runs of `isWordChar`. A form word of
+ * 5+ letters without digits matches a text word that starts with its stem (the
+ * word minus its last 2 letters, never under 4 letters) and is at most 3
+ * letters longer than the form word; a shorter form word or one with digits
+ * matches only a whole equal word. A multi-word form matches consecutive text
+ * words in order, each by that rule. A form without word characters falls back
+ * to `occursAsWholeWord`; an empty form never occurs.
+ */
+export function occursAsWordStem(text: string, form: string): boolean {
+  if (!form) return false;
+  const formWords = wordsOf(form);
+  if (formWords.length === 0) return form.trim() ? occursAsWholeWord(text, form) : false;
+  const words = wordsOf(text);
+  for (let start = 0; start + formWords.length <= words.length; start += 1) {
+    if (formWords.every((formWord, i) => wordMatches(words[start + i] ?? [], formWord))) return true;
+  }
+  return false;
+}
+
+/** A channel as the matching reads it: its id and its name. */
+type ChannelRef = { id: string; name: string };
+
+/** Whether a listed channel has the id and the name a link needs. */
+function isChannelRef(channel: { id?: unknown; name?: unknown } | null | undefined): channel is ChannelRef {
+  return (
+    typeof channel?.id === 'string' && channel.id !== '' && typeof channel.name === 'string' && channel.name !== ''
+  );
+}
+
+/** Leading or trailing characters that are no letter and no digit: emoji, symbols, punctuation, joiners. */
+const CORE_EDGES_RE = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
+/** One emoji-like character a written channel name may carry around its core (never punctuation or space). */
+const NAME_DECOR_RE = /[\p{So}\p{Sk}\p{Cf}\p{M}\p{Emoji_Presentation}]/u;
+
+/**
+ * The core of a channel name: folded (src/memory/recent.ts#foldText: case and accents) with every
+ * leading and trailing character that is no letter and no digit cut off -- emoji, symbols,
+ * punctuation, variation selectors, joiners. '' when nothing is left. Models copy a leading emoji
+ * of a channel name unreliably; the core is what they keep.
+ */
+export function channelCore(name: unknown): string {
+  return foldText(name).replace(CORE_EDGES_RE, '');
+}
+
+/**
+ * The channel a written name names among `channels` (`{ id, name }`): the one whose name is exactly
+ * `written`, else the one whose core (channelCore) equals its core; `'ambiguous'` when several
+ * share that name or core (never a guess), null when none or `written` has no core.
+ * `written` is the name as written, without its `#`.
+ */
+export function matchChannel(
+  written: unknown,
+  channels: Iterable<ChannelRef> | null | undefined
+): ChannelRef | 'ambiguous' | null {
+  const list = [...(channels ?? [])].filter(
+    (channel) =>
+      channel && typeof channel.name === 'string' && channel.name && channel.id !== undefined && channel.id !== null
+  );
+  const given = typeof written === 'string' || typeof written === 'number' ? String(written) : '';
+  const exact = list.filter((channel) => channel.name === given);
+  if (exact.length === 1) return exact[0] ?? null;
+  if (exact.length > 1) return 'ambiguous';
+  const core = channelCore(given);
+  if (!core) return null;
+  const same = list.filter((channel) => channelCore(channel.name) === core);
+  if (same.length === 1) return same[0] ?? null;
+  return same.length > 1 ? 'ambiguous' : null;
+}
+
+/**
+ * The channel whose core is written at `at` of `text` (after the `#`, with any emoji before it),
+ * and where the written name ends (its trailing emoji included), or null: the longest unambiguous
+ * core of `byCore` whose fold equals the text's run from the first word character, ending at a
+ * word boundary.
+ */
+function coreAt(
+  text: string,
+  at: number,
+  byCore: ReadonlyMap<string, ChannelRef>
+): { channel: ChannelRef; end: number } | null {
+  let start = at;
+  while (
+    start < text.length &&
+    !isWordChar(text[start]) &&
+    NAME_DECOR_RE.test(String.fromCodePoint(text.codePointAt(start) ?? 0))
+  ) {
+    start += String.fromCodePoint(text.codePointAt(start) ?? 0).length;
+  }
+  if (!isWordChar(text[start])) return null;
+  for (const [core, channel] of byCore) {
+    // A fold keeps the length of a run or shortens it (combining marks go): try ends from the core's length on.
+    for (let end = start + 1; end <= Math.min(text.length, start + core.length * 2 + 2); end += 1) {
+      if (isWordChar(text[end])) continue;
+      if (foldText(text.slice(start, end)) !== core) continue;
+      let stop = end;
+      while (
+        stop < text.length &&
+        !isWordChar(text[stop]) &&
+        NAME_DECOR_RE.test(String.fromCodePoint(text.codePointAt(stop) ?? 0))
+      ) {
+        stop += String.fromCodePoint(text.codePointAt(stop) ?? 0).length;
+      }
+      return { channel, end: stop };
+    }
+  }
+  return null;
+}
+
+/**
+ * Turn every `#handle` of `handles` and every `#name` of a known channel in the persona's
+ * outgoing `text` into the real channel link `<#id>` -- incoming `<#id>` mentions reach the model
+ * as `#name`, with the channel's handle beside it when the request has one
+ * (src/format.js), so this is the way back out. A handle first, strictly: the whole token
+ * after the `#` (base-36 digits and lower-case letters, case as given) is a key of `handles`;
+ * a token `handles` does not hold goes on to the names below. Then the names: exact,
+ * case-sensitive names first, the longest first (a name may be a prefix of another);
+ * then, failing that, the core (channelCore, matchChannel's rule): the written name with other or
+ * no leading emoji, in any case and accents, links to the one channel with that core, never to
+ * one of several sharing it, the longest core first, its trailing emoji taken along;
+ * a match counts only when the character before `#` is not a word character
+ * and the one after the name is not a word character either (or the end). An
+ * existing `<#id>` link and a `#` inside a URL (outsideUrls) are left alone;
+ * text without `#` comes back unchanged.
+ * `channels` are the served place's text channels, `handles` the request's channel handle (without `#`) -> channel id.
+ */
+export function linkChannels(
+  text: string,
+  channels: Iterable<{ id: string; name?: string | null } | null | undefined> | null | undefined,
+  handles: Map<string, string> | null = null
+): string {
+  const byHandle = handles instanceof Map && handles.size > 0 ? handles : null;
+  if (typeof text !== 'string' || !text.includes('#') || (!channels && !byHandle)) return text;
+  const known: Array<ChannelRef> = [];
+  for (const channel of channels ?? []) {
+    if (isChannelRef(channel)) known.push(channel);
+  }
+  if (known.length === 0 && !byHandle) return text;
+  known.sort((a, b) => b.name.length - a.name.length);
+  const byCore = uniqueCores(known);
+  return outsideUrls(text, (part) => linkChannelsIn(part, known, byCore, byHandle));
+}
+
+/** Each core shared by exactly one of `channels`, the longest core first. */
+function uniqueCores(channels: ReadonlyArray<ChannelRef>): Map<string, ChannelRef> {
+  const counts = new Map<string, Array<ChannelRef>>();
+  for (const channel of channels) {
+    const core = channelCore(channel.name);
+    if (core) counts.set(core, [...(counts.get(core) ?? []), channel]);
+  }
+  const byCore = new Map<string, ChannelRef>();
+  for (const [core, sharing] of [...counts.entries()].sort((a, b) => b[0].length - a[0].length)) {
+    const [only] = sharing;
+    if (sharing.length === 1 && only !== undefined) byCore.set(core, only);
+  }
+  return byCore;
+}
+
+/** The handle-shaped token right after a `#`: lower-case letters and digits. */
+const CHANNEL_HANDLE_AT_RE = /^[0-9a-z]+/;
+
+/** The channel of the `#handle` at `at` (the `#`) of `text` and where it ends, or null (linkChannels). */
+function handleAt(
+  text: string,
+  at: number,
+  byHandle: ReadonlyMap<string, string> | null
+): { channel: { id: string }; end: number } | null {
+  if (!byHandle) return null;
+  const token = CHANNEL_HANDLE_AT_RE.exec(text.slice(at + 1))?.[0];
+  if (!token || isWordChar(text[at + 1 + token.length])) return null;
+  const id = byHandle.get(token);
+  return id === undefined || id === null || String(id) === ''
+    ? null
+    : { channel: { id: String(id) }, end: at + 1 + token.length };
+}
+
+/** linkChannels over one stretch of text holding no URL. */
+function linkChannelsIn(
+  text: string,
+  known: ReadonlyArray<ChannelRef>,
+  byCore: ReadonlyMap<string, ChannelRef>,
+  byHandle: ReadonlyMap<string, string> | null = null
+): string {
+  let result = '';
+  let index = 0;
+  while (index < text.length) {
+    const at = text.indexOf('#', index);
+    if (at === -1) break;
+    result += text.slice(index, at);
+    const before = text[at - 1];
+    let linked: { channel: { id: string }; end: number } | null = null;
+    if (before !== '<' && !isWordChar(before)) {
+      linked = handleAt(text, at, byHandle);
+      const exact = linked
+        ? null
+        : (known.find(({ name }) => text.startsWith(name, at + 1) && !isWordChar(text[at + 1 + name.length])) ?? null);
+      if (!linked) linked = exact ? { channel: exact, end: at + 1 + exact.name.length } : coreAt(text, at + 1, byCore);
+    }
+    if (linked) {
+      result += `<#${linked.channel.id}>`;
+      index = linked.end;
+    } else {
+      result += '#';
+      index = at + 1;
+    }
+  }
+  return result + text.slice(index);
+}
+
+/** Spans `linkMessageNumbers` leaves alone: fenced code, inline code, and URLs already in the text. */
+const PROTECTED_SPAN_RE = /```[\s\S]*?```|`[^`\n]*`|https?:\/\/\S+/g;
+const MESSAGE_NUMBER_RE = /(?<![\p{L}\p{N}_&#<])#(\d+)(?![\p{L}\p{N}_])/gu;
+
+/**
+ * Turn every transcript number `#n` in the persona's outgoing `text` into the jump link of the
+ * message it names, so the chat shows a clickable pill instead of a bare number. A token counts
+ * when `n` is digits, the character before `#` is not a word character, `&`, `#` or `<`, and the
+ * one after the digits is not a word character; a number `resolve` does not know stays as
+ * written. Code spans and URLs already present are skipped.
+ * `resolve` gives the link of a number, null when unmapped.
+ */
+export function linkMessageNumbers(text: string, resolve: (n: number) => string | null | undefined): string {
+  if (typeof text !== 'string' || !text.includes('#') || typeof resolve !== 'function') return text;
+  const convert = (part: string): string =>
+    part.replace(MESSAGE_NUMBER_RE, (whole: string, digits: string) => {
+      const link = resolve(Number(digits));
+      return typeof link === 'string' && link ? link : whole;
+    });
+  let result = '';
+  let index = 0;
+  for (const match of text.matchAll(PROTECTED_SPAN_RE)) {
+    result += convert(text.slice(index, match.index)) + match[0];
+    index = match.index + match[0].length;
+  }
+  return result + convert(text.slice(index));
+}

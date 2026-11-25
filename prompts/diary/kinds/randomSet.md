@@ -1,0 +1,1 @@
+Four to six pictures that nothing ties together, with one to three messages. `<scene>` holds several places, and each may give one picture. The others are anything you like. Use `self` true for a picture you are in. The captions are short.

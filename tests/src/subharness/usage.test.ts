@@ -1,0 +1,234 @@
+// The orchestration of native usage (src/subharness/usage.ts): one source by request, every source with one failure held
+// apart, API calls counted once across OpenCode and direct OpenRouter, an old observation that is stale or belongs to
+// another account, and what `/usage` draws. No read generates a turn, and nothing invents a quota or a price.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  readAllUsage,
+  readBackendUsage,
+  reconcileUsage,
+  usageLines,
+  backendUsageReader,
+} from '../../../src/subharness/usage.ts';
+
+import type { BackendUsage, UsageDeps, UsageMetric } from '../../../src/subharness/usage.ts';
+import { fakeVendor } from '../../fixtures/fake-vendor.ts';
+import { writeKeysFile } from '../../fixtures/keys-file.ts';
+import { fakeFetch } from '../../fixtures/keys-rig.ts';
+import { tempDir } from '../../fixtures/tmp.ts';
+
+const T0 = 1_790_000_000_000;
+
+const HOUR = 3_600_000;
+
+function rig(over: Partial<UsageDeps> = {}) {
+  const privateDir = tempDir('nep-usage-');
+  writeKeysFile(privateDir);
+  const { fetch, calls } = fakeFetch(() => ({
+    status: 200,
+    body: { data: { usage: 2, limit: null, limit_remaining: null } },
+  }));
+  const deps: UsageDeps = {
+    privateDir,
+    now: () => T0,
+    fetch,
+    baseUrl: 'https://openrouter.test/api/v1',
+    openRouterKey: { name: 'core one', value: 'or-value-secret' },
+    spawn: () => {
+      throw new Error('no child in this test');
+    },
+    exec: () => Promise.reject(new Error('no command in this test')),
+    ...over,
+  };
+  return { deps, calls, privateDir };
+}
+
+const metric = (name: string, over: Partial<UsageMetric> = {}): UsageMetric => ({
+  name,
+  scope: 'account',
+  unit: 'percent',
+  value: 25,
+  state: 'observed',
+  ...over,
+});
+
+const subscription = (over: Partial<BackendUsage> = {}): BackendUsage => ({
+  variant: 'subscription',
+  source: 'codex',
+  account: { label: 'one@example.test' },
+  observedAt: T0,
+  availability: 'available',
+  metrics: [metric('primary.usedPercent')],
+  errors: [],
+  handoff: null,
+  ...over,
+});
+
+test('a request reads the source it names and no other', async () => {
+  // Catches: one `/usage` of OpenRouter starting every vendor CLI.
+  const { deps, calls } = rig();
+  const usage = await readBackendUsage({ source: 'openrouter' }, deps);
+  assert.equal(usage.source, 'openrouter');
+  assert.equal(usage.account.label, 'core one');
+  assert.equal(calls.length, 1);
+});
+
+test('every source answers in a stable order, and one that throws leaves the others readable', async () => {
+  // Catches: Promise.all rejecting the whole view on the first vendor that fails.
+  const { deps, privateDir } = rig();
+  fakeVendor(privateDir, 'codex', { loggedIn: true });
+  const usages = await readAllUsage(deps);
+  assert.deepEqual(
+    usages.map((one) => one.source),
+    ['claude', 'codex', 'opencode', 'openrouter']
+  );
+  assert.equal(usages.find((one) => one.source === 'codex')?.availability, 'unavailable');
+  assert.equal(usages.find((one) => one.source === 'openrouter')?.availability, 'available');
+  assert.equal(usages.find((one) => one.source === 'openrouter')?.metrics.find((m) => m.name === 'usage')?.value, 2);
+});
+
+test('reading everything sends no completion', async () => {
+  // Catches: a hidden model call reached by any adapter.
+  const { deps, calls } = rig();
+  await readAllUsage(deps);
+  assert.ok(calls.every((call) => !call.url.includes('/chat/completions') && !call.url.includes('/responses')));
+});
+
+test('no key value appears in any observation', async () => {
+  // Catches: a credential on the screen through an error text.
+  const { deps } = rig();
+  assert.equal(JSON.stringify(await readAllUsage(deps)).includes('or-value-secret'), false);
+});
+
+// Old observations
+
+test('a failed read keeps the last observation of the same account, marked stale with its own time', () => {
+  // Catches: old numbers passed off as current, or a brief failure blanking the view.
+  const previous = subscription({ observedAt: T0 - HOUR });
+  const fresh = subscription({
+    observedAt: T0,
+    availability: 'unavailable',
+    metrics: [],
+    errors: [{ code: 'read-failed' }],
+  });
+  const kept = reconcileUsage(previous, fresh);
+  assert.equal(kept.observedAt, T0 - HOUR);
+  const [keptMetric] = kept.metrics;
+  assert.equal(keptMetric?.value, 25);
+  assert.equal(keptMetric?.state, 'stale');
+  assert.deepEqual(kept.errors, [{ code: 'read-failed' }]);
+});
+
+test('an account change drops what the old account observed', () => {
+  // Catches: the old login's quota drawn under the new login.
+  const previous = subscription({ observedAt: T0 - HOUR });
+  const fresh = subscription({
+    account: { label: 'two@example.test' },
+    availability: 'unavailable',
+    metrics: [],
+    errors: [{ code: 'read-failed' }],
+  });
+  assert.deepEqual(reconcileUsage(previous, fresh), fresh);
+});
+
+test('a logout drops the old observation even though no new account is known', () => {
+  // Catches: a logged-out backend still showing its quota as if nothing happened.
+  const previous = subscription({ observedAt: T0 - HOUR });
+  const fresh = subscription({
+    account: { label: null },
+    availability: 'unavailable',
+    metrics: [],
+    errors: [{ code: 'not-logged-in' }],
+  });
+  assert.deepEqual(reconcileUsage(previous, fresh), fresh);
+});
+
+test('a fresh successful read replaces the old one, and with no previous the fresh one stands', () => {
+  // Catches: an old stale mark surviving a read that worked.
+  const fresh = subscription();
+  assert.deepEqual(reconcileUsage(subscription({ observedAt: T0 - HOUR }), fresh), fresh);
+  assert.deepEqual(reconcileUsage(null, fresh), fresh);
+});
+
+// What is drawn
+
+test('each block names its source and account, and its observation time', () => {
+  // Catches: two accounts' numbers side by side with nothing to tell them apart.
+  const text = usageLines([subscription()], T0).join('\n');
+  assert.ok(text.includes('codex'), text);
+  assert.ok(text.includes('one@example.test'), text);
+  assert.ok(text.includes(new Date(T0).toISOString().slice(0, 16)), text);
+  assert.ok(text.includes('25'), text);
+});
+
+test('an unknown value is drawn unknown, never zero', () => {
+  // Catches: `String(value ?? 0)` at the very last step.
+  const text = usageLines(
+    [subscription({ metrics: [metric('primary.usedPercent', { value: null, state: 'unknown' })] })],
+    T0
+  ).join('\n');
+  assert.ok(text.includes('unknown'), text);
+  assert.equal(/\b0\b/.test(text.replaceAll(new Date(T0).toISOString().slice(0, 16), '')), false, text);
+});
+
+test('a stale value says it is stale', () => {
+  // Catches: the stale mark set by the reconciler and lost by the drawing.
+  const text = usageLines([subscription({ metrics: [metric('primary.usedPercent', { state: 'stale' })] })], T0).join(
+    '\n'
+  );
+  assert.ok(text.includes('stale'), text);
+});
+
+test('an unsupported source shows its hand-off, a failed one its code', () => {
+  // Catches: both vanishing from the view, so the owner thinks the backend is not there.
+  const text = usageLines(
+    [
+      subscription({ source: 'claude', availability: 'unsupported', metrics: [], handoff: 'claude, then /usage' }),
+      subscription({ availability: 'unavailable', metrics: [], errors: [{ code: 'timeout' }] }),
+    ],
+    T0
+  ).join('\n');
+  assert.ok(text.includes('claude, then /usage'), text);
+  assert.ok(text.includes('timeout'), text);
+});
+
+test('a subscription block prints no price', () => {
+  // Catches: an API rate multiplied in at the view, where the adapter test does not look.
+  const text = usageLines(
+    [subscription({ metrics: [metric('lifetimeTokens', { unit: 'tokens', value: 1000 })] })],
+    T0
+  ).join('\n');
+  assert.equal(text.includes('$'), false, text);
+});
+
+// The reader the console holds (src/subharness/usage.ts#backendUsageReader): each read is compared with what the last one
+// showed, per source. The provider is a fake.
+
+test('a read that fails after one that worked shows the old numbers as stale, and a later success replaces them', async () => {
+  // Catches: the reconciler never fed its previous observation, so a brief outage blanks the view.
+  const privateDir = tempDir('nep-usage-reader-');
+  writeKeysFile(privateDir);
+  const statuses = [200, 500, 200];
+  const read = backendUsageReader(() => ({
+    privateDir,
+    now: () => 1000,
+    baseUrl: 'https://openrouter.test/api/v1',
+    openRouterKey: { name: 'core one', value: 'value' },
+    fetch: () =>
+      Promise.resolve(new Response(JSON.stringify({ data: { usage: 3 } }), { status: statuses.shift() ?? 500 })),
+    spawn: () => {
+      throw new Error('no child in this test');
+    },
+    exec: () => Promise.reject(new Error('no command in this test')),
+  }));
+  const usageOf = async () => {
+    const found = (await read()).find((one) => one.source === 'openrouter');
+    return found?.metrics.find((one) => one.name === 'usage');
+  };
+  assert.equal((await usageOf())?.state, 'observed');
+  const failed = await usageOf();
+  assert.equal(failed?.state, 'stale');
+  assert.equal(failed?.value, 3);
+  assert.equal((await usageOf())?.state, 'observed');
+});

@@ -1,0 +1,10 @@
+{
+  "settings": [
+    {
+      "key": "token",
+      "question": "Discord bot token (Developer Portal, your application, Bot)",
+      "kind": "secret",
+      "required": true
+    }
+  ]
+}

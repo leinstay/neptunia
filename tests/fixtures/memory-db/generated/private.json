@@ -1,0 +1,278 @@
+[
+ {
+  "relationship": "relationship",
+  "interests": [
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 1,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen"
+   },
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 2,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen"
+   },
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 3,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen"
+   }
+  ],
+  "details": [],
+  "detailsSeq": 1,
+  "episodes": [
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 1,
+    "addedAt": "episodes[].addedAt"
+   },
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 2,
+    "addedAt": "episodes[].addedAt"
+   },
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 3,
+    "addedAt": "episodes[].addedAt"
+   }
+  ],
+  "affinity": {
+   "score": 1,
+   "reason": "affinity.reason",
+   "history": [
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 1,
+     "appliedDelta": 1,
+     "score": 1,
+     "reason": "affinity.history[].reason"
+    },
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 2,
+     "appliedDelta": 2,
+     "score": 2,
+     "reason": "affinity.history[].reason"
+    },
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 3,
+     "appliedDelta": 3,
+     "score": 3,
+     "reason": "affinity.history[].reason"
+    }
+   ],
+   "decayedAt": "affinity.decayedAt"
+  },
+  "firstSeen": "firstSeen",
+  "lastSeen": "lastSeen",
+  "replies": {
+   "day": "replies.day",
+   "count": 1,
+   "noticedDay": "replies.noticedDay"
+  },
+  "buffer": [],
+  "relationshipScore": 1,
+  "relationshipWrittenAt": "relationshipWrittenAt"
+ },
+ {
+  "relationship": "relationship",
+  "interests": [
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 1,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen"
+   },
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 2,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen"
+   },
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 3,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen"
+   }
+  ],
+  "details": [],
+  "detailsSeq": 2,
+  "episodes": [
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 1,
+    "addedAt": "episodes[].addedAt"
+   },
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 2,
+    "addedAt": "episodes[].addedAt"
+   },
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 3,
+    "addedAt": "episodes[].addedAt"
+   }
+  ],
+  "affinity": {
+   "score": 2,
+   "reason": "affinity.reason",
+   "history": [
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 1,
+     "appliedDelta": 1,
+     "score": 1,
+     "reason": "affinity.history[].reason"
+    },
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 2,
+     "appliedDelta": 2,
+     "score": 2,
+     "reason": "affinity.history[].reason"
+    },
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 3,
+     "appliedDelta": 3,
+     "score": 3,
+     "reason": "affinity.history[].reason"
+    }
+   ],
+   "decayedAt": "affinity.decayedAt"
+  },
+  "firstSeen": "firstSeen",
+  "lastSeen": "lastSeen",
+  "replies": {
+   "day": "replies.day",
+   "count": 2,
+   "noticedDay": "replies.noticedDay"
+  },
+  "buffer": [],
+  "relationshipScore": 2,
+  "relationshipWrittenAt": "relationshipWrittenAt"
+ },
+ {
+  "relationship": "relationship",
+  "interests": [
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 1,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen"
+   },
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 2,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen"
+   },
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 3,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen"
+   }
+  ],
+  "details": [],
+  "detailsSeq": 3,
+  "episodes": [
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 1,
+    "addedAt": "episodes[].addedAt"
+   },
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 2,
+    "addedAt": "episodes[].addedAt"
+   },
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 3,
+    "addedAt": "episodes[].addedAt"
+   }
+  ],
+  "affinity": {
+   "score": 3,
+   "reason": "affinity.reason",
+   "history": [
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 1,
+     "appliedDelta": 1,
+     "score": 1,
+     "reason": "affinity.history[].reason"
+    },
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 2,
+     "appliedDelta": 2,
+     "score": 2,
+     "reason": "affinity.history[].reason"
+    },
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 3,
+     "appliedDelta": 3,
+     "score": 3,
+     "reason": "affinity.history[].reason"
+    }
+   ],
+   "decayedAt": "affinity.decayedAt"
+  },
+  "firstSeen": "firstSeen",
+  "lastSeen": "lastSeen",
+  "replies": {
+   "day": "replies.day",
+   "count": 3,
+   "noticedDay": "replies.noticedDay"
+  },
+  "buffer": [],
+  "relationshipScore": 3,
+  "relationshipWrittenAt": "relationshipWrittenAt"
+ }
+]

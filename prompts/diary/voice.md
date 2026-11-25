@@ -1,0 +1,1 @@
+This post is spoken. Say it with `voice.say` instead of writing it: the text of the call is the post, worded the way you would say it aloud and short enough to hear out in under a minute. The voice message goes out as the post, so write no `<msg>` that repeats its words. If the call fails, post the words as text.

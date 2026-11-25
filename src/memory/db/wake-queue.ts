@@ -1,0 +1,799 @@
+// The wake queue of the inner life in the memory database (schema v18), its fenced leases and the deliveries a
+// completed wake leaves to send. A wake is one row of `wakes`: `queued` until a turn claims it, `running` while that
+// turn holds the lease `wake:<id>`, then `handled` (a turn or the engine disposed of it) or `slept` (it fell due while
+// the core was down or paused, and never runs). The claim is one transaction that moves the row to `running` and
+// grants the lease with a new token; the completion is another that checks the token and records the turn's
+// deliveries `queued` under their effect keys, so a holder whose lease was taken over writes nothing. A lease token
+// rises with every grant of its name and is never reused. Startup marks persisted queued and running wakes
+// interrupted, retaining their first turn id and fencing previous holders.
+// A delivery (schema v20) is `queued` from the completion, `sending` while the inner life's port call is out, then
+// `sent`, `unknown` or `failed` with its receipt (src/behavior/inner/deliveries.ts); its files are `media` rows of kind
+// `delivery` under `media/deliveries/`, written by the completion and deleted with the delivery when it is pruned.
+//
+// Times are epoch milliseconds. The functions run synchronously over an open handle: the service's writer applies the
+// writes (`applyWakeQueueWrite`, reached through session-write.ts#applyMemoryWrite), and the reads take the read
+// connection (`{ db }`). The inner life's wake queue (src/behavior/inner/wake-queue.ts) is the one caller of the writes. The wakes
+// belong to the one persona: nothing here names a place, and a wake's own payload says where it goes.
+
+import { kindOfFile } from './media-store.ts';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { AUD_INTERNAL } from './scope.ts';
+
+/** The states of a wake row. */
+export const WAKE_STATES = ['queued', 'running', 'handled', 'slept', 'dropped'] as const;
+export type WakeState = (typeof WAKE_STATES)[number];
+
+/** The lease that says the core is up: renewed at every tick of the inner life, read by the next start. */
+export const ALIVE_LEASE = 'core:alive';
+
+/** What the turn that holds a running wake was about, for the journal check of a turn a restart cut off. */
+export type TurnMark = {
+  kind: string;
+  placeId: string | null;
+  dmChat: boolean;
+  privateAccountId: string | null;
+  /** The interface of the turn's chat; absent in a mark written before it was recorded. */
+  iface?: string;
+};
+
+/** One wake row as the store reads it back. */
+export type StoredWake = {
+  id: string;
+  kind: string;
+  state: WakeState;
+  dueAt: number | null;
+  queuedAt: number;
+  payload: Record<string, unknown>;
+  leaseHolder: string | null;
+  leaseToken: number | null;
+  leaseExpiresAt: number | null;
+  handledAt: number | null;
+  outcome: string | null;
+  turnId: string | null;
+  attempt: number;
+  claimedAt: number | null;
+  turn: TurnMark | null;
+};
+
+/** One lease row. */
+export type Lease = { name: string; holder: string; token: number; expiresAt: number; renewedAt: number };
+
+/** The states of a delivery row (schema v20). */
+export const DELIVERY_STATES = ['queued', 'sending', 'sent', 'unknown', 'failed'] as const;
+export type DeliveryState = (typeof DELIVERY_STATES)[number];
+
+/** One delivery a completed wake left: its effect key, where it goes, what it carries and what its send answered. */
+export type Delivery = {
+  key: string;
+  wakeId: string;
+  target: string | null;
+  payload: unknown;
+  state: DeliveryState;
+  queuedAt: number;
+  sentAt: number | null;
+  receipt: unknown;
+};
+
+/** A file of a delivery as the turn held it: its bytes, or the address the interface takes them from. */
+export type DeliveryFile = {
+  name: string;
+  data?: Uint8Array;
+  url?: string;
+  contentType?: string;
+  voice?: { durationSecs: number; waveform: string };
+};
+
+/**
+ * A delivery as the completion records it. Its `files` with bytes are kept as `media` rows of kind `delivery` under
+ * the data directory, and the payload's `content.files` names them (deliveryFiles reads them back).
+ */
+export type DeliveryInput = {
+  key: string;
+  target: string | null;
+  payload: unknown;
+  files?: ReadonlyArray<DeliveryFile>;
+};
+
+/** A wake as the inner life queues it: its id and kind, its due time, and the rest of its fields as the payload. */
+export type WakeInput = {
+  readonly id: string;
+  readonly kind: string;
+  readonly dueAt?: number | null;
+  readonly queuedAt?: number;
+  readonly [field: string]: unknown;
+};
+
+/** A handle the functions read or write through: an open connection (node:sqlite) under `db`. */
+export type Handle = { readonly db: object };
+
+type Row = Record<string, unknown>;
+type Statement = {
+  get(...params: Array<unknown>): Row | undefined;
+  all(...params: Array<unknown>): Array<Row>;
+  run(...params: Array<unknown>): { changes: number | bigint };
+};
+type Db = { prepare(sql: string): Statement; exec(sql: string): void };
+
+// The handle's connection is node:sqlite's DatabaseSync, which `MemoryHandle.db` keeps opaque; this is the part used here.
+const dbOf = (handle: Handle): Db => handle.db as Db;
+
+/**
+ * BEGIN IMMEDIATE .. COMMIT over the handle's connection, as open.ts#inTransaction does (open.ts imports this module
+ * for the v18 step, so it is not imported back); a throw rolls back and rethrows.
+ */
+function inWrite<TResult>(handle: Handle, fn: (db: Db) => TResult): TResult {
+  const db = dbOf(handle);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = fn(db);
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+const numberOrNull = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+const textOrNull = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+
+/** A JSON column read back; an unreadable one is null. */
+function parsed(value: unknown): unknown {
+  if (typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function objectOf(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {};
+}
+
+function turnMarkOf(value: unknown): TurnMark | null {
+  const raw = parsed(value);
+  if (raw === null || typeof raw !== 'object') return null;
+  const mark = objectOf(raw);
+  return {
+    kind: textOrNull(mark.kind) ?? '',
+    placeId: textOrNull(mark.placeId),
+    dmChat: mark.dmChat === true,
+    privateAccountId: textOrNull(mark.privateAccountId),
+    ...(textOrNull(mark.iface) === null ? {} : { iface: String(mark.iface) }),
+  };
+}
+
+function stateOf(value: unknown): WakeState {
+  return WAKE_STATES.find((state) => state === value) ?? 'dropped';
+}
+
+function wakeOfRow(row: Row): StoredWake {
+  return {
+    id: String(row.id),
+    kind: String(row.kind),
+    state: stateOf(row.state),
+    dueAt: numberOrNull(row.due_at),
+    queuedAt: Number(row.queued_at),
+    payload: objectOf(parsed(row.payload)),
+    leaseHolder: textOrNull(row.lease_holder),
+    leaseToken: numberOrNull(row.lease_token),
+    leaseExpiresAt: numberOrNull(row.lease_expires_at),
+    handledAt: numberOrNull(row.handled_at),
+    outcome: textOrNull(row.outcome),
+    turnId: textOrNull(row.turn_id),
+    attempt: Number(row.attempt ?? 0),
+    claimedAt: numberOrNull(row.claimed_at),
+    turn: turnMarkOf(row.turn),
+  };
+}
+
+/** The stored wake `id`, or null. */
+export function wakeOf(handle: Handle, id: string): StoredWake | null {
+  const row = dbOf(handle).prepare('SELECT * FROM wakes WHERE id = ?').get(id);
+  return row ? wakeOfRow(row) : null;
+}
+
+/**
+ * The stored wakes in `states`, the oldest queued first; `handledSince` keeps only the handled and slept
+ * ones disposed of at or after it.
+ */
+export function listWakes(
+  handle: Handle,
+  { states, handledSince = null }: { states: ReadonlyArray<WakeState>; handledSince?: number | null }
+): Array<StoredWake> {
+  const marks = states.map(() => '?').join(', ');
+  return dbOf(handle)
+    .prepare(
+      `SELECT * FROM wakes WHERE state IN (${marks}) AND (? IS NULL OR handled_at IS NULL OR handled_at >= ?) ORDER BY queued_at, id`
+    )
+    .all(...states, handledSince, handledSince)
+    .map(wakeOfRow);
+}
+
+/** The lease `name`, or null. */
+export function leaseOf(handle: Handle, name: string): Lease | null {
+  const row = dbOf(handle).prepare('SELECT * FROM leases WHERE name = ?').get(name);
+  if (!row) return null;
+  return {
+    name: String(row.name),
+    holder: String(row.holder),
+    token: Number(row.token),
+    expiresAt: Number(row.expires_at),
+    renewedAt: Number(row.renewed_at),
+  };
+}
+
+/** What a grant answers: the new token, or why not. */
+export type Grant = { ok: true; token: number } | { ok: false; code: 'held' };
+
+/** The lease `name` granted to `holder` with a raised token (no transaction of its own). */
+function grant(db: Db, name: string, holder: string, now: number, ttlMs: number): number {
+  const before = db.prepare('SELECT token FROM leases WHERE name = ?').get(name);
+  const token = Number(before?.token ?? 0) + 1;
+  db.prepare(
+    `INSERT INTO leases (name, holder, token, expires_at, renewed_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(name) DO UPDATE SET holder = excluded.holder, token = excluded.token, expires_at = excluded.expires_at, renewed_at = excluded.renewed_at`
+  ).run(name, holder, token, now + ttlMs, now);
+  return token;
+}
+
+function leaseFree(db: Db, name: string, now: number): boolean {
+  const row = db.prepare('SELECT expires_at FROM leases WHERE name = ?').get(name);
+  return !row || Number(row.expires_at) <= now;
+}
+
+/** The lease `name` for `holder` until `now + ttlMs`, unless another grant of it has not expired. */
+export function acquireLease(
+  handle: Handle,
+  { name, holder, now, ttlMs }: { name: string; holder: string; now: number; ttlMs: number }
+): Grant {
+  return inWrite(handle, (db): Grant => {
+    if (!leaseFree(db, name, now)) return { ok: false, code: 'held' };
+    return { ok: true, token: grant(db, name, holder, now, ttlMs) };
+  });
+}
+
+/** What a fenced write answers. */
+export type Fenced = { ok: true } | { ok: false; code: 'stale-lease' };
+
+/** The lease `name` held on to `now + ttlMs` by the holder of `token`; refused once another grant raised the token. */
+export function renewLease(
+  handle: Handle,
+  { name, token, now, ttlMs }: { name: string; token: number; now: number; ttlMs: number }
+): Fenced {
+  return inWrite(handle, (db): Fenced => {
+    const changed = db
+      .prepare('UPDATE leases SET expires_at = ?, renewed_at = ? WHERE name = ? AND token = ?')
+      .run(now + ttlMs, now, name, token).changes;
+    return Number(changed) > 0 ? { ok: true } : { ok: false, code: 'stale-lease' };
+  });
+}
+
+/** The lease `name` let go by the holder of `token` (it expires now); an older token changes nothing. */
+function releaseLease(db: Db, name: string, token: number, now: number): void {
+  db.prepare('UPDATE leases SET expires_at = ? WHERE name = ? AND token = ? AND expires_at > ?').run(
+    now,
+    name,
+    token,
+    now
+  );
+}
+
+/** The `core:alive` lease renewed by `holder` until `now + ttlMs`; a new holder takes it over (one core runs). */
+function markAlive(db: Db, holder: string, now: number, ttlMs: number): void {
+  const row = db.prepare('SELECT holder FROM leases WHERE name = ?').get(ALIVE_LEASE);
+  if (row?.holder === holder) {
+    db.prepare('UPDATE leases SET expires_at = ?, renewed_at = ? WHERE name = ?').run(now + ttlMs, now, ALIVE_LEASE);
+    return;
+  }
+  grant(db, ALIVE_LEASE, holder, now, ttlMs);
+}
+
+/** What queueing answers. */
+export type Queued = { status: 'queued' | 'duplicate' };
+
+function insertWake(db: Db, wake: WakeInput, state: WakeState, now: number): boolean {
+  const changed = db
+    .prepare(
+      `INSERT OR IGNORE INTO wakes (id, kind, due_at, queued_at, payload, state, handled_at, outcome)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      wake.id,
+      wake.kind,
+      numberOrNull(wake.dueAt),
+      numberOrNull(wake.queuedAt) ?? now,
+      JSON.stringify(wake),
+      state,
+      state === 'slept' ? now : null,
+      state === 'slept' ? 'slept' : null
+    ).changes;
+  return Number(changed) > 0;
+}
+
+/** `wake` queued at `now` (its own `queuedAt` when it has one); a wake id the table holds already is a duplicate. */
+export function queueWake(handle: Handle, { wake, now }: { wake: WakeInput; now: number }): Queued {
+  return inWrite(handle, (db): Queued => ({
+    status: insertWake(db, wake, 'queued', now) ? 'queued' : 'duplicate',
+  }));
+}
+
+/** What a claim answers: the lease's token, the turn id the wake runs under and which attempt this is; or why not. */
+export type Claim =
+  | { ok: true; token: number; turnId: string | null; attempt: number }
+  | { ok: false; code: 'not-found' | 'not-queued' | 'held' };
+
+type ClaimInput = {
+  id: string;
+  holder: string;
+  now: number;
+  leaseMs: number;
+  turnId?: string | null;
+  turn?: TurnMark | null;
+};
+
+/** The claim without a transaction of its own; a wake that ran before keeps its first turn id. */
+function claimIn(db: Db, { id, holder, now, leaseMs, turnId = null, turn = null }: ClaimInput): Claim {
+  const row = db.prepare('SELECT state, turn_id, attempt FROM wakes WHERE id = ?').get(id);
+  if (!row) return { ok: false, code: 'not-found' };
+  if (row.state !== 'queued') return { ok: false, code: 'not-queued' };
+  const name = `wake:${id}`;
+  if (!leaseFree(db, name, now)) return { ok: false, code: 'held' };
+  const token = grant(db, name, holder, now, leaseMs);
+  const keptTurn = textOrNull(row.turn_id) ?? turnId;
+  const attempt = Number(row.attempt ?? 0) + 1;
+  db.prepare(
+    `UPDATE wakes SET state = 'running', lease_holder = ?, lease_token = ?, lease_expires_at = ?, turn_id = ?,
+     attempt = ?, claimed_at = ?, turn = ? WHERE id = ?`
+  ).run(holder, token, now + leaseMs, keptTurn, attempt, now, turn ? JSON.stringify(turn) : null, id);
+  return { ok: true, token, turnId: keptTurn, attempt };
+}
+
+/** Whether `token` is the one the running wake `id` and its lease hold. */
+function holds(db: Db, id: string, token: number): boolean {
+  const row = db.prepare("SELECT lease_token FROM wakes WHERE id = ? AND state = 'running'").get(id);
+  const lease = db.prepare('SELECT token FROM leases WHERE name = ?').get(`wake:${id}`);
+  return row !== undefined && Number(row.lease_token) === token && Number(lease?.token) === token;
+}
+
+type CompleteInput = {
+  id: string;
+  token: number;
+  outcome: string;
+  now: number;
+  deliveries?: ReadonlyArray<DeliveryInput>;
+  /** Where the files of the deliveries are kept (the memory service's data directory). */
+  dataDir?: string | null;
+};
+
+/** The completion without a transaction of its own (the token checked by the caller). */
+function completeIn(db: Db, { id, token, outcome, now, deliveries = [], dataDir = null }: CompleteInput): void {
+  db.prepare(
+    `UPDATE wakes SET state = 'handled', handled_at = ?, outcome = ?, lease_holder = NULL, lease_expires_at = NULL
+     WHERE id = ?`
+  ).run(now, outcome, id);
+  releaseLease(db, `wake:${id}`, token, now);
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO deliveries (key, wake_id, target, payload, state, queued_at) VALUES (?, ?, ?, ?, 'queued', ?)"
+  );
+  for (const delivery of deliveries) {
+    const payload = withFiles(delivery.payload, keepFiles(db, dataDir, delivery));
+    insert.run(delivery.key, id, delivery.target, JSON.stringify(payload ?? null), now);
+  }
+}
+
+/** A file name's form that is safe on disk. */
+const safeName = (text: string): string => text.replace(/[^A-Za-z0-9._-]/g, '_');
+
+/** Where a delivery's files are kept under the data directory, as the diary's are under `media/diary`. */
+const DELIVERY_MEDIA_DIR = path.join('media', 'deliveries');
+
+/** A delivery's file as its payload names it: a `media` row, or the address the interface takes it from. */
+type FileRef = { name: string; contentType: string | null; media?: string; url?: string; voice?: unknown };
+
+/**
+ * The files of `delivery` kept: each with bytes written atomically to `media/deliveries/<key>-<n><ext>` under `dataDir`
+ * and recorded as a `media` row (kind `delivery`, belonging to the key); one with only an address is named by it.
+ * Without a data directory a file with bytes cannot be kept and is left out.
+ */
+function keepFiles(db: Db, dataDir: string | null, delivery: DeliveryInput): Array<FileRef> {
+  const kept: Array<FileRef> = [];
+  const base = safeName(delivery.key);
+  for (const [index, file] of (delivery.files ?? []).entries()) {
+    const contentType = file.contentType ?? null;
+    if (!file.data) {
+      if (file.url) kept.push({ name: file.name, contentType, url: file.url });
+      continue;
+    }
+    if (!dataDir) continue;
+    const rel = path.join(DELIVERY_MEDIA_DIR, `${base}-${index + 1}${path.extname(safeName(file.name)) || '.bin'}`);
+    const abs = path.join(dataDir, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(`${abs}.tmp`, file.data);
+    fs.renameSync(`${abs}.tmp`, abs);
+    const media = `media:delivery:${base}-${index + 1}`;
+    // The persona's post's file before it is posted belongs to no audience yet: internal, as the engine's own rows are.
+    db.prepare("INSERT OR IGNORE INTO audiences (id, kind) VALUES (?, 'internal')").run(AUD_INTERNAL);
+    db.prepare(
+      `INSERT INTO media (id, kind, owner, path, sha1, bytes, mime, extra, scope_kind, audience_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'internal', ?)
+       ON CONFLICT(id) DO UPDATE SET path = excluded.path, sha1 = excluded.sha1, bytes = excluded.bytes,
+         mime = excluded.mime, extra = excluded.extra`
+    ).run(
+      media,
+      kindOfFile(contentType, file.voice ? { voice: true } : {}),
+      delivery.key,
+      rel.split(path.sep).join('/'),
+      createHash('sha1').update(file.data).digest('hex'),
+      file.data.byteLength,
+      contentType,
+      JSON.stringify({ name: file.name, ...(file.voice ? { voice: file.voice } : {}) }),
+      AUD_INTERNAL
+    );
+    kept.push({ name: file.name, contentType, media, ...(file.voice ? { voice: file.voice } : {}) });
+  }
+  return kept;
+}
+
+/** `payload` with its content naming `files`; as it is with none. */
+function withFiles(payload: unknown, files: ReadonlyArray<FileRef>): unknown {
+  if (files.length === 0) return payload;
+  const given = objectOf(payload);
+  return { ...given, content: { ...objectOf(given.content), files } };
+}
+
+/**
+ * The files `delivery`'s payload names, read back for its send: a kept file's bytes from `dataDir`, an address as it
+ * is. A kept file that is gone from the disk is left out.
+ */
+export function deliveryFiles(handle: Handle, dataDir: string, delivery: Delivery): Array<DeliveryFile> {
+  const refs = objectOf(objectOf(delivery.payload).content).files;
+  const out: Array<DeliveryFile> = [];
+  for (const entry of Array.isArray(refs) ? refs : []) {
+    const ref = objectOf(entry);
+    const name = textOrNull(ref.name) ?? 'file';
+    const contentType = textOrNull(ref.contentType);
+    const extra = {
+      ...(contentType ? { contentType } : {}),
+      ...(isVoice(ref.voice) ? { voice: ref.voice } : {}),
+    };
+    if (typeof ref.url === 'string') {
+      out.push({ name, url: ref.url, ...extra });
+      continue;
+    }
+    const row = dbOf(handle).prepare('SELECT path FROM media WHERE id = ?').get(ref.media);
+    const file = typeof row?.path === 'string' ? path.join(dataDir, row.path) : null;
+    if (file && fs.existsSync(file)) out.push({ name, data: fs.readFileSync(file), ...extra });
+  }
+  return out;
+}
+
+function isVoice(value: unknown): value is { durationSecs: number; waveform: string } {
+  const voice = objectOf(value);
+  return typeof voice.durationSecs === 'number' && typeof voice.waveform === 'string';
+}
+
+/** Running wake `id` back to `queued` by the holder of `token`, with its fields as the turn left them: its next turn is a new one. */
+function releaseIn(
+  db: Db,
+  { id, token, now, payload }: { id: string; token: number; now: number; payload: WakeInput }
+): void {
+  db.prepare(
+    `UPDATE wakes SET state = 'queued', lease_holder = NULL, lease_expires_at = NULL, turn_id = NULL, turn = NULL,
+     attempt = 0, payload = ?, due_at = ? WHERE id = ?`
+  ).run(JSON.stringify(payload), numberOrNull(payload.dueAt), id);
+  releaseLease(db, `wake:${id}`, token, now);
+}
+
+function deliveryOfRow(row: Row): Delivery {
+  return {
+    key: String(row.key),
+    wakeId: String(row.wake_id),
+    target: textOrNull(row.target),
+    payload: parsed(row.payload),
+    state: DELIVERY_STATES.find((state) => state === row.state) ?? 'unknown',
+    queuedAt: Number(row.queued_at),
+    sentAt: numberOrNull(row.sent_at),
+    receipt: parsed(row.receipt),
+  };
+}
+
+/** The deliveries in `state`, in the order they were recorded. */
+export function deliveriesIn(handle: Handle, state: DeliveryState): Array<Delivery> {
+  return dbOf(handle)
+    .prepare('SELECT * FROM deliveries WHERE state = ? ORDER BY queued_at, rowid')
+    .all(state)
+    .map(deliveryOfRow);
+}
+
+/** The delivery `key`, or null. */
+export function deliveryOf(handle: Handle, key: string): Delivery | null {
+  const row = dbOf(handle).prepare('SELECT * FROM deliveries WHERE key = ?').get(key);
+  return row ? deliveryOfRow(row) : null;
+}
+
+/** One step of a delivery's send: from one of `from` to `to` at `now`, with what the send answered. */
+export type DeliveryMove = {
+  key: string;
+  from: ReadonlyArray<DeliveryState>;
+  to: DeliveryState;
+  now: number;
+  receipt: unknown;
+};
+
+/** Delivery `key` moved to `to` when it is in one of `from`; whether it moved. `sent_at` is stamped once it is sent. */
+export function moveDelivery(handle: Handle, { key, from, to, now, receipt }: DeliveryMove): boolean {
+  return inWrite(handle, (db) => {
+    const marks = from.map(() => '?').join(', ');
+    const changed = db
+      .prepare(
+        `UPDATE deliveries SET state = ?, sent_at = CASE WHEN ? = 'sent' THEN ? ELSE sent_at END,
+         receipt = COALESCE(?, receipt) WHERE key = ? AND state IN (${marks})`
+      )
+      .run(
+        to,
+        to,
+        now,
+        receipt === null || receipt === undefined ? null : JSON.stringify(receipt),
+        key,
+        ...from
+      ).changes;
+    return Number(changed) > 0;
+  });
+}
+
+/** Wake `id` (queued, or running under a lease that expired) made `slept` at `now`. */
+function sleepIn(db: Db, id: string, now: number): boolean {
+  const changed = db
+    .prepare(
+      `UPDATE wakes SET state = 'slept', handled_at = ?, outcome = 'slept', lease_holder = NULL, lease_expires_at = NULL
+       WHERE id = ? AND (state = 'queued' OR state = 'running')`
+    )
+    .run(now, id).changes;
+  return Number(changed) > 0;
+}
+
+/** Old queued and running actions become terminal at startup, retaining their turn and fencing old holders. */
+export function recoverWakes(
+  handle: Handle,
+  { now, ids }: { now: number; ids?: ReadonlyArray<string> }
+): { interrupted: number; slept: number } {
+  return inWrite(handle, (db) => {
+    if (ids?.length === 0) return { interrupted: 0, slept: 0 };
+    const selected = ids ? ` AND id IN (${ids.map(() => '?').join(',')})` : '';
+    const rows = db.prepare(`SELECT id FROM wakes WHERE state IN ('queued', 'running')${selected}`).all(...(ids ?? []));
+    for (const row of rows) {
+      db.prepare('UPDATE leases SET token = token + 1, expires_at = ? WHERE name = ?').run(
+        now,
+        `wake:${String(row.id)}`
+      );
+    }
+    const changed = db
+      .prepare(
+        `UPDATE wakes SET state = 'handled', handled_at = ?, outcome = 'interrupted',
+       lease_holder = NULL, lease_expires_at = NULL WHERE state IN ('queued', 'running')${selected}`
+      )
+      .run(now, ...(ids ?? [])).changes;
+    return { interrupted: Number(changed), slept: 0 };
+  });
+}
+
+/**
+ * The handled and slept wakes disposed of before `before` deleted, with their deliveries whose send is over (`sent`,
+ * `unknown`, `failed`) and those deliveries' files; a wake with a delivery still queued or sending stays. How many
+ * wakes went.
+ */
+function pruneIn(db: Db, before: number, dataDir: string | null): number {
+  const done = `SELECT key FROM deliveries WHERE state IN ('sent', 'unknown', 'failed') AND wake_id IN
+     (SELECT id FROM wakes WHERE state IN ('handled', 'slept') AND handled_at < ?)`;
+  // The files of the deliveries that go, and their media rows.
+  for (const row of db
+    .prepare(`SELECT path FROM media WHERE id LIKE 'media:delivery:%' AND owner IN (${done})`)
+    .all(before))
+    if (dataDir && typeof row.path === 'string') fs.rmSync(path.join(dataDir, row.path), { force: true });
+  db.prepare(`DELETE FROM media WHERE id LIKE 'media:delivery:%' AND owner IN (${done})`).run(before);
+  db.prepare(`DELETE FROM deliveries WHERE key IN (${done})`).run(before);
+  const changed = db
+    .prepare(
+      `DELETE FROM wakes WHERE state IN ('handled', 'slept') AND handled_at < ?
+       AND id NOT IN (SELECT wake_id FROM deliveries)`
+    )
+    .run(before).changes;
+  return Number(changed);
+}
+
+/** One write of the inner life's wake queue (src/behavior/inner/wake-queue.ts) through the service's writer. */
+export type WakeQueueUpdate =
+  | { kind: 'wake-queue'; op: 'queue'; wake: WakeInput; now: number }
+  | { kind: 'wake-queue'; op: 'payload'; id: string; wake: WakeInput }
+  | { kind: 'wake-queue'; op: 'handle'; id: string; outcome: string; now: number }
+  | { kind: 'wake-queue'; op: 'remove'; id: string }
+  | { kind: 'wake-queue'; op: 'sleep'; wake: WakeInput; now: number }
+  | {
+      kind: 'wake-queue';
+      op: 'claim-group';
+      ids: ReadonlyArray<string>;
+      holder: string;
+      now: number;
+      leaseMs: number;
+      turnId: string;
+      turn: TurnMark;
+    }
+  | {
+      kind: 'wake-queue';
+      op: 'finish-group';
+      now: number;
+      done: ReadonlyArray<{ id: string; token: number; outcome: string; deliveries: ReadonlyArray<DeliveryInput> }>;
+      back: ReadonlyArray<{ id: string; token: number; wake: WakeInput }>;
+      /** Where the files of the deliveries are kept (the service stamps its own data directory on every write). */
+      dataDir?: string | null;
+    }
+  | {
+      kind: 'wake-queue';
+      op: 'renew';
+      claims: ReadonlyArray<{ id: string; token: number }>;
+      now: number;
+      leaseMs: number;
+    }
+  | { kind: 'wake-queue'; op: 'recover'; now: number; ids?: ReadonlyArray<string> }
+  | { kind: 'wake-queue'; op: 'prune'; before: number; dataDir?: string | null }
+  | { kind: 'wake-queue'; op: 'alive'; holder: string; now: number; ttlMs: number }
+  | { kind: 'wake-queue'; op: 'lease-acquire'; name: string; holder: string; now: number; ttlMs: number }
+  | { kind: 'wake-queue'; op: 'lease-renew'; name: string; token: number; now: number; ttlMs: number }
+  | { kind: 'wake-queue'; op: 'lease-release'; name: string; token: number; now: number }
+  | ({ kind: 'wake-queue'; op: 'delivery' } & DeliveryMove);
+
+/** What a group claim answers: every wake's token and the turn they run under, or the first refusal. */
+export type GroupClaim =
+  | { ok: true; tokens: Record<string, number>; turnId: string; attempt: number }
+  | { ok: false; code: string; id: string };
+
+/** The wakes of one turn claimed together: all of them, or none (the transaction rolls back on a refusal). */
+function claimGroup(handle: Handle, update: Extract<WakeQueueUpdate, { op: 'claim-group' }>): GroupClaim {
+  const refused = new Error('claim refused');
+  let refusal: GroupClaim = { ok: false, code: 'not-found', id: '' };
+  try {
+    return inWrite(handle, (db): GroupClaim => {
+      const kept = update.ids
+        .map((id) => textOrNull(db.prepare('SELECT turn_id FROM wakes WHERE id = ?').get(id)?.turn_id))
+        .find((turnId) => turnId !== null);
+      const turnId = kept ?? update.turnId;
+      const tokens: Record<string, number> = {};
+      let attempt = 1;
+      for (const id of update.ids) {
+        const claim = claimIn(db, { ...update, id, turnId, turn: update.turn });
+        if (!claim.ok) {
+          refusal = { ok: false, code: claim.code, id };
+          throw refused;
+        }
+        db.prepare('UPDATE wakes SET turn_id = ? WHERE id = ?').run(turnId, id);
+        tokens[id] = claim.token;
+        attempt = Math.max(attempt, claim.attempt);
+      }
+      return { ok: true, tokens, turnId, attempt };
+    });
+  } catch (error) {
+    if (error === refused) return refusal;
+    throw error;
+  }
+}
+
+/** The end of one turn's claim: its handled wakes completed and the rest released, all or nothing by their tokens. */
+function finishGroup(handle: Handle, update: Extract<WakeQueueUpdate, { op: 'finish-group' }>): Fenced {
+  return inWrite(handle, (db): Fenced => {
+    if (![...update.done, ...update.back].every((item) => holds(db, item.id, item.token)))
+      return { ok: false, code: 'stale-lease' };
+    for (const item of update.done) completeIn(db, { ...item, now: update.now, dataDir: update.dataDir ?? null });
+    for (const item of update.back)
+      releaseIn(db, { id: item.id, token: item.token, now: update.now, payload: item.wake });
+    return { ok: true };
+  });
+}
+
+/** The running wakes of one holder kept on to `now + leaseMs`; a claim whose token was raised is left alone. */
+function renewClaims(handle: Handle, update: Extract<WakeQueueUpdate, { op: 'renew' }>): number {
+  return inWrite(handle, (db) => {
+    let renewed = 0;
+    for (const { id, token } of update.claims) {
+      if (!holds(db, id, token)) continue;
+      db.prepare('UPDATE wakes SET lease_expires_at = ? WHERE id = ?').run(update.now + update.leaseMs, id);
+      db.prepare('UPDATE leases SET expires_at = ?, renewed_at = ? WHERE name = ?').run(
+        update.now + update.leaseMs,
+        update.now,
+        `wake:${id}`
+      );
+      renewed += 1;
+    }
+    return renewed;
+  });
+}
+
+/** The ops of the inner life's writes. */
+const WAKE_QUEUE_OPS: ReadonlySet<unknown> = new Set([
+  'queue',
+  'payload',
+  'handle',
+  'remove',
+  'sleep',
+  'claim-group',
+  'finish-group',
+  'renew',
+  'recover',
+  'prune',
+  'alive',
+  'lease-acquire',
+  'lease-renew',
+  'lease-release',
+  'delivery',
+]);
+
+const isWakeQueueUpdate = (value: unknown): value is WakeQueueUpdate =>
+  value !== null &&
+  typeof value === 'object' &&
+  Reflect.get(value, 'kind') === 'wake-queue' &&
+  WAKE_QUEUE_OPS.has(Reflect.get(value, 'op'));
+
+/**
+ * One write of the inner life, applied on the writer connection (session-write.ts#applyMemoryWrite routes it here, and
+ * the in-memory queue of src/behavior/inner/wake-queue.ts calls it directly). Refuses a closed handle and an op outside the union; the
+ * fields of a known op are the ones src/behavior/inner/wake-queue.ts wrote.
+ */
+export function applyWakeQueueWrite(handle: unknown, update: unknown): unknown {
+  const db: unknown = handle !== null && typeof handle === 'object' ? Reflect.get(handle, 'db') : null;
+  if (db === null || typeof db !== 'object')
+    throw Object.assign(new Error('the memory database is not open'), { code: 'DB_CLOSED' });
+  if (!isWakeQueueUpdate(update))
+    throw Object.assign(new Error('a wake queue write needs a known op; see WakeQueueUpdate'), { code: 'BAD_UPDATE' });
+  return applyTyped({ db }, update);
+}
+
+function applyTyped(handle: Handle, update: WakeQueueUpdate): unknown {
+  switch (update.op) {
+    case 'queue':
+      return queueWake(handle, update);
+    case 'payload':
+      return inWrite(handle, (db) =>
+        db
+          .prepare("UPDATE wakes SET payload = ?, due_at = ? WHERE id = ? AND state = 'queued'")
+          .run(JSON.stringify(update.wake), numberOrNull(update.wake.dueAt), update.id)
+      ).changes;
+    case 'handle':
+      return inWrite(handle, (db) =>
+        db
+          .prepare("UPDATE wakes SET state = 'handled', handled_at = ?, outcome = ? WHERE id = ? AND state = 'queued'")
+          .run(update.now, update.outcome, update.id)
+      ).changes;
+    case 'remove':
+      return inWrite(handle, (db) => db.prepare("DELETE FROM wakes WHERE id = ? AND state = 'queued'").run(update.id))
+        .changes;
+    case 'sleep':
+      return inWrite(
+        handle,
+        (db) => insertWake(db, update.wake, 'slept', update.now) || sleepIn(db, update.wake.id, update.now)
+      );
+    case 'claim-group':
+      return claimGroup(handle, update);
+    case 'finish-group':
+      return finishGroup(handle, update);
+    case 'renew':
+      return renewClaims(handle, update);
+    case 'recover':
+      return recoverWakes(handle, update);
+    case 'prune':
+      return inWrite(handle, (db) => pruneIn(db, update.before, update.dataDir ?? null));
+    case 'alive':
+      return inWrite(handle, (db) => markAlive(db, update.holder, update.now, update.ttlMs));
+    case 'lease-acquire':
+      return acquireLease(handle, update);
+    case 'lease-renew':
+      return renewLease(handle, update);
+    case 'lease-release':
+      return inWrite(handle, (db) => releaseLease(db, update.name, update.token, update.now));
+    case 'delivery':
+      return moveDelivery(handle, update);
+  }
+}

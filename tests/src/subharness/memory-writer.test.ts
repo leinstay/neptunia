@@ -1,0 +1,1011 @@
+// The memory writer through a subharness (src/subharness/memory-writer.ts): the sweep's
+// request goes to claude or codex as one run with no tools, the system text replacing the backend's own, the user
+// content on stdin, the answer read by the same parser; a failed run is a failed request to the sweep; the usage store
+// counts a subharness run at cost 0. The child runner is a recorder that answers from a script, so nothing spawns; the
+// database is in memory, the binaries are empty executable files in a temp private layer.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import * as memoryWriter from '../../../src/subharness/memory-writer.ts';
+import { MEMORY_ANSWER_SCHEMA, memoryWriterClient, runMemoryWriter } from '../../../src/subharness/memory-writer.ts';
+import type { ChildOutcome, ChildRun, MemoryWriterDeps } from '../../../src/subharness/memory-writer.ts';
+import { memoryPath } from '../../../src/subharness/memory-path.ts';
+import type { SubharnessMemoryPath } from '../../../src/subharness/memory-path.ts';
+import { subharnessPlace } from '../../../src/subharness/place.ts';
+import { runChildProcess } from '../../../src/agent-runner/backend.ts';
+import { SESSION_PURPOSE, sweep } from '../../../src/memory/db/session.ts';
+import { askMemoryModel, reviewDescription } from '../../../src/memory/db/describe.ts';
+import { createUsage } from '../../../src/tools/operations/usage.ts';
+import type { UsageEntry } from '../../../src/tools/operations/usage.ts';
+import {
+  ADA,
+  baseConfig,
+  chat,
+  ctxOf,
+  fakeLlm,
+  fixture,
+  memoryBlock,
+  personOf,
+  prompts,
+} from '../../fixtures/memory-db/session-rig.ts';
+import type { LlmCall } from '../../fixtures/memory-db/session-shapes.ts';
+import { writeKeysFile } from '../../fixtures/keys-file.ts';
+import type { KeysFile } from '../../fixtures/keys-file.ts';
+import { tempDir } from '../../fixtures/tmp.ts';
+
+const CLAUDE: SubharnessMemoryPath = { kind: 'subharness', backend: 'claude', model: 'claude-opus-4-6', effort: null };
+const CODEX: SubharnessMemoryPath = { kind: 'subharness', backend: 'codex', model: 'gpt-6.1-sol', effort: 'high' };
+const ANSWER = memoryBlock({ claims: [] });
+
+/** What claude -p --output-format json prints for `result`. */
+const claudeEnvelope = (result: string, usage: Record<string, number> = {}): string =>
+  JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result, usage });
+
+type Seen = ChildRun & { schema: unknown };
+
+/**
+ * A private layer with `backends` connected and their binaries in place, and a child runner that records each run and
+ * answers with `answer(run)`. For codex it writes the final message to the file after `-o`, as the CLI does.
+ */
+function rig(
+  answer: (run: ChildRun) => ChildOutcome & { final?: string },
+  options: {
+    backends?: Array<'codex' | 'claude'>;
+    installed?: boolean;
+    subharness?: Partial<KeysFile['subharness']>;
+  } = {}
+) {
+  const privateDir = tempDir('nep-memory-writer-');
+  const backends = options.backends ?? ['codex', 'claude'];
+  writeKeysFile(privateDir, {
+    subharness: { backends, key: null, modes: {}, models: {}, uses: {}, ...options.subharness },
+  });
+  if (options.installed !== false) {
+    for (const name of ['codex', 'claude'] as const) {
+      const { binary } = subharnessPlace(privateDir, name);
+      fs.mkdirSync(path.dirname(binary), { recursive: true });
+      fs.writeFileSync(binary, '#!/bin/sh\nexit 9\n', { mode: 0o755 });
+    }
+  }
+  const seen: Array<Seen> = [];
+  const runChild = (run: ChildRun): Promise<ChildOutcome> => {
+    const at = run.args.indexOf('--output-schema');
+    const schema: unknown = at === -1 ? null : JSON.parse(fs.readFileSync(run.args[at + 1], 'utf8'));
+    seen.push({ ...run, schema });
+    const { final, ...outcome } = answer(run);
+    const out = run.args.indexOf('-o');
+    if (out !== -1 && final !== undefined) fs.writeFileSync(run.args[out + 1], final);
+    return Promise.resolve(outcome);
+  };
+  const workDir = tempDir('nep-memory-work-');
+  const deps: MemoryWriterDeps = { privateDir, runChild, workDir };
+  return { privateDir, deps, seen };
+}
+
+const claudeAnswers =
+  (result: string, usage: Record<string, number> = {}) =>
+  (): ChildOutcome => ({ exitCode: 0, stdout: claudeEnvelope(result, usage), stderr: '' });
+
+const codexAnswers =
+  (final: string, stderr = '') =>
+  (): ChildOutcome & { final: string } => ({ exitCode: 0, stdout: '', stderr, final });
+
+const INPUT = { system: 'SYSTEM TEXT of the session', user: 'USER LINES of the batch', timeoutMs: 120_000 };
+
+/** The flag's value in an argv. */
+const after = (args: ReadonlyArray<string>, flag: string): string | undefined => {
+  const at = args.indexOf(flag);
+  return at === -1 ? undefined : args[at + 1];
+};
+
+/** A session client over the rig, with the sweep's fake llm as the direct path. */
+function clientOf(
+  deps: MemoryWriterDeps,
+  extra: {
+    record?: (entry: UsageEntry) => void;
+    onRefused?: () => void;
+    ran?: (backend: string, outcome: string) => void;
+    direct?: ReturnType<typeof fakeLlm>;
+  } = {}
+) {
+  const direct = extra.direct ?? fakeLlm(ANSWER);
+  const client = memoryWriterClient({
+    writer: deps,
+    direct,
+    ...(extra.record === undefined ? {} : { record: extra.record }),
+    ...(extra.onRefused === undefined ? {} : { onRefused: extra.onRefused }),
+    ...(extra.ran === undefined ? {} : { ran: extra.ran }),
+  });
+  // The sweep's rig types its llm with the calls it recorded; this one records none of its own.
+  const llm = {
+    calls: [] as Array<LlmCall>,
+    complete: (messages: LlmCall['messages'], options: LlmCall['options']) => client.complete(messages, options),
+  };
+  return { llm, direct };
+}
+
+// the run on claude
+
+test('claude runs with the system text replacing its own prompt, no tools, every message streamed and the model', async () => {
+  // Catches: the writer run with claude's own system prompt and tools, so it answers as a coding agent, not as the persona.
+  // The format is stream-json with --verbose, not json: json prints only the last message as `result`, and a run
+  // the CLI resumed after an output cut lost the answer's head (session-bugs row 32).
+  const { deps, seen } = rig(claudeAnswers(ANSWER));
+  await runMemoryWriter(CLAUDE, INPUT, deps);
+  const { args } = seen[0];
+  assert.equal(args[0], '-p');
+  assert.equal(after(args, '--system-prompt'), INPUT.system);
+  assert.equal(after(args, '--tools'), '');
+  assert.equal(after(args, '--output-format'), 'stream-json');
+  assert.ok(args.includes('--verbose'));
+  assert.equal(after(args, '--model'), 'claude-opus-4-6');
+});
+
+test('claude gets the user content on stdin and the system text nowhere else', async () => {
+  // Catches: system and user both on stdin, so the system text reaches the model twice and the cache never holds.
+  const { deps, seen } = rig(claudeAnswers(ANSWER));
+  await runMemoryWriter(CLAUDE, INPUT, deps);
+  assert.equal(seen[0].stdin, INPUT.user);
+});
+
+test('claude gets --effort only when the path has an effort', async () => {
+  // Catches: "--effort null" on a path stored without one, or the stored effort never reaching the CLI.
+  const withEffort = rig(claudeAnswers(ANSWER));
+  await runMemoryWriter({ ...CLAUDE, effort: 'low' }, INPUT, withEffort.deps);
+  const [effortRun] = withEffort.seen;
+  assert.equal(after(effortRun.args, '--effort'), 'low');
+  const without = rig(claudeAnswers(ANSWER));
+  await runMemoryWriter(CLAUDE, INPUT, without.deps);
+  const [plainRun] = without.seen;
+  assert.equal(plainRun.args.includes('--effort'), false);
+});
+
+/** One request of the memory role through the client, on the harness route the chain client chose. */
+async function throughChain(deps: MemoryWriterDeps, route: Record<string, unknown>, maxOutputTokens: number) {
+  const client = memoryWriterClient({ writer: deps, direct: fakeLlm(ANSWER) });
+  const messages = [
+    { role: 'system', content: INPUT.system },
+    { role: 'user', content: INPUT.user },
+  ];
+  await client.complete(messages, { chainRoute: { via: 'harness', ...route }, maxOutputTokens, timeoutMs: 120_000 });
+}
+
+test('claude thinks at the effort the route asks for, on a budget at most half the output cap', async () => {
+  // Catches: a memory role at `medium` run with its thinking off, or thinking left unbounded so it fills the cap and
+  // the answer is cut as `output-truncated`.
+  for (const [effort, cap] of [
+    ['medium', 10_000],
+    ['high', 6000],
+  ] as const) {
+    const { deps, seen } = rig(claudeAnswers(ANSWER));
+    await throughChain(deps, { backend: 'claude', model: 'm', effort, isThinking: true }, cap);
+    const [{ args, env }] = seen;
+    const budget = Number(env.MAX_THINKING_TOKENS);
+    assert.equal(after(args, '--effort'), effort);
+    assert.ok(budget > 0 && budget <= cap / 2, `${effort}: budget ${budget} under cap ${cap}`);
+  }
+});
+
+test('claude runs with no native thinking when the route effort is disabled', async () => {
+  // The route carries no effort for `disabled` on claude: `disabled` means no native reasoning, claude turns that off
+  // with MAX_THINKING_TOKENS=0, and `--effort low` is a second switch that shortens everything the model writes.
+  // Catches: `disabled` taken as a request to think at low, or run with `--effort low` on top of the zero budget.
+  const { deps, seen } = rig(claudeAnswers(ANSWER));
+  await throughChain(deps, { backend: 'claude', model: 'm', effort: null, isThinking: false }, 10_000);
+  const [{ env, args }] = seen;
+  assert.equal(env.MAX_THINKING_TOKENS, '0');
+  assert.equal(args.includes('--effort'), false);
+});
+
+test('claude keeps its own thinking default when the route names no effort', async () => {
+  // Catches: a blanket switch that turns a helper's thinking off although its route asked for nothing.
+  const { deps, seen } = rig(claudeAnswers(ANSWER));
+  await throughChain(deps, { backend: 'claude', model: 'm', effort: null }, 10_000);
+  const [{ env }] = seen;
+  assert.equal('MAX_THINKING_TOKENS' in env, false);
+});
+
+test("claude runs the persona's own binary with its own home and no key of the core in its environment", async () => {
+  // Catches: the writer run on the installing user's claude, or the child handed the core's OpenRouter key.
+  const before = process.env.OPENROUTER_CORE_KEY;
+  process.env.OPENROUTER_CORE_KEY = 'sk-or-v1-SECRETVALUE-0001-WXYZ';
+  try {
+    const { deps, seen, privateDir } = rig(claudeAnswers(ANSWER));
+    await runMemoryWriter(CLAUDE, INPUT, deps);
+    const place = subharnessPlace(privateDir, 'claude');
+    assert.equal(seen[0].binary, place.binary);
+    const runEnv = seen[0].env;
+    assert.equal(runEnv.CLAUDE_CONFIG_DIR, place.env.CLAUDE_CONFIG_DIR);
+    assert.ok(!Object.values(seen[0].env).includes('sk-or-v1-SECRETVALUE-0001-WXYZ'));
+  } finally {
+    if (before === undefined) delete process.env.OPENROUTER_CORE_KEY;
+    else process.env.OPENROUTER_CORE_KEY = before;
+  }
+});
+
+test('claude answers with the result of its envelope and the tokens it reports', async () => {
+  // Catches: the whole JSON envelope handed to the parser, which finds no <memory> block, or the cache tokens dropped.
+  const usage = { input_tokens: 12, cache_creation_input_tokens: 100, cache_read_input_tokens: 900, output_tokens: 50 };
+  const { deps } = rig(claudeAnswers(ANSWER, usage));
+  const completion = await runMemoryWriter(CLAUDE, INPUT, deps);
+  assert.equal(completion.text, ANSWER);
+  assert.equal(completion.usage?.prompt_tokens, 1012);
+  const promptDetails = completion.usage?.prompt_tokens_details;
+  assert.equal(promptDetails?.cached_tokens, 900);
+  assert.equal(completion.usage?.completion_tokens, 50);
+});
+
+/** The lines claude -p --output-format stream-json --verbose prints for one message's content block. */
+const assistantLine = (id: string, block: Record<string, unknown>, stop: string): string =>
+  JSON.stringify({ type: 'assistant', message: { id, role: 'assistant', content: [block], stop_reason: stop } });
+
+test('claude resumed after an output cut answers with the text of every message, not only the last', async () => {
+  // Catches: the answer read from `result`, which holds only the message after the CLI's resume, so the head of the
+  // memory block is lost and the session fails no_block. The lines follow the transcript of such a run: thinking and text blocks of a message cut at max_tokens, the CLI's resume prompt, and
+  // a second message that ends the block.
+  const head = ANSWER.slice(0, Math.floor(ANSWER.length / 2));
+  const tail = ANSWER.slice(head.length);
+  const stdout = [
+    JSON.stringify({ type: 'system', subtype: 'init', model: 'claude-opus-4-6' }),
+    assistantLine('msg_1', { type: 'thinking', thinking: '' }, 'max_tokens'),
+    assistantLine('msg_1', { type: 'text', text: head }, 'max_tokens'),
+    JSON.stringify({ type: 'user', message: { role: 'user', content: 'Output token limit hit. Resume directly.' } }),
+    assistantLine('msg_2', { type: 'text', text: tail }, 'end_turn'),
+    JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      stop_reason: 'end_turn',
+      result: tail,
+      usage: {
+        input_tokens: 6,
+        cache_read_input_tokens: 68553,
+        cache_creation_input_tokens: 54204,
+        output_tokens: 8071,
+      },
+    }),
+  ].join('\n');
+  const { deps } = rig(() => ({ exitCode: 0, stdout, stderr: '' }));
+  const completion = await runMemoryWriter(CLAUDE, INPUT, deps);
+  assert.equal(completion.text, ANSWER);
+});
+
+test('claude reporting no usage answers zero tokens', async () => {
+  // Catches: NaN or undefined counts from an envelope without usage, which the usage store then sums as garbage.
+  const { deps } = rig(() => ({ exitCode: 0, stdout: JSON.stringify({ type: 'result', result: ANSWER }), stderr: '' }));
+  const completion = await runMemoryWriter(CLAUDE, INPUT, deps);
+  assert.equal(completion.usage?.prompt_tokens, 0);
+  assert.equal(completion.usage?.completion_tokens, 0);
+});
+
+test('a claude envelope marked as an error is a refused run', async () => {
+  // Catches: claude's own error text ("credit balance too low") parsed as the persona's answer and written as bad_answer.
+  const { deps } = rig(() => ({
+    exitCode: 0,
+    stdout: JSON.stringify({ type: 'result', is_error: true, result: 'limit reached' }),
+    stderr: '',
+  }));
+  await assert.rejects(runMemoryWriter(CLAUDE, INPUT, deps), { code: 'backend-error' });
+});
+
+// the run on codex
+
+test('codex runs read-only with the answer schema, the final-message file, the model and the effort', async () => {
+  // Catches: the writer run in the agents' sudo mode, or without the schema, so codex answers in free prose.
+  const { deps, seen } = rig(codexAnswers(JSON.stringify({ answer: ANSWER })));
+  await runMemoryWriter(CODEX, INPUT, deps);
+  const { args, schema } = seen[0];
+  assert.equal(args[0], 'exec');
+  assert.equal(after(args, '-s'), 'read-only');
+  assert.equal(args.includes('--dangerously-bypass-approvals-and-sandbox'), false);
+  assert.deepEqual(schema, MEMORY_ANSWER_SCHEMA);
+  assert.ok(after(args, '-o'));
+  assert.equal(after(args, '-m'), 'gpt-6.1-sol');
+  assert.equal(after(args, '-c'), 'model_reasoning_effort=high');
+});
+
+test('codex gets the system text first and the user content after it on stdin', async () => {
+  // Catches: the system text dropped on codex, which has no flag for it, so the writer forgets who the persona is.
+  const { deps, seen } = rig(codexAnswers(JSON.stringify({ answer: ANSWER })));
+  await runMemoryWriter(CODEX, INPUT, deps);
+  const { stdin } = seen[0];
+  assert.ok(stdin.startsWith(INPUT.system), stdin);
+  assert.ok(stdin.endsWith(INPUT.user), stdin);
+});
+
+test('codex answers with the answer field of its final message and the tokens it printed', async () => {
+  // Catches: the schema's JSON wrapper handed to the parser, or the codex token count lost.
+  const { deps } = rig(codexAnswers(JSON.stringify({ answer: ANSWER }), 'tokens used\n17,065\n'));
+  const completion = await runMemoryWriter(CODEX, INPUT, deps);
+  assert.equal(completion.text, ANSWER);
+  // Codex prints one total, which is not the writer's output, so it stays apart from the completion count.
+  assert.equal(completion.usage?.completion_tokens, 0);
+  assert.equal(completion.usage?.total_tokens, 17065);
+  assert.equal(completion.usage?.prompt_tokens, 0);
+});
+
+test('the run waits as long as the sweep allows a request', async () => {
+  // Catches: a fixed or missing timeout, so a hung CLI holds the writer and every sweep after it.
+  const { deps, seen } = rig(claudeAnswers(ANSWER));
+  await runMemoryWriter(CLAUDE, { ...INPUT, timeoutMs: 123_456 }, deps);
+  assert.equal(seen[0].timeoutMs, 123_456);
+});
+
+// refused runs
+
+test('a backend that is not installed is refused not-installed and nothing runs', async () => {
+  // Catches: a spawn of a binary that is not there, reported as a vague spawn error.
+  const { deps, seen } = rig(claudeAnswers(ANSWER), { installed: false });
+  await assert.rejects(runMemoryWriter(CLAUDE, INPUT, deps), { code: 'not-installed' });
+  assert.equal(seen.length, 0);
+});
+
+test('a run that exits non-zero is refused with its exit code', async () => {
+  // Catches: the stdout of a crashed run (a login prompt, a usage text) taken as the persona's answer.
+  const { deps } = rig(() => ({ exitCode: 1, stdout: 'Please log in', stderr: '' }));
+  await assert.rejects(runMemoryWriter(CLAUDE, INPUT, deps), { code: 'exit-1' });
+});
+
+test('a claude run that asks for a login is refused not-logged-in, whatever its exit code', async () => {
+  // Catches: a dropped login filed as exit-1 or backend-error, so the header cannot tell it from a crash.
+  const envelope = JSON.stringify({ type: 'result', is_error: true, result: 'Invalid API key · Please run /login' });
+  const exited = rig(() => ({ exitCode: 1, stdout: envelope, stderr: '' }));
+  await assert.rejects(runMemoryWriter(CLAUDE, INPUT, exited.deps), { code: 'not-logged-in' });
+  const answered = rig(() => ({ exitCode: 0, stdout: envelope, stderr: '' }));
+  await assert.rejects(runMemoryWriter(CLAUDE, INPUT, answered.deps), { code: 'not-logged-in' });
+});
+
+test('a run stopped by its timeout is refused timeout', async () => {
+  // Catches: a killed run read as an empty answer, so the probe never learns the subscription stopped answering.
+  const { deps } = rig(() => ({ exitCode: null, stdout: '', stderr: '', error: 'timeout' }));
+  await assert.rejects(runMemoryWriter(CODEX, INPUT, deps), { code: 'timeout' });
+});
+
+// through the sweep
+
+test('a sweep on the subharness path writes the answer as a direct sweep does', async () => {
+  // Catches: the subharness answer read by another parser than parseSessionAnswer, or not written at all.
+  const env = fixture();
+  try {
+    chat(env);
+    const { deps, privateDir } = rig(claudeAnswers(ANSWER, { input_tokens: 700, output_tokens: 40 }));
+    writeKeysFile(privateDir, {
+      subharness: {
+        backends: ['claude'],
+        key: null,
+        modes: {},
+        memory: { backend: 'claude', model: 'claude-opus-4-6', effort: null },
+      },
+    });
+    const { llm, direct } = clientOf(deps);
+    const result = await sweep(ctxOf(env, { llm }));
+    const [firstRun] = result.runs;
+    assert.equal(firstRun?.outcome, 'ok');
+    assert.equal(direct.calls.length, 0);
+    const run = env.db.prepare('SELECT outcome, tokens_prompt, tokens_completion FROM session_runs').get();
+    assert.equal(run?.outcome, 'ok');
+    assert.equal(run?.tokens_prompt, 700);
+    assert.equal(run?.tokens_completion, 40);
+  } finally {
+    env.done();
+  }
+});
+
+test('a sweep whose subharness run fails records llm_error with the code and leaves the lines', async () => {
+  // Catches: a failed CLI run written as an empty answer, which moves the cursor past lines the persona never read.
+  const env = fixture();
+  try {
+    chat(env);
+    const { deps, privateDir } = rig(() => ({ exitCode: 1, stdout: '', stderr: '' }));
+    writeKeysFile(privateDir, {
+      subharness: {
+        backends: ['claude'],
+        key: null,
+        modes: {},
+        memory: { backend: 'claude', model: 'claude-opus-4-6', effort: null },
+      },
+    });
+    const { llm } = clientOf(deps);
+    const result = await sweep(ctxOf(env, { llm }));
+    const [firstRun] = result.runs;
+    assert.equal(firstRun?.outcome, 'llm_error');
+    const run = env.db.prepare('SELECT errors FROM session_runs').get();
+    assert.deepEqual(JSON.parse(String(run?.errors)), ['llm:exit-1']);
+    assert.equal(env.db.prepare("SELECT COUNT(*) AS n FROM meta WHERE key LIKE 'memory_session.cursor.%'").get()?.n, 0);
+  } finally {
+    env.done();
+  }
+});
+
+test('a codex final message that is not the schema shape is a bad answer, not a crash', async () => {
+  // Catches: JSON.parse of free prose throwing out of the run, so the sweep records llm_error and the persona falls asleep.
+  const env = fixture();
+  try {
+    chat(env);
+    const { deps, privateDir } = rig(codexAnswers('I could not do that'));
+    writeKeysFile(privateDir, {
+      subharness: {
+        backends: ['codex'],
+        key: null,
+        modes: {},
+        memory: { backend: 'codex', model: 'gpt-6.1-sol', effort: null },
+      },
+    });
+    const { llm } = clientOf(deps);
+    const result = await sweep(ctxOf(env, { llm }));
+    const [firstRun] = result.runs;
+    assert.equal(firstRun?.outcome, 'bad_answer');
+  } finally {
+    env.done();
+  }
+});
+
+// the client: which path, usage and the refusal signal
+
+test('the client sends the request to the direct model while keys.json holds no memory path', async () => {
+  // Catches: the writer sent to a connected CLI just because one is connected.
+  const env = fixture();
+  try {
+    chat(env);
+    const { deps, seen } = rig(claudeAnswers(ANSWER));
+    const { llm, direct } = clientOf(deps);
+    await sweep(ctxOf(env, { llm, config: baseConfig() }));
+    assert.equal(direct.calls.length, 1);
+    assert.equal(seen.length, 0);
+  } finally {
+    env.done();
+  }
+});
+
+test('the client reads the path at each call, so a change from the chat acts on the next request', async () => {
+  // Catches: the path read once at start, so "model set memory --via" needs a restart to take effect.
+  const { deps, seen, privateDir } = rig(claudeAnswers(ANSWER));
+  const { llm, direct } = clientOf(deps);
+  const messages = [
+    { role: 'system', content: 'S' },
+    { role: 'user', content: [{ type: 'text', text: 'U' }] },
+  ];
+  const options = { role: 'memory', purpose: 'memory-session', model: 'x/memory' };
+  await llm.complete(messages, options);
+  writeKeysFile(privateDir, {
+    subharness: {
+      backends: ['claude'],
+      key: null,
+      modes: {},
+      memory: { backend: 'claude', model: 'claude-opus-4-6', effort: null },
+    },
+  });
+  await llm.complete(messages, options);
+  assert.equal(direct.calls.length, 1);
+  assert.equal(seen.length, 1);
+});
+
+test('the chain route of a request wins over the stored path, in both directions', async () => {
+  // Catches: the chain's fallback route ignored, so a memory request goes to the spent harness again, or the reverse.
+  const { deps, seen } = rig(claudeAnswers(ANSWER), {
+    subharness: { memory: { backend: 'claude', model: 'claude-opus-4-6', effort: null } },
+  });
+  const { llm, direct } = clientOf(deps);
+  const messages = [
+    { role: 'system', content: 'S' },
+    { role: 'user', content: [{ type: 'text', text: 'U' }] },
+  ];
+  const options = { role: 'memory', purpose: 'memory-session', model: 'x/memory' };
+  // The chain client adds `chainRoute` to the session's options; the rig's type names the session's own fields only.
+  const routed = (chainRoute: object) => ({ ...options, chainRoute }) as LlmCall['options'];
+  await llm.complete(messages, routed({ via: 'api', key: 'helpers', model: 'x/memory', effort: null }));
+  assert.equal(direct.calls.length, 1);
+  assert.equal(seen.length, 0);
+  const { deps: plain, seen: runs } = rig(claudeAnswers(ANSWER));
+  const { llm: onDirect } = clientOf(plain);
+  await onDirect.complete(
+    messages,
+    routed({ via: 'harness', backend: 'claude', model: 'claude-opus-4-8', effort: null })
+  );
+  assert.equal(after(runs[0]?.args ?? [], '--model'), 'claude-opus-4-8');
+});
+
+test('a subharness run is counted under memory at cost 0 with its tokens, and the core rows stay empty', async () => {
+  // Catches: subscription runs priced as API spend, or counted under core, which shrinks the week's turns line.
+  const { deps } = rig(claudeAnswers(ANSWER, { input_tokens: 300, output_tokens: 20 }), {
+    subharness: { memory: { backend: 'claude', model: 'claude-opus-4-6', effort: null } },
+  });
+  const usage = createUsage({ dataDir: tempDir('nep-memory-usage-'), now: () => Date.parse('2026-11-02T12:00:00Z') });
+  const { llm } = clientOf(deps, { record: (entry) => usage.record(entry) });
+  await llm.complete(
+    [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: [{ type: 'text', text: 'U' }] },
+    ],
+    { role: 'memory', purpose: 'memory-session', model: 'x/memory' }
+  );
+  const memory = usage.sumDays(1, { only: ['memory'] }).total;
+  assert.equal(memory.requests, 1);
+  assert.equal(memory.cost, 0);
+  assert.equal(memory.promptTokens, 300);
+  assert.equal(memory.completionTokens, 20);
+  assert.equal(usage.sumDays(1, { only: ['core'] }).total.requests, 0);
+});
+
+test('a direct request is not recorded by the client, the llm usage line counts it already', async () => {
+  // Catches: every direct memory request counted twice, once by the llm log line and once by the client.
+  const { deps } = rig(claudeAnswers(ANSWER));
+  const recorded: Array<UsageEntry> = [];
+  const { llm } = clientOf(deps, { record: (entry) => recorded.push(entry) });
+  await llm.complete(
+    [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: [{ type: 'text', text: 'U' }] },
+    ],
+    { role: 'memory', purpose: 'memory-session', model: 'x/memory' }
+  );
+  assert.deepEqual(recorded, []);
+});
+
+test('a refused subharness run is told once and is not recorded as usage', async () => {
+  // Catches: the probe never woken by a refused run, so the persona keeps writing nothing for a whole probe interval.
+  const { deps } = rig(() => ({ exitCode: 1, stdout: '', stderr: '' }), {
+    subharness: { memory: { backend: 'claude', model: 'claude-opus-4-6', effort: null } },
+  });
+  let refused = 0;
+  const recorded: Array<UsageEntry> = [];
+  const { llm } = clientOf(deps, { onRefused: () => (refused += 1), record: (entry) => recorded.push(entry) });
+  await assert.rejects(
+    llm.complete(
+      [
+        { role: 'system', content: 'S' },
+        { role: 'user', content: [{ type: 'text', text: 'U' }] },
+      ],
+      { role: 'memory', purpose: 'memory-session', model: 'x/memory' }
+    )
+  );
+  assert.equal(refused, 1);
+  assert.deepEqual(recorded, []);
+});
+
+test('a refused direct request is told too', async () => {
+  // Catches: the probe woken only on the subharness path, so a dead direct key goes unnoticed until the interval.
+  const { deps } = rig(claudeAnswers(ANSWER));
+  let refused = 0;
+  const failing = fakeLlm(Object.assign(new Error('boom'), { code: 'ECONNRESET' }));
+  const { llm } = clientOf(deps, { direct: failing, onRefused: () => (refused += 1) });
+  await assert.rejects(
+    llm.complete(
+      [
+        { role: 'system', content: 'S' },
+        { role: 'user', content: [{ type: 'text', text: 'U' }] },
+      ],
+      { role: 'memory', purpose: 'memory-session', model: 'x/memory' }
+    )
+  );
+  assert.equal(refused, 1);
+});
+
+const SESSION_MESSAGES = [
+  { role: 'system', content: 'S' },
+  { role: 'user', content: [{ type: 'text', text: 'U' }] },
+];
+const SESSION_OPTIONS = { role: 'memory', purpose: 'memory-session', model: 'x/memory' };
+
+test('the client reports a lost login and an answered run of the subharness path with the backend', async () => {
+  // Catches: the header's Memory line left active while every sweep fails on a dropped login, or never cleared after.
+  const memory = { backend: 'claude' as const, model: 'claude-opus-4-6', effort: null };
+  let login = true;
+  const envelope = JSON.stringify({ type: 'result', is_error: true, result: 'Not logged in · Please run /login' });
+  const { deps } = rig(() => (login ? { exitCode: 1, stdout: envelope, stderr: '' } : claudeAnswers(ANSWER)()), {
+    subharness: { memory },
+  });
+  const outcomes: Array<string> = [];
+  const { llm } = clientOf(deps, { ran: (backend, outcome) => outcomes.push(`${backend}:${outcome}`) });
+  await assert.rejects(llm.complete(SESSION_MESSAGES, SESSION_OPTIONS));
+  login = false;
+  await llm.complete(SESSION_MESSAGES, SESSION_OPTIONS);
+  assert.deepEqual(outcomes, ['claude:login', 'claude:ok']);
+});
+
+test('a request on the direct path reports nothing about a harness', async () => {
+  // Catches: an answer of the direct memory key counted as proof that the harness is logged in again.
+  const { deps } = rig(claudeAnswers(ANSWER));
+  const outcomes: Array<string> = [];
+  const { llm } = clientOf(deps, { ran: (backend, outcome) => outcomes.push(`${backend}:${outcome}`) });
+  await llm.complete(SESSION_MESSAGES, SESSION_OPTIONS);
+  assert.deepEqual(outcomes, []);
+});
+
+// the description review and the bind merge: every request of the memory role takes the writer's path
+
+const MEMORY_RECORD = { backend: 'claude' as const, model: 'claude-opus-4-6', effort: null };
+const REVIEW_PROMPTS = { ...prompts, 'memory/draft': 'DRAFT PROMPT', 'memory/check': 'CHECK PROMPT' };
+/** A session config with no key named for the memory role. */
+const keylessConfig = (): Record<string, unknown> => ({ ...baseConfig(), llm: {} });
+const described = (text: string): string => `<think>t</think><description>${text}</description><reason>r</reason>`;
+
+test('a description review on the harness path with no key runs its draft and check through claude', async () => {
+  // Catches: the review's two calls sent to the direct client, refused ROLE_KEY_MISSING while the session runs on claude.
+  const env = fixture();
+  try {
+    chat(env);
+    let runs = 0;
+    const { deps, seen, privateDir } = rig(
+      () => {
+        runs += 1;
+        return claudeAnswers(described(runs === 1 ? 'Ada likes café mornings' : 'Ada likes quiet café mornings'))();
+      },
+      { subharness: { memory: MEMORY_RECORD } }
+    );
+    const { llm, direct } = clientOf(deps);
+    const ctx = {
+      ...ctxOf(env, { llm, config: keylessConfig(), promptSet: REVIEW_PROMPTS, ring: null }),
+      path: () => memoryPath(privateDir),
+    };
+    const result = await reviewDescription(env.db, { kind: 'person', id: personOf(ADA), name: 'Ada' }, 'character', {
+      ctx,
+    });
+    assert.equal(result.status, 'ok');
+    assert.equal(direct.calls.length, 0);
+    assert.equal(seen.length, 2);
+    assert.ok(String(after(seen[0]?.args ?? [], '--system-prompt')).endsWith('DRAFT PROMPT'));
+    assert.ok(String(after(seen[1]?.args ?? [], '--system-prompt')).endsWith('CHECK PROMPT'));
+  } finally {
+    env.done();
+  }
+});
+
+test('a description review on the direct path with no key is refused and nothing is sent', async () => {
+  // Catches: the harness exemption from the key check leaking to the direct path, so a keyless request goes out.
+  const env = fixture();
+  try {
+    chat(env);
+    const { deps, seen, privateDir } = rig(claudeAnswers(described('x')));
+    const { llm, direct } = clientOf(deps);
+    const ctx = {
+      ...ctxOf(env, { llm, config: keylessConfig(), promptSet: REVIEW_PROMPTS, ring: null }),
+      path: () => memoryPath(privateDir),
+    };
+    const result = await reviewDescription(env.db, { kind: 'person', id: personOf(ADA), name: 'Ada' }, 'character', {
+      ctx,
+    });
+    assert.deepEqual({ status: result.status, code: result.code }, { status: 'refused', code: 'not_configured' });
+    assert.equal(direct.calls.length, 0);
+    assert.equal(seen.length, 0);
+  } finally {
+    env.done();
+  }
+});
+
+test("the bind merge's description join runs through claude on the harness path", async () => {
+  // Catches: the merge of two people's descriptions sent to the direct client, which has no key on a harness path.
+  const { deps, seen } = rig(claudeAnswers(described('joined')), { subharness: { memory: MEMORY_RECORD } });
+  const { llm, direct } = clientOf(deps);
+  const completion = await askMemoryModel(
+    { llm, hot: { config: keylessConfig() } },
+    [
+      { role: 'system', content: 'MERGE PROMPT' },
+      { role: 'user', content: 'kept and merged' },
+    ],
+    { purpose: 'description-merge', maxOutputTokens: 900 }
+  );
+  assert.equal(completion.text, described('joined'));
+  assert.equal(direct.calls.length, 0);
+  assert.equal(seen.length, 1);
+  assert.equal(after(seen[0]?.args ?? [], '--system-prompt'), 'MERGE PROMPT');
+});
+
+// the humanizer's writer: another role's one-shot request on the same client (src/llm/core-routes.ts)
+
+const WRITER_OPTIONS = {
+  role: 'editor',
+  purpose: 'humanizer-writer',
+  model: 'claude-opus-5-5',
+  chainRoute: { via: 'harness', backend: 'claude', model: 'claude-opus-5-5', effort: null },
+};
+
+test('a run of another role is counted under that role and says nothing of the memory login', async () => {
+  // Catches: the humanizer writer's tokens counted as the persona's memory's, and its run taken as proof of the memory harness.
+  const { deps } = rig(claudeAnswers(ANSWER));
+  const recorded: Array<UsageEntry> = [];
+  const outcomes: Array<string> = [];
+  const { llm } = clientOf(deps, {
+    record: (entry) => recorded.push(entry),
+    ran: (backend, outcome) => outcomes.push(`${backend}:${outcome}`),
+  });
+  await llm.complete(SESSION_MESSAGES, WRITER_OPTIONS);
+  assert.deepEqual(
+    recorded.map((entry) => entry.role),
+    ['editor']
+  );
+  assert.deepEqual(outcomes, []);
+});
+
+test('a refused run of another role does not wake the memory probe', async () => {
+  // Catches: a failed humanizer rewrite starting a memory probe and marking the memory harness as logged out.
+  const { deps } = rig(() => ({ exitCode: 1, stdout: '', stderr: '' }));
+  let refused = 0;
+  const outcomes: Array<string> = [];
+  const { llm } = clientOf(deps, {
+    onRefused: () => (refused += 1),
+    ran: (backend, outcome) => outcomes.push(`${backend}:${outcome}`),
+  });
+  await assert.rejects(llm.complete(SESSION_MESSAGES, WRITER_OPTIONS));
+  assert.equal(refused, 0);
+  assert.deepEqual(outcomes, []);
+});
+
+const SKIP = '--dangerously-skip-permissions';
+
+test('the memory writer on claude stays without tools and without the bypass flag', async () => {
+  // Guard: the memory session's writer is one completion with no tools; the agent flags must not reach its recipe.
+  const base = tempDir('nep-claude-writer-');
+  const privateDir = path.join(base, 'private');
+  const record = path.join(base, 'argv');
+  const { binary } = subharnessPlace(privateDir, 'claude');
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  fs.writeFileSync(
+    binary,
+    [
+      '#!/bin/sh',
+      `for arg in "$@"; do printf '%s\\n' "$arg"; done > '${record}'`,
+      'cat > /dev/null',
+      `echo '{"result":"done","usage":{}}'`,
+      '',
+    ].join('\n'),
+    { mode: 0o755 }
+  );
+  writeKeysFile(privateDir, { subharness: { backends: ['claude'], key: null, modes: {} } });
+  const deps: MemoryWriterDeps = { privateDir, runChild: runChildProcess, workDir: path.join(base, 'work') };
+  await runMemoryWriter(
+    { kind: 'subharness', backend: 'claude', model: 'claude-opus-4-6', effort: null },
+    { system: 's', user: 'u', timeoutMs: 20_000 },
+    deps
+  );
+  const argv = fs.readFileSync(record, 'utf8').split('\n').slice(0, -1);
+  assert.equal(argv[argv.indexOf('--tools') + 1], '');
+  assert.equal(argv.includes('--allowedTools'), false);
+  assert.equal(argv.includes(SKIP), false);
+});
+
+const OUTPUT = 1200;
+
+test('the memory writer forwards its output cap to claude', async () => {
+  // Bug: the sweep's maxOutputTokens stops at the subharness path, so a claude writer has no output cap at all.
+  const privateDir = tempDir('nep-limits-memory-');
+  writeKeysFile(privateDir, {
+    subharness: {
+      backends: ['claude'],
+      key: null,
+      modes: {},
+      models: {},
+      uses: {},
+      memory: { backend: 'claude', model: 'x/model', effort: null },
+    },
+  });
+  const { binary } = subharnessPlace(privateDir, 'claude');
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  fs.writeFileSync(binary, '', { mode: 0o755 });
+  const runs: Array<ChildRun> = [];
+  const client = memoryWriterClient({
+    writer: {
+      privateDir,
+      workDir: path.join(privateDir, 'work'),
+      runChild: (run) => {
+        runs.push(run);
+        const stdout = JSON.stringify({ type: 'result', is_error: false, result: 'kept', usage: {} });
+        return Promise.resolve({ exitCode: 0, stdout, stderr: '' });
+      },
+    },
+    direct: { complete: () => Promise.reject(new Error('the direct path is not asked')) },
+  });
+  await client.complete([{ role: 'user', content: 'x' }], {
+    purpose: SESSION_PURPOSE,
+    timeoutMs: 1000,
+    maxOutputTokens: OUTPUT,
+  });
+  const capRun = runs[0];
+  assert.equal(capRun?.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS, String(OUTPUT));
+});
+
+// PR 3, memory path parity: the memory writer proved at the spawn boundary, with a disposable executable that records the
+// argv, the environment and stdin it really got (`runChildProcess`, src/agent-runner/backend.ts). Claude 2.1.317 enforces
+// `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, measured live: with 20 a run ended is_error at 80 output tokens, with none 436 end_turn.
+// So the writer passes it. Codex lists no such control, so there `maxOutputTokens` stays a reported gap. The installed releases
+// list no output-token control in their help (claude 2.1.317, codex 0.164.0), so `maxOutputTokens` is a reported capability
+// gap: nothing invents a flag and nothing trims the persona's text. The tests also pin what the writer's parity consists of, how a
+// failed selection and a failed source behave, and what `session_runs` records as the path that really ran.
+
+const SUBHARNESS_MEMORY_BOUNDARY_CLAUDE: SubharnessMemoryPath = {
+  kind: 'subharness',
+  backend: 'claude',
+  model: 'claude-opus-4-6',
+  effort: null,
+};
+const SUBHARNESS_MEMORY_BOUNDARY_CODEX: SubharnessMemoryPath = {
+  kind: 'subharness',
+  backend: 'codex',
+  model: 'gpt-6.1-sol',
+  effort: null,
+};
+const SUBHARNESS_MEMORY_BOUNDARY_INPUT = {
+  system: 'SYSTEM ΚΕΙΜΕΝΟ',
+  user: 'USER ΓΡΑΜΜΕΣ',
+  timeoutMs: 5000,
+  maxOutputTokens: 8000,
+};
+
+type SubharnessMemoryBoundarySeen = { argv: Array<string>; env: Record<string, string>; stdin: string };
+
+/**
+ * A private layer with the executable of `backend` writing what it got into a file, then running `tail` as shell. codex
+ * writes `final` to the file after `-o`, as the real CLI does.
+ */
+function boundary(backend: 'codex' | 'claude', tail: string, final = '') {
+  const privateDir = tempDir('nep-memory-boundary-');
+  writeKeysFile(privateDir, { subharness: { backends: [backend], key: null, modes: {} } });
+  const { binary } = subharnessPlace(privateDir, backend);
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  const record = tempDir('nep-memory-record-');
+  const finalFile = path.join(record, 'final');
+  fs.writeFileSync(finalFile, final);
+  fs.writeFileSync(
+    binary,
+    `#!/bin/sh
+PATH=/usr/bin:/bin
+for word in "$@"; do printf '%s\\000' "$word"; done > '${record}/argv'
+env -0 > '${record}/env'
+cat > '${record}/stdin'
+previous=''
+for word in "$@"; do
+  if [ "$previous" = '-o' ]; then cat '${finalFile}' > "$word"; fi
+  previous="$word"
+done
+${tail}
+`,
+    { mode: 0o755 }
+  );
+  const deps: MemoryWriterDeps = {
+    privateDir,
+    runChild: runChildProcess,
+    workDir: tempDir('nep-memory-work-'),
+  };
+  const seen = (): SubharnessMemoryBoundarySeen => ({
+    argv: fs.readFileSync(path.join(record, 'argv'), 'utf8').split('\0').slice(0, -1),
+    env: Object.fromEntries(
+      fs
+        .readFileSync(path.join(record, 'env'), 'utf8')
+        .split('\0')
+        .filter(Boolean)
+        .map((pair) => [pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1)])
+    ),
+    stdin: fs.readFileSync(path.join(record, 'stdin'), 'utf8'),
+  });
+  return { privateDir, deps, seen };
+}
+
+const envelope = (fields: Record<string, unknown>): string =>
+  `cat <<'JSON'\n${JSON.stringify({ type: 'result', is_error: false, ...fields })}\nJSON`;
+
+const subharnessMemoryBoundaryAfter = (argv: ReadonlyArray<string>, flag: string): string | undefined => {
+  const at = argv.indexOf(flag);
+  return at === -1 ? undefined : argv[at + 1];
+};
+
+// maxOutputTokens
+
+const INVENTED = /max.?(output|tokens|budget)/i;
+
+test('claude gets the output cap in the variable it enforces, and reports no gap', async () => {
+  // Catches: the sweep's cap stopping at the subharness path, or a guessed flag or a dollar budget that makes the CLI exit.
+  // Changed: the variable was measured enforced, where the help alone had left this a gap.
+  assert.deepEqual(memoryWriter.memoryGaps('claude'), []);
+  const { deps, seen } = boundary('claude', envelope({ result: 'text' }));
+  await runMemoryWriter(SUBHARNESS_MEMORY_BOUNDARY_CLAUDE, SUBHARNESS_MEMORY_BOUNDARY_INPUT, deps);
+  const { argv, env } = seen();
+  assert.equal(env.CLAUDE_CODE_MAX_OUTPUT_TOKENS, String(SUBHARNESS_MEMORY_BOUNDARY_INPUT.maxOutputTokens));
+  assert.equal(
+    argv.some((word) => INVENTED.test(word)),
+    false,
+    argv.join(' ')
+  );
+});
+
+test('codex reports maxOutputTokens as a gap and no invented control reaches its argv or environment', async () => {
+  // Catches: a limit passed to a mock and called enforced, or a guessed flag that makes the CLI exit.
+  const { deps, seen } = boundary('codex', 'exit 0', JSON.stringify({ answer: 'text' }));
+  await runMemoryWriter(SUBHARNESS_MEMORY_BOUNDARY_CODEX, SUBHARNESS_MEMORY_BOUNDARY_INPUT, deps);
+  const { argv, env } = seen();
+  assert.equal(
+    argv.some((word) => INVENTED.test(word)),
+    false,
+    argv.join(' ')
+  );
+  assert.equal(
+    Object.keys(env).some((name) => INVENTED.test(name)),
+    false
+  );
+});
+
+test('an answer past the limit reaches the sweep whole, never trimmed', async () => {
+  // Catches: "enforcing" the limit by cutting the persona's generated text after the fact.
+  const long = 'λ'.repeat(200_000);
+  const { privateDir, deps } = boundary('claude', envelope({ result: long }));
+  writeKeysFile(privateDir, {
+    subharness: {
+      backends: ['claude'],
+      key: null,
+      modes: {},
+      memory: { backend: 'claude', model: 'claude-opus-4-6', effort: null },
+    },
+  });
+  const client = memoryWriterClient({ writer: deps, direct: fakeLlm('') });
+  const completion = await client.complete([{ role: 'user', content: 'U' }], {
+    role: 'memory',
+    purpose: 'memory-session',
+    timeoutMs: 5000,
+    maxOutputTokens: 10,
+  });
+  assert.equal(completion.text, long);
+});
+
+// The rest of parity, at the boundary
+
+test('claude: its system prompt is replaced and it has no tools, in the argv the child really got', async () => {
+  // Catches: a change to the run that keeps the mock's fields and loses the flags, so the memory session runs as a coding agent.
+  const { deps, seen } = boundary('claude', envelope({ result: 'text' }));
+  await runMemoryWriter(SUBHARNESS_MEMORY_BOUNDARY_CLAUDE, SUBHARNESS_MEMORY_BOUNDARY_INPUT, deps);
+  const { argv, stdin } = seen();
+  assert.equal(subharnessMemoryBoundaryAfter(argv, '--system-prompt'), SUBHARNESS_MEMORY_BOUNDARY_INPUT.system);
+  assert.equal(subharnessMemoryBoundaryAfter(argv, '--tools'), '');
+  assert.equal(stdin, SUBHARNESS_MEMORY_BOUNDARY_INPUT.user);
+});
+
+test('codex: the system text arrives in its stdin in a read-only sandbox', async () => {
+  // Catches: codex reported as equal to claude, when its own instructions stay in force and its shell stays available.
+  const { deps, seen } = boundary('codex', 'exit 0', JSON.stringify({ answer: 'text' }));
+  await runMemoryWriter(SUBHARNESS_MEMORY_BOUNDARY_CODEX, SUBHARNESS_MEMORY_BOUNDARY_INPUT, deps);
+  const { argv, stdin } = seen();
+  assert.equal(subharnessMemoryBoundaryAfter(argv, '-s'), 'read-only');
+  assert.ok(stdin.startsWith(SUBHARNESS_MEMORY_BOUNDARY_INPUT.system), stdin);
+});
+
+test('the child gets a home of its own and no key of the core', async () => {
+  // Catches: the writer's child inheriting a provider key, and billing the wrong account behind the subscription.
+  process.env.OPENROUTER_API_KEY = 'must-not-reach-the-child';
+  try {
+    const { privateDir, deps, seen } = boundary('claude', envelope({ result: 'text' }));
+    await runMemoryWriter(SUBHARNESS_MEMORY_BOUNDARY_CLAUDE, SUBHARNESS_MEMORY_BOUNDARY_INPUT, deps);
+    const { env } = seen();
+    assert.equal(env.CLAUDE_CONFIG_DIR, subharnessPlace(privateDir, 'claude').env.CLAUDE_CONFIG_DIR);
+    assert.equal(env.OPENROUTER_API_KEY, undefined);
+  } finally {
+    delete process.env.OPENROUTER_API_KEY;
+  }
+});
+
+test('a run past its timeout is killed with its children and refused timeout', async () => {
+  // Catches: a hung CLI holding the writer and every sweep after it; a grandchild keeping the pipes open.
+  const { deps } = boundary('claude', 'sleep 30 &\nwait');
+  const started = Date.now();
+  await assert.rejects(
+    runMemoryWriter(SUBHARNESS_MEMORY_BOUNDARY_CLAUDE, { ...SUBHARNESS_MEMORY_BOUNDARY_INPUT, timeoutMs: 150 }, deps),
+    (error: unknown) => (error as { code?: string }).code === 'timeout'
+  );
+  assert.ok(Date.now() - started < 3000);
+});
+
+test('a refusal in the envelope is a refused run, never an answer to parse', async () => {
+  // Catches: the model's refusal text treated as a memory answer, which the sweep then records as a bad answer.
+  const { deps } = boundary('claude', envelope({ result: 'I will not do that.', stop_reason: 'refusal' }));
+  await assert.rejects(
+    runMemoryWriter(SUBHARNESS_MEMORY_BOUNDARY_CLAUDE, SUBHARNESS_MEMORY_BOUNDARY_INPUT, deps),
+    (error: unknown) => (error as { code?: string }).code === 'model-refused'
+  );
+});
+
+test('an envelope cut at the token limit is refused, so the cursor stays and nothing half-written is applied', async () => {
+  // Catches: a truncated memory block parsed as far as it goes, or text trimmed to look complete.
+  const { deps } = boundary('claude', envelope({ result: '<memory>', stop_reason: 'max_tokens' }));
+  await assert.rejects(
+    runMemoryWriter(SUBHARNESS_MEMORY_BOUNDARY_CLAUDE, SUBHARNESS_MEMORY_BOUNDARY_INPUT, deps),
+    (error: unknown) => (error as { code?: string }).code === 'output-truncated'
+  );
+});

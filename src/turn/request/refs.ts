@@ -1,0 +1,131 @@
+// A line's identity in a stored text, `src:<iface>:<message id>:<revision>` (src/turn/handles.ts writes it in place of
+// a `#n`), read back. `refResolverOf` renders it when the text comes into a request again: a line of `<chat>` as its
+// current handle, a line elsewhere once as a quote under its path and time, a deleted or unreadable line as unavailable,
+// an edited one as its current text with a note. `outgoingRefs` turns it into the interface's form when the persona's
+// words go out: a line of this place becomes the reply target, a line of another place the interface's link, and with
+// no link form the quote. The reader of the line (`lineOf`) applies the frame's scope, so a reference is no way past
+// it. Pure.
+
+import { fill } from '../../format.ts';
+import { escapeStored, placeRefText, pulledMoment } from './text.ts';
+import type { PlaceWords } from './text.ts';
+import type { Labels } from './types.ts';
+
+/** A stored line a reference names, as the frame's scope may read it. */
+export type RefLine = {
+  placeId: string;
+  messageId: string;
+  /** The place by names from the interface down, for a line that carries no more. */
+  path: Array<string>;
+  /** The place in words, when the reads give it: the quote names the place as every block of a request does. */
+  place?: PlaceWords;
+  at: number;
+  text: string;
+  revision: number;
+  deleted: boolean;
+  /** True when the line's place is a one-to-one chat, whose channel the memory does not know, so it has no link. */
+  dm?: boolean;
+};
+
+/** The labels the references read. */
+type RefLabels = Pick<Labels, 'refs' | 'places' | 'spatial' | 'authors' | 'locale'>;
+
+/** Reads a line by its identity without the revision (`src:<iface>:<message id>`); null when unknown or unreadable. */
+export type LineOf = (key: string) => RefLine | null;
+
+/**
+ * An identity: `src:`, the interface, the message id (which may hold colons) and the revision. No word character
+ * follows it, and no dot, colon or dash with a word character after it, so a source id with its kind
+ * (`src:x:m:1:seen`) is no reference while a full stop, a colon in prose and a range `src:a:1-src:b:1` are read.
+ */
+const IDENTITY = /( ?)\bsrc:([\w-]+):((?:[\w.-]+:)*?[\w.-]+):(\d+)(?!\w|[.:]\w|-(?!src:)\w)/gu;
+
+type Found = { space: string; key: string; revision: number };
+
+/** `text` with each identity replaced by what `render` gives for it. */
+function eachIdentity(text: string, render: (found: Found) => string): string {
+  if (typeof text !== 'string' || !text.includes('src:')) return text;
+  return text.replace(IDENTITY, (_all, space: string, iface: string, messageId: string, revision: string) =>
+    render({ space, key: `src:${iface}:${messageId}`, revision: Number(revision) })
+  );
+}
+
+/** The place of a quoted line in words, without a handle; from its names alone (a kind with no noun) when it has no words. */
+function placeOf(line: RefLine, labels: RefLabels, keepEmoji: boolean): string {
+  const words: PlaceWords = line.place ?? {
+    iface: line.path[0] ?? '',
+    chain: line.path
+      .slice(1)
+      .reverse()
+      .map((name) => ({ id: name, kind: null, name })),
+  };
+  return placeRefText(labels, null, { ...words, keepEmoji });
+}
+
+/** A line quoted under its place and time, noted as edited when it changed since the revision referred to. */
+function quoteOf(line: RefLine, revision: number, labels: RefLabels, timezone: string, keepEmoji: boolean): string {
+  const l = labels.refs ?? {};
+  const template = line.revision > revision ? l.edited : l.quote;
+  return fill(template ?? '"{text}"', {
+    path: placeOf(line, labels, keepEmoji),
+    when: pulledMoment(line.at, timezone, labels.locale),
+    text: escapeStored(line.text.trim()),
+  });
+}
+
+/**
+ * The renderer of identities in a stored text that comes back into a request. `window` maps the identity of each line
+ * of `<chat>` (without the revision) to its `#n`.
+ */
+export function refResolverOf(given: {
+  window: ReadonlyMap<string, number>;
+  lineOf: LineOf;
+  labels: RefLabels;
+  timezone: string;
+  /** `context.names.emoji`: the names of a quoted line's place keep their emoji when true. */
+  keepEmoji?: boolean;
+}): (text: string) => string {
+  const { window, lineOf, labels, timezone } = given;
+  const keepEmoji = given.keepEmoji === true;
+  const unavailable = labels.refs?.unavailable ?? '';
+  return (text) =>
+    eachIdentity(text, ({ space, key, revision }) => {
+      const n = window.get(key);
+      if (n !== undefined) return `${space}#${n}`;
+      const line = lineOf(key);
+      if (line === null || line.deleted) return unavailable ? `${space}${unavailable}` : '';
+      return `${space}${quoteOf(line, revision, labels, timezone, keepEmoji)}`;
+    });
+}
+
+/**
+ * The persona's posted words with each identity in the interface's form. A line of `placeId` becomes the reply target
+ * (the first such line) and leaves the text; a line elsewhere becomes `linkOf`'s link, or the quote when the interface
+ * has no link form; a line the scope cannot read is cut.
+ */
+export function outgoingRefs(
+  text: string,
+  given: {
+    placeId: string;
+    lineOf: LineOf;
+    linkOf: (line: RefLine) => string | null;
+    labels: RefLabels;
+    timezone: string;
+    keepEmoji?: boolean;
+  }
+): { text: string; replyTo: string | null } {
+  const { placeId, lineOf, linkOf, labels, timezone } = given;
+  const keepEmoji = given.keepEmoji === true;
+  let replyTo: string | null = null;
+  const out = eachIdentity(text, ({ space, key, revision }) => {
+    const line = lineOf(key);
+    if (line === null || line.deleted) return '';
+    if (line.placeId === placeId) {
+      replyTo ??= line.messageId;
+      return '';
+    }
+    const link = linkOf(line);
+    return `${space}${link ?? quoteOf(line, revision, labels, timezone, keepEmoji)}`;
+  });
+  return { text: out === text ? text : out.trim(), replyTo };
+}

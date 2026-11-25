@@ -1,0 +1,255 @@
+// The ingestion record of the memory database (schema v16): one `ingest` row per event the core committed, keyed by
+// the principal that sent it, and in `ingest_cursor` the contiguous watermark acknowledged to each principal. The
+// event door (src/interface/door.ts) asks `ingested` before it hands an event on and commits the row with
+// `insertIngest` once the handler succeeded; the live message path commits the same row in the transaction of the
+// observation it makes (observe.ts#observe), and the door's later insert then changes nothing. The link
+// (src/interface/link.ts) answers `hello` with `cursorOf` and writes each new watermark with `ackCursor`. Every
+// insert also deletes the rows older than `keepDays`, at most once an hour, so the record holds what a redelivery
+// can still bring. The writes go through the one writer (`memoryWrite`, session-write.ts#applyMemoryWrite), the reads
+// run on the read connection.
+
+/**
+ * One event the core took: who sent it, its `seq` (null when the envelope had none), id, kind and chat, and
+ * `held`, the whole event when it is a message the core holds for its resume (absent for every other).
+ */
+export type IngestRow = {
+  principal: string;
+  seq: number | null;
+  eventId: string;
+  kind: string;
+  chat: string | null;
+  held?: Record<string, unknown> | null;
+};
+
+/** A message a pause holds: who sent it, its event id and the whole event, in the order the core took them. */
+export type HeldEvent = { principal: string; eventId: string; event: Record<string, unknown> };
+
+type Statement = {
+  run(...args: Array<unknown>): unknown;
+  get(...args: Array<unknown>): Record<string, unknown> | undefined;
+};
+type Db = { prepare(sql: string): Statement };
+
+/** How long a row is kept when `memoryDb.ingestKeepDays` is not set (config.json's default). */
+export const DEFAULT_KEEP_DAYS = 7;
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+// The last prune of each database file this thread wrote to, so a prune runs once an hour.
+const lastPrune = new WeakMap<object, number>();
+
+/** Whether the row is well formed: a principal, an event id and a kind; a `seq` a positive whole number or null. */
+export function isIngestRow(value: unknown): value is IngestRow {
+  if (value === null || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  const filled = (field: unknown): boolean => typeof field === 'string' && field !== '';
+  const seqOk = row.seq === null || (typeof row.seq === 'number' && Number.isInteger(row.seq) && row.seq > 0);
+  const chatOk = row.chat === null || typeof row.chat === 'string';
+  const heldOk =
+    row.held === undefined || row.held === null || (typeof row.held === 'object' && !Array.isArray(row.held));
+  return filled(row.principal) && filled(row.eventId) && filled(row.kind) && seqOk && chatOk && heldOk;
+}
+
+/**
+ * Writes `row` unless the principal already has the event, and prunes the rows older than `keepDays`. A row whose
+ * `seq` the principal already used under another event keeps its event without the number.
+ */
+export function insertIngest(db: Db, row: IngestRow, options: { at: number; keepDays: number }): void {
+  const committedAt = new Date(options.at).toISOString();
+  const seqTaken =
+    row.seq !== null &&
+    db
+      .prepare('SELECT 1 AS ok FROM ingest WHERE principal = ? AND seq = ? AND event_id <> ?')
+      .get(row.principal, row.seq, row.eventId) !== undefined;
+  const held = row.held === undefined || row.held === null ? null : JSON.stringify(row.held);
+  db.prepare(
+    'INSERT OR IGNORE INTO ingest (principal, seq, event_id, kind, conversation, committed_at, held) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(row.principal, seqTaken ? null : row.seq, row.eventId, row.kind, row.chat, committedAt, held);
+  const last = lastPrune.get(db) ?? 0;
+  if (options.at - last < HOUR_MS) return;
+  lastPrune.set(db, options.at);
+  const before = new Date(options.at - options.keepDays * DAY_MS).toISOString();
+  db.prepare('DELETE FROM ingest WHERE committed_at < ? AND held IS NULL').run(before);
+}
+
+/** A connection that lists rows, as the read connection is. */
+type ListDb = { prepare(sql: string): { all(): Array<Record<string, unknown>> } };
+
+/** The messages held for the resume, oldest first; a row whose event does not parse is skipped. */
+export function heldEvents(db: ListDb): Array<HeldEvent> {
+  const rows = db
+    .prepare('SELECT principal, event_id, held FROM ingest WHERE held IS NOT NULL ORDER BY committed_at, rowid')
+    .all();
+  const found: Array<HeldEvent> = [];
+  for (const row of rows) {
+    let event: unknown;
+    try {
+      event = JSON.parse(String(row.held));
+    } catch {
+      // A held event the writer stored is JSON; one that is not is never replayed.
+      continue;
+    }
+    if (event !== null && typeof event === 'object' && !Array.isArray(event))
+      found.push({
+        principal: String(row.principal),
+        eventId: String(row.event_id),
+        event: event as Record<string, unknown>,
+      });
+  }
+  return found;
+}
+
+/** Whether the principal's event `eventId` is in the record. */
+export function ingested(db: Db, principal: string, eventId: string): boolean {
+  return (
+    db.prepare('SELECT 1 AS ok FROM ingest WHERE principal = ? AND event_id = ?').get(principal, eventId) !== undefined
+  );
+}
+
+/** The watermark acknowledged to the principal, 0 when none was. */
+export function cursorOf(db: Db, principal: string): number {
+  const found = db.prepare('SELECT acked_seq FROM ingest_cursor WHERE principal = ?').get(principal)?.acked_seq;
+  return typeof found === 'number' ? found : 0;
+}
+
+/** Moves the principal's watermark up to `seq`; a lower one changes nothing. */
+export function ackCursor(db: Db, principal: string, seq: number): void {
+  db.prepare(
+    'INSERT INTO ingest_cursor (principal, acked_seq) VALUES (?, ?) ON CONFLICT(principal) DO UPDATE SET acked_seq = MAX(acked_seq, excluded.acked_seq)'
+  ).run(principal, seq);
+}
+
+/** A connection handle as the writer holds it (open.ts#openMemoryDb). */
+type Handle = { db: Db; transaction(fn: () => void): void };
+
+const isHandle = (value: unknown): value is Handle =>
+  value !== null && typeof value === 'object' && 'db' in value && 'transaction' in value;
+
+const fieldsOf = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const keepDaysOf = (value: unknown): number => (typeof value === 'number' && value > 0 ? value : DEFAULT_KEEP_DAYS);
+
+const refused = (message: string): Error => Object.assign(new Error(message), { code: 'BAD_INGEST' });
+
+/** The `ingest` an observation envelope carries (`{ row, keepDays }`, see observe.ts#observe), or null. */
+export function ingestOption(envelope: unknown): { row: IngestRow; keepDays: number } | null {
+  const ingest = fieldsOf(fieldsOf(envelope).ingest);
+  return isIngestRow(ingest.row) ? { row: ingest.row, keepDays: keepDaysOf(ingest.keepDays) } : null;
+}
+
+/**
+ * The writer's ingestion writes (session-write.ts#applyMemoryWrite): kind `ingest` `{ row, at, keepDays }` writes one
+ * event's row, kind `ingest-ack` `{ principal, seq }` a principal's watermark, kind `ingest-release`
+ * `{ principal, eventId }` clears the hold of one event, each in its own transaction.
+ */
+export function applyIngestWrite(handle: unknown, update: unknown): { written: number } {
+  const fields = fieldsOf(update);
+  if (!isHandle(handle)) throw Object.assign(new Error('the memory database is not open'), { code: 'DB_CLOSED' });
+  if (fields.kind === 'ingest') {
+    const { row, at } = fields;
+    if (!isIngestRow(row) || typeof at !== 'number') throw refused('an ingest row needs a principal, an id and a kind');
+    handle.transaction(() => insertIngest(handle.db, row, { at, keepDays: keepDaysOf(fields.keepDays) }));
+    return { written: 1 };
+  }
+  if (fields.kind === 'ingest-release') {
+    const { principal, eventId } = fields;
+    if (typeof principal !== 'string' || typeof eventId !== 'string')
+      throw refused('a release needs a principal and an event id');
+    handle.transaction(() => {
+      handle.db.prepare('UPDATE ingest SET held = NULL WHERE principal = ? AND event_id = ?').run(principal, eventId);
+    });
+    return { written: 1 };
+  }
+  const { principal, seq } = fields;
+  if (typeof principal !== 'string' || typeof seq !== 'number' || !Number.isInteger(seq))
+    throw refused('a watermark needs a principal and a whole seq');
+  handle.transaction(() => ackCursor(handle.db, principal, seq));
+  return { written: 1 };
+}
+
+/** The ingestion record as the event door and the link use it (src/core.ts wires it). */
+export type IngestRecord = {
+  /** Whether the principal's event was taken; false while the database is closed. */
+  seen: (principal: string, eventId: string) => boolean;
+  /** The watermark acknowledged to the principal; 0 while the database is closed. */
+  cursor: (principal: string) => number;
+  /** Writes an event's row through the writer; rejects with `DB_CLOSED` while the database is not open. */
+  commit: (row: IngestRow) => Promise<unknown>;
+  /** Writes the principal's new watermark through the writer. */
+  ack: (principal: string, seq: number) => Promise<unknown>;
+  /** The messages a pause holds, oldest first; none while the database is closed. */
+  held: () => Array<HeldEvent>;
+  /** Clears the hold of one event through the writer, once the resume replayed it. */
+  release: (principal: string, eventId: string) => Promise<unknown>;
+  /** The observation envelope of a line with the ingestion row of its event, for observe.ts to write with it. */
+  withRow: (envelope: object, row: IngestRow | null) => object;
+};
+
+/**
+ * The ingestion record over the memory service (service.ts#createMemoryDb): reads on its read connection, writes
+ * through `memoryWrite`, the one writer. `memoryDb.ingestKeepDays` is read from `hot.config` at each write.
+ */
+export function createIngestRecord(deps: {
+  memoryDb: { readHandle(): unknown; memoryWrite(update: object): Promise<unknown> };
+  hot: unknown;
+  now(): number;
+}): IngestRecord {
+  // The live config, read at each write (`hot.config`).
+  const keepDays = (): number => keepDaysOf(fieldsOf(fieldsOf(fieldsOf(deps.hot).config).memoryDb).ingestKeepDays);
+  const readDb = (): Db | null => {
+    const reader = deps.memoryDb.readHandle();
+    return isHandle(reader) ? reader.db : null;
+  };
+  return {
+    seen(principal, eventId) {
+      const db = readDb();
+      return db !== null && ingested(db, principal, eventId);
+    },
+    cursor(principal) {
+      const db = readDb();
+      return db === null ? 0 : cursorOf(db, principal);
+    },
+    commit: (row) => deps.memoryDb.memoryWrite({ kind: 'ingest', row, at: deps.now(), keepDays: keepDays() }),
+    ack: (principal, seq) => deps.memoryDb.memoryWrite({ kind: 'ingest-ack', principal, seq }),
+    held() {
+      const db = readDb();
+      // The read connection is node:sqlite's, whose statements list rows with `all()`.
+      return db === null ? [] : heldEvents(db as unknown as ListDb);
+    },
+    release: (principal, eventId) => deps.memoryDb.memoryWrite({ kind: 'ingest-release', principal, eventId }),
+    withRow: (envelope, row) => withIngestRow(envelope, row, keepDays()),
+  };
+}
+
+/** The exact source committed by an accepted event, independent of later family revisions. */
+export function receiptSource(db: Db, envelope: unknown): { sourceId: string; revision: number | null } | null {
+  const ingest = ingestOption(envelope);
+  if (!ingest) return null;
+  const found = db
+    .prepare(
+      'SELECT s.id, s.revision FROM ingest i JOIN sources s ON s.id = i.source_id WHERE i.principal = ? AND i.event_id = ?'
+    )
+    .get(ingest.row.principal, ingest.row.eventId);
+  return typeof found?.id === 'string'
+    ? { sourceId: found.id, revision: typeof found.revision === 'number' ? found.revision : null }
+    : null;
+}
+
+/** Associates a normalized source and its transport receipt within their shared writer transaction. */
+export function associateReceipt(db: Db, envelope: unknown, sourceId: string, at: number): void {
+  const ingest = ingestOption(envelope);
+  if (!ingest) return;
+  insertIngest(db, ingest.row, { at, keepDays: ingest.keepDays });
+  db.prepare('UPDATE ingest SET source_id = ? WHERE principal = ? AND event_id = ? AND source_id IS NULL').run(
+    sourceId,
+    ingest.row.principal,
+    ingest.row.eventId
+  );
+}
+
+/** Adds the accepted transport row before the observation crosses the writer boundary. */
+export function withIngestRow(envelope: object, row: Readonly<IngestRow> | null, keepDays: number): object {
+  return row === null ? envelope : { ...envelope, ingest: { row, keepDays } };
+}

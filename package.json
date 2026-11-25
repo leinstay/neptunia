@@ -1,0 +1,57 @@
+{
+  "name": "neptunia",
+  "version": "0.1.0",
+  "description": "Discord pseudo-user engine: one LLM-driven persona per server, personality supplied through prompt files",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "neptunia": "bin/neptunia-launch.ts"
+  },
+  "engines": {
+    "node": ">=26.13 <27"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leinstay/neptunia.git"
+  },
+  "homepage": "https://github.com/leinstay/neptunia#readme",
+  "bugs": {
+    "url": "https://github.com/leinstay/neptunia/issues"
+  },
+  "keywords": [
+    "discord",
+    "discord-bot",
+    "llm",
+    "openrouter",
+    "persona",
+    "chatbot"
+  ],
+  "scripts": {
+    "start": "node src/index.ts",
+    "dev": "node --watch src/index.ts",
+    "test": "node --test --test-global-setup=tests/fixtures/refuse-manager.ts \"tests/**/*.test.{js,ts}\"",
+    "check:codes": "node scripts/labels-catalogue.ts --check",
+    "lint": "ESLINT_FLAGS=unstable_native_nodejs_ts_config eslint . --pass-on-unpruned-suppressions",
+    "lint:prune": "ESLINT_FLAGS=unstable_native_nodejs_ts_config eslint . --prune-suppressions",
+    "typecheck": "tsc --noEmit -p .",
+    "format:check": "prettier --check",
+    "health": "node scripts/code-health.ts && node scripts/code-health.ts --check-docs",
+    "health:update": "node scripts/code-health.ts --update",
+    "prose": "node scripts/prose-check.ts",
+    "prose:update": "node scripts/prose-check.ts --update"
+  },
+  "workspaces": [
+    "interfaces/*"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "26.6.5",
+    "eslint": "9.39.5",
+    "eslint-plugin-import-x": "4.17.1",
+    "globals": "17.13.0",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.0"
+  }
+}

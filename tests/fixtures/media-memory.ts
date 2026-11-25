@@ -1,0 +1,560 @@
+// The media kinds of the media memory tests, each with a line as an interface reports it and a text form told through the one
+// writer into `media` (src/memory/db/media-store.ts): fully present, partly present or absent. A Russian word stands
+// for each English retelling, which only the fake embedder's concepts can bridge. `shape` gives a kind's items the native
+// references of another interface. Synthetic content on a temp database; no model, no network.
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRecall } from '../../src/behavior/recall-run.ts';
+import { snapshotOf } from '../../src/behavior/snapshot.ts';
+import { channelPlaceId, dmPlaceId } from '../../src/memory/db/ids.ts';
+import { personId } from './memory-db/spelled-ids.ts';
+import { observationOf } from '../../src/memory/db/observe-event.ts';
+import { observe } from '../../src/memory/db/observe.ts';
+import { dbSettings } from '../../src/memory/db/recall.ts';
+import { insertRows } from '../../src/memory/db/rows.ts';
+import { dmScope, groupContext, groupScope } from '../../src/memory/db/scope.ts';
+import { mediaStamp } from '../../src/memory/db/media-stems.ts';
+import { loadStemmer } from '../../src/memory/db/stems.ts';
+import { dbOf, transactionOf } from '../../src/memory/db/types.ts';
+import type { MediaOrigin } from '../../src/memory/db/media-store.ts';
+import { applyMediaNamesWrite, mediaNameRows } from '../../src/memory/db/media-names.ts';
+import { runMemorySearch } from '../../src/tools/tools.ts';
+import { fillEnvAudiences } from './memory-db/audiences.ts';
+import { fixture } from './memory-db-recall.ts';
+import { labels } from './labels.ts';
+import { channel as channelInfo } from './reads-rig.ts';
+import type { Row } from '../../src/memory/db/types.ts';
+
+export { fixture };
+export type Env = ReturnType<typeof fixture>;
+export type Scope = ReturnType<typeof groupScope>;
+export type Presence = 'full' | 'part' | 'absent';
+export const PRESENCES: ReadonlyArray<Presence> = ['full', 'part', 'absent'];
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8')) as Record<string, object>;
+
+export const NOW = Date.parse('2026-11-05T12:00:00.000Z');
+export const AT = Date.parse('2026-11-01T10:00:00.000Z');
+export const ALICE = 'u-alice';
+export const BOB = 'u-bob';
+export const SELF_ID = 'u-self';
+export const GENERAL = channelPlaceId('discord', 'c1');
+export const BOB_DM = dmPlaceId('discord', BOB);
+export const BOB_PERSON = personId('discord', BOB);
+export const BOB_SCOPE = dmScope(BOB_PERSON, 'discord');
+export const GROUP_SCOPE = groupScope('discord');
+export const group = groupContext('discord');
+/**
+ * The row of a channel of the `discord` interface, keyed as an observation keys it, so a later observation of the
+ * channel finds it: every stored line's place has one, and a line is read through its row's native id.
+ */
+export function channelRow(env: Env, id: string, native: string): void {
+  env.db
+    .prepare(
+      `INSERT OR IGNORE INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind)
+       VALUES (?, 'discord', 'channel', ?, ?, 'discord/global', 1, 'group', 'group')`
+    )
+    .run(id, native, `channel:${native}`);
+}
+
+export const SETTINGS = { ...dbSettings({})!, candidates: 40, minMeaning: 0.5, recordContext: 0, followMessages: 0 };
+
+/**
+ * The labels every read of these tests renders with. A retelling form names its kind, and a kind no model can read says
+ * so. `voiceDescribed`, `audioDescribed` and `fileUnreadable` are the transcript keys this
+ * specification adds to the labels contract.
+ */
+export const UNREADABLE = 'not readable';
+export const LABELS = {
+  ...labels,
+  transcript: {
+    ...labels.transcript,
+    image: '<image>',
+    imageDescribed: '<image: {text}>',
+    gif: '<gif {name}>',
+    gifDescribed: '<gif: {text}>',
+    video: '<video {name}>',
+    videoDescribed: '<video still: {text}>',
+    videoWatched: '<video: {text}>',
+    voice: '<voice>',
+    voiceDescribed: '<voice: {text}>',
+    audio: '<audio {name}>',
+    audioDescribed: '<audio {name}: {text}>',
+    link: '<link {title}>',
+    linkText: '<link {title}: {text}>',
+    file: '<file {name}>',
+    filePreview: '<file {name}: {text}>',
+    fileUnreadable: `[file: {name}, ${UNREADABLE}]`,
+    stickerRef: '[sticker {name}]',
+  },
+  legend: {
+    line: '{name} ({platformName}) = {text}',
+    lineNoText: '{name} ({platformName}) undescribed',
+    unreadable: `{name} ({platformName}) ${UNREADABLE}`,
+  },
+};
+
+export type Item = { id: string; told: string };
+/** What the native references of a line's items look like on the interface: the identity, or another interface's shape. */
+export type Shape = (id: string) => string;
+const SAME: Shape = (id) => id;
+
+/** One kind of media: how a line of it arrives, the text form its items take, and the words that find it. */
+export type Kind = {
+  name: string;
+  /** The kind of the closed list a line of it is stored under. */
+  stored: string;
+  marker: string;
+  /** Two retellings: the first is told when the line is partly described, both when it is fully described. */
+  first: { word: string; fragment: string; query: string };
+  second: { word: string };
+  self?: boolean;
+  /** The origin of its text form; null for one the interface's event already brings. */
+  origin: MediaOrigin | null;
+  /**
+   * A custom emoji or sticker: its kind in `media_names`, the platform names of the two items and the subtag of the
+   * legend `<media>` it stands under. Its line holds the stable name alone.
+   */
+  named?: { kind: 'emoji' | 'sticker'; platform: [string, string]; tag: string };
+  /** The message fields of a line, given the two items, whether each is told and their stable names. */
+  message(items: [Item, Item], told: [boolean, boolean], names: [string, string]): Row;
+};
+
+const attachment =
+  (kind: string, name: string, extra: Row = {}) =>
+  (item: Item): Row => ({
+    id: item.id,
+    kind,
+    name,
+    url: `https://cdn.example.invalid/${encodeURIComponent(item.id)}/${name}`,
+    ...extra,
+  });
+
+function attachmentKind(
+  name: string,
+  stored: string,
+  marker: string,
+  origin: MediaOrigin,
+  file: (item: Item) => Row,
+  words: { word: string; fragment: string; query: string; second: string }
+): Kind {
+  return {
+    name,
+    stored,
+    marker,
+    origin,
+    first: { word: words.word, fragment: words.fragment, query: words.query },
+    second: { word: words.second },
+    message: (items) => ({ attachments: items.map(file) }),
+  };
+}
+
+/** Every media kind with a text form: image, gif, video, sticker, voice said and received, audio, link embed, text file, emoji. */
+export const KINDS: ReadonlyArray<Kind> = [
+  attachmentKind('image', 'image', '<image', 'retelling', attachment('image', 'p.png'), {
+    word: 'lighthouse',
+    fragment: 'ighthou',
+    query: 'маяк',
+    second: 'walrus',
+  }),
+  attachmentKind('gif', 'gif', '<gif', 'retelling', attachment('gif', 'g.gif'), {
+    word: 'pirouette',
+    fragment: 'iroue',
+    query: 'пируэт',
+    second: 'trombone',
+  }),
+  attachmentKind('video', 'video', '<video', 'retelling', attachment('video', 'v.mp4', { durationSec: 12 }), {
+    word: 'avalanche',
+    fragment: 'valanch',
+    query: 'лавина',
+    second: 'gondola',
+  }),
+  {
+    name: 'sticker',
+    stored: 'sticker',
+    marker: '[sticker s',
+    origin: 'retelling',
+    first: { word: 'hedgehog', fragment: 'edgeho', query: 'ёжик' },
+    second: { word: 'accordion' },
+    named: { kind: 'sticker', platform: ['wave', 'hello'], tag: 'stickers' },
+    message: (items, _told, names) => ({
+      stickers: items.map((item, i) => ({
+        id: item.id,
+        name: names[i],
+        format: 'png',
+        url: `https://cdn.example.invalid/${encodeURIComponent(item.id)}.png`,
+      })),
+    }),
+  },
+  attachmentKind(
+    'voice received',
+    'voice',
+    '<voice',
+    'transcript',
+    attachment('voice', 'voice-message.ogg', { durationSec: 9 }),
+    { word: 'mushrooms', fragment: 'ushroo', query: 'грибы', second: 'umbrella' }
+  ),
+  // The persona's own voice message: its text form is what they voiced; the second item, an image, stays bare.
+  {
+    name: 'voice said',
+    stored: 'voice',
+    marker: '<voice',
+    self: true,
+    origin: 'voiced',
+    first: { word: 'cathedral', fragment: 'athedra', query: 'собор' },
+    second: { word: 'unused' },
+    message: (items) => ({
+      attachments: [
+        attachment('voice', 'voice-a.ogg', { durationSec: 9 })(items[0]),
+        attachment('image', 'p.png')(items[1]),
+      ],
+    }),
+  },
+  attachmentKind('audio', 'audio', '<audio', 'transcript', attachment('audio', 'song.mp3', { durationSec: 180 }), {
+    word: 'saxophone',
+    fragment: 'axophon',
+    query: 'саксофон',
+    second: 'windmill',
+  }),
+  // A link embed brings its own title and text in the event, origin `embed`.
+  {
+    name: 'link',
+    stored: 'link',
+    marker: '<link',
+    origin: null,
+    first: { word: 'observatory', fragment: 'bservator', query: 'обсерватория' },
+    second: { word: 'toboggan' },
+    message: (items, told) => ({
+      links: items.map((item, i) => ({
+        id: item.id,
+        kind: 'link',
+        url: `https://site.example.invalid/${encodeURIComponent(item.id)}`,
+        site: 'site.example.invalid',
+        title: `page ${i}`,
+        text: told[i] ? item.told : '',
+        thumbnailUrl: null,
+      })),
+    }),
+  },
+  attachmentKind('text file', 'text', '<file', 'preview', attachment('text', 'notes.txt'), {
+    word: 'marzipan',
+    fragment: 'arzipa',
+    query: 'марципан',
+    second: 'quokka',
+  }),
+  {
+    name: 'emoji',
+    stored: 'emoji',
+    marker: ':e',
+    origin: 'retelling',
+    first: { word: 'pelican', fragment: 'elica', query: 'пеликан' },
+    second: { word: 'zeppelin' },
+    named: { kind: 'emoji', platform: ['blob', 'wave'], tag: 'emojis' },
+    message: (items, _told, names) => ({
+      content: `look :${names[0]}: :${names[1]}:`,
+      emojis: items.map((item, i) => ({
+        id: item.id,
+        name: names[i],
+        animated: false,
+        url: `https://cdn.example.invalid/${encodeURIComponent(item.id)}.webp`,
+      })),
+    }),
+  },
+];
+
+export const kindNamed = (name: string): Kind => {
+  const kind = KINDS.find((one) => one.name === name);
+  assert.ok(kind, name);
+  return kind;
+};
+
+export const itemsOf = (kind: Kind, native: string, shape: Shape = SAME): [Item, Item] => [
+  { id: shape(`${native}-a`), told: `a retelling with a ${kind.first.word} in it` },
+  { id: shape(`${native}-b`), told: `a retelling with a ${kind.second.word} in it` },
+];
+
+/** The stable names of a line's two items from the number `first` on: `e3` and `e4` for an emoji, none for a plain kind. */
+function namesFrom(kind: Kind, first: number): [string, string] {
+  const prefix = kind.named?.kind === 'sticker' ? 's' : 'e';
+  return kind.named ? [`${prefix}${first}`, `${prefix}${first + 1}`] : ['', ''];
+}
+
+/**
+ * Names a line's custom emoji or stickers as the store does before the line is stored: the next free numbers of the kind,
+ * and their rows in `media_names` through the writer kind `media-names`.
+ */
+function nameItems(env: Env, kind: Kind, items: [Item, Item], iface: string, at: number): [string, string] {
+  const named = kind.named;
+  if (!named) return namesFrom(kind, 1);
+  const taken = mediaNameRows(env.db).filter((row) => row.kind === named.kind).length;
+  const names = namesFrom(kind, taken + 1);
+  const rows = items.map((item, i) => ({
+    name: names[i],
+    kind: named.kind,
+    iface,
+    nativeId: item.id,
+    platformName: named.platform[i],
+    animated: false,
+  }));
+  applyMediaNamesWrite(env.handle, { rows, now: at });
+  return names;
+}
+
+/** The `message.received` event of a line of `kind`. */
+export function eventOf(
+  kind: Kind,
+  native: string,
+  told: [boolean, boolean],
+  {
+    at = AT,
+    iface = 'discord',
+    shape = SAME,
+    chat = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' },
+    author = kind.self ? { id: SELF_ID, self: true, name: 'Self' } : { id: ALICE, name: 'Alice' },
+    names = namesFrom(kind, 1),
+  }: { at?: number; iface?: string; shape?: Shape; chat?: Row; author?: Row; names?: [string, string] } = {}
+): Row {
+  return {
+    iface,
+    at,
+    chat,
+    message: {
+      id: native,
+      at,
+      content: '',
+      author,
+      attachments: [],
+      links: [],
+      stickers: [],
+      ...kind.message(itemsOf(kind, native, shape), told, names),
+    },
+  };
+}
+
+/** Tells a line's item its text form, as the describer's write and the voice operation do. */
+export function tell(env: Env, kind: Kind, item: Item, iface = 'discord'): void {
+  if (kind.origin === null) return;
+  const db = dbOf(env.handle);
+  transactionOf(env.handle)(() => {
+    const row = db
+      .prepare('SELECT * FROM media WHERE native_ref = ? AND scope_iface IS ? AND retired_at IS NULL ORDER BY rowid LIMIT 1')
+      .get(item.id, iface);
+    if (!row) return;
+    const held = JSON.parse(typeof row.extra === 'string' ? row.extra : '{}') as Record<string, unknown>;
+    const extra = { ...held, textOrigin: kind.origin };
+    db.prepare(
+      "UPDATE media SET description = ?, described_at = ?, availability = 'present', extra = ?, stems = ? WHERE id = ?"
+    ).run(
+      item.told,
+      new Date().toISOString(),
+      JSON.stringify(extra),
+      mediaStamp(loadStemmer(db).stem, { kind: row.kind, description: item.told, extra }),
+      row.id
+    );
+    db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(`media:${String(row.id)}`);
+  });
+}
+
+/** One observed line of `kind` and its text forms: both told (`full`), the first (`part`), none (`absent`). */
+export function observeLine(
+  env: Env,
+  kind: Kind,
+  presence: Presence,
+  {
+    native = 'pic',
+    at = AT,
+    iface = 'discord',
+    shape = SAME,
+    chat,
+    author,
+  }: { native?: string; at?: number; iface?: string; shape?: Shape; chat?: Row; author?: Row } = {}
+): string {
+  const told: [boolean, boolean] = [presence !== 'absent', presence === 'full' && !kind.self];
+  const names = nameItems(env, kind, itemsOf(kind, native, shape), iface, at);
+  const event = eventOf(kind, native, told, {
+    names,
+    at,
+    iface,
+    shape,
+    ...(chat ? { chat } : {}),
+    ...(author ? { author } : {}),
+  });
+  const envelope = observationOf(event, { selfId: SELF_ID });
+  assert.ok(envelope, 'the synthetic event was refused');
+  const written = observe(env.handle, envelope, { now: () => at });
+  assert.equal(written.ok, true);
+  itemsOf(kind, native, shape).forEach((item, i) => {
+    if (told[i]) tell(env, kind, item, iface);
+  });
+  const row = env.db.prepare('SELECT id FROM sources WHERE native_id = ? ORDER BY rowid LIMIT 1').get(native);
+  assert.ok(row);
+  return String(row.id);
+}
+
+/** A DM line of Bob's, under the audience of Bob as a person, which a `dmContext` of Bob reads. */
+export function observeDmLine(env: Env, kind: Kind, presence: Presence = 'full', native = 'secret'): string {
+  const source = observeLine(env, kind, presence, {
+    native,
+    author: kind.self ? { id: SELF_ID, self: true, name: 'Self' } : { id: BOB, name: 'Bob' },
+    chat: { id: 'dm-bob', kind: 'dm', chatType: 'dm', partnerId: BOB },
+  });
+  env.db.prepare('UPDATE sources SET scope_dm = ?, audience_id = NULL WHERE id = ?').run(BOB_PERSON, source);
+  // Bob's account gets a meta-person with its first line, and the DM names it; this world reads Bob by Bob's old id.
+  env.db
+    .prepare('UPDATE places SET partner_person = ? WHERE id = (SELECT place_id FROM sources WHERE id = ?)')
+    .run(BOB_PERSON, source);
+  fillEnvAudiences(env);
+  return source;
+}
+
+/** A media row nothing links yet, its description held: what the describer's cache is after the migration. */
+export function heldItem(env: Env, nativeRef: string, description: string, kind = 'image'): void {
+  env.db
+    .prepare(
+      `INSERT INTO media (id, kind, native_ref, description, described_at, availability, scope_kind, scope_iface)
+       VALUES (?, ?, ?, ?, ?, 'present', 'group', 'discord')`
+    )
+    .run(`media:held:${nativeRef}`, kind, nativeRef, description, new Date(AT).toISOString());
+}
+
+/** What a read gives of a line's media, without what names the row or belongs to its interface. */
+export const neutralRows = (rows: ReadonlyArray<Row>): Array<Row> =>
+  rows.map((row) => {
+    const { url: _url, ...extra } = (row.extra ?? {}) as Row;
+    const kept = Object.entries(row).filter(([key]) => !['mediaId', 'nativeRef', 'extra'].includes(key));
+    return { ...Object.fromEntries(kept), extra: { ...extra, url: _url === undefined ? undefined : 'x' } };
+  });
+
+/** How many times `part` stands in `text`. */
+export const countOf = (text: string, part: string): number => text.split(part).length - 1;
+
+// The block of custom emoji and stickers is <media>.
+/** `text` without its legend blocks `<media>`: the lines alone. */
+export const outsideLegend = (text: string): string => text.replace(/<media>[\s\S]*?<\/media>/g, '');
+
+/**
+ * A custom emoji's or sticker's forms: the legend `<media>` holds each item's stable name, platform name and the
+ * description told, a bare mark for one untold; the line holds the stable name and no description.
+ */
+function assertLegendForms(text: string, kind: Kind, named: NonNullable<Kind['named']>, presence: Presence): void {
+  // An emoji's and a sticker's description stands in the legend, the line holds the stable name.
+  // The block of custom emoji and stickers is <media>.
+  const legend = /<media>[\s\S]*?<\/media>/.exec(text)?.[0] ?? '';
+  assert.ok(legend.includes(`<discord><${named.tag}>`), `the text opens with the legend: ${text.slice(0, 400)}`);
+  const lines = outsideLegend(text);
+  assert.ok(lines.includes(kind.marker), `the line holds the stable name ${kind.marker}: ${lines.slice(0, 300)}`);
+  assert.ok(!lines.includes(kind.first.word), 'the line holds no description');
+  const [first, second] = itemsOf(kind, 'pic');
+  const told = [presence !== 'absent', presence === 'full'];
+  named.platform.forEach((platform, i) => {
+    const description = told[i] ? `(${platform}) = ${[first, second][i].told}` : `(${platform}) undescribed`;
+    assert.ok(legend.includes(description), `the legend holds ${description}: ${legend}`);
+  });
+}
+
+/** A line says what it is and what it holds: its markers, the text form of what was told, nothing of what was not. */
+export function assertForms(text: string, kind: Kind, presence: Presence): void {
+  if (kind.named) return assertLegendForms(text, kind, kind.named, presence);
+  assert.ok(text.includes(kind.marker), `the line shows the kind marker ${kind.marker}: ${text.slice(0, 300)}`);
+  if (presence === 'absent') assert.ok(!text.includes(kind.first.word), 'no text form is invented');
+  else assert.ok(text.includes(kind.first.word), `the line shows its first text form: ${text.slice(0, 300)}`);
+  if (presence === 'full' && !kind.self) assert.ok(text.includes(kind.second.word), 'and its second');
+  if (presence === 'part') assert.ok(!text.includes(kind.second.word), 'the untold item stays bare');
+}
+
+// ---------- the turn's reads ----------
+
+export type Found = { quotes?: Array<{ lines: string }>; excerpts?: Array<unknown>; hidden?: boolean };
+export type RecallRig = {
+  recall: { window(args: Row): Promise<Found>; prefetch(args: Row): Promise<Found | null> };
+  args: Row;
+  ask: (question: Row, resolvedAnchor?: { kind: 'source'; sourceId: string }) => Promise<string>;
+};
+
+export type RigEmbed = (texts: Array<string>, opts: Row) => Promise<Array<Float32Array>>;
+/**
+ * The recall runner and `memory.search` over the fixture database, in #general (c1). `embed` is the embedding call the
+ * runner gets, as the core gives it (none by default: a run with words only). `model` pins the embedder's model for the
+ * query, so it is read against the vectors written under that model, and `minMeaning` is the cosine under which a meaning
+ * hit is dropped. `labels` are the labels the runner and the tool render with, `LABELS` unless a test words a line itself.
+ */
+export function recallRig(
+  env: Env,
+  {
+    embed = null,
+    model = null,
+    minMeaning = 0.5,
+    labels: wording = LABELS,
+  }: { embed?: RigEmbed | null; model?: string | null; minMeaning?: number; labels?: typeof LABELS } = {}
+): RecallRig {
+  fillEnvAudiences(env);
+  insertRows(
+    env.db,
+    {
+      places: [
+        { id: GENERAL, iface: 'discord', kind: 'channel', native_id: 'c1', scope_kind: 'group', name: 'general' },
+      ],
+    },
+    { log: { info() {}, debug() {}, warn() {}, error() {} } }
+  );
+  const channel = channelInfo('c1', { name: 'general' });
+  const snapshot = snapshotOf('g1', { chats: [channel], groups: [] });
+  const config = {
+    ...shipped,
+    bot: { ...shipped.bot, timezone: 'UTC' },
+    features: { ...shipped.features, meaningSearch: false, recall: true },
+    ...(model ? { models: { ...shipped.models, byPurpose: { 'recall-query': model } } } : {}),
+    ...(embed
+      ? { recall: { ...shipped.recall, db: { ...((shipped.recall as { db?: object }).db ?? {}), minMeaning } } }
+      : {}),
+  };
+  const data = {};
+  const store = {
+    state: {
+      get data() {
+        return data;
+      },
+      markDirty() {},
+    },
+    listUserProfiles: () => [],
+  };
+  const reads = {
+    history: () => Promise.resolve({ events: [], complete: true }),
+  };
+  const llm = { capLeft: () => 100, complete: () => Promise.resolve({ text: '' }) };
+  const created = createRecall({ iface: 'discord',
+    reads,
+    hot: { config, prompts: {labels: wording } },
+    store,
+    llm,
+    now: () => NOW,
+    memoryDb: { database: () => env.db },
+    // The store's read of a stable name, over the rows the fixture wrote.
+    mediaNameOf: (name: string) => mediaNameRows(env.db).find((row) => row.name === name) ?? null,
+    ...(embed ? { embed } : {}),
+  } as unknown as Parameters<typeof createRecall>[0]);
+  const recall = created as unknown as RecallRig['recall'];
+  const args = { placeId: 'g1', snapshot, channel, partnerId: null, selfId: 'self', selfName: 'Self', history: [] };
+  const ask = async (question: Row, resolvedAnchor?: { kind: 'source'; sourceId: string }): Promise<string> => {
+    const result = await runMemorySearch({
+      recall: created,
+      store,
+      config,
+      labels: wording,
+      placeId: 'g1',
+      snapshot,
+      channel,
+      selfId: 'self',
+      selfName: 'Self',
+      history: [],
+      now: NOW,
+      args: question,
+      ...(resolvedAnchor ? { resolvedAnchor } : {}),
+    });
+    return (result as { data?: { text?: string } }).data?.text ?? '';
+  };
+  return { recall, args, ask };
+}

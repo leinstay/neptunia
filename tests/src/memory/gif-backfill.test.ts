@@ -1,0 +1,467 @@
+// Tests for src/memory/gif-backfill.ts: the GIF library history backfill. A history read through the interface
+// rebuilds the library at once, stamps its `backfill`, then has the describer caption the top entries still without a
+// caption. A real store on a temp dir, the fake interface's reads, a fake describer. The messages are Discord-shaped
+// and read into events as the Discord package does.
+
+import { placeOfRoot } from '../../../src/memory/addresses.ts';
+import { memoryAt } from '../../fixtures/store-kit.ts';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+import { createGifBackfill } from '../../../src/memory/gif-backfill.ts';
+import { createStore } from '../../../src/memory/store.ts';
+import { normalizeOptions, toEvent } from '../../../interfaces/discord/index.ts';
+import { tempDir } from '../../fixtures/tmp.ts';
+import { IFACE, channel, rig } from '../../fixtures/reads-rig.ts';
+import type { Untyped } from '../../../src/tools/types.ts';
+import { present, wrongly, removeField } from '../../fixtures/loose-types.ts';
+import type { GifEntry } from '../../../src/memory/gifs.ts';
+import type { Store } from '../../../src/memory/store.ts';
+
+const T0 = Date.UTC(2026, 8, 1);
+const TENOR_A = 'https://tenor.com/view/cat-dance-1';
+const TENOR_B = 'https://tenor.com/view/wave-2';
+
+/** The store with the library typed as it is kept: `getGifs` answers entries of the library, not bare objects. */
+type GifStore = Omit<Store, 'getGifs'> & {
+  getGifs(): {
+    nextId: number;
+    entries: Record<string, GifEntry>;
+    backfill: { at: string; channels: number; messages: number } | null;
+    backfills: Record<string, { at: string; channels: number; messages: number }>;
+  };
+};
+
+function withStore(fn: (store: GifStore, dir: string) => unknown) {
+  const dir = tempDir('nep-gif-backfill-');
+  return Promise.resolve()
+    .then(() => fn(wrongly<GifStore>(createStore(memoryAt(dir))), dir))
+    .finally(() => fs.rmSync(dir, { recursive: true, force: true }));
+}
+
+/** A tenor embed as discord.js exposes it. */
+function tenorEmbed(url: string, title = 'Chat qui danse') {
+  return {
+    url,
+    title,
+    provider: { name: 'Tenor' },
+    thumbnail: { url: `${url}/frame.png`, proxyURL: `${url}/proxy.png` },
+  };
+}
+
+/** A raw discord.js-shaped message. */
+function rawMessage(
+  n: number,
+  {
+    authorId = 'a',
+    bot = false,
+    embeds = [],
+    gifFile = null,
+  }: { authorId?: string; bot?: boolean; embeds?: Array<Untyped>; gifFile?: Untyped } = {}
+) {
+  const attachments = new Map();
+  if (gifFile) {
+    attachments.set(gifFile, {
+      id: gifFile,
+      name: 'réaction.gif',
+      contentType: 'image/gif',
+      url: `https://cdn.discordapp.com/attachments/1/${gifFile}/r.gif`,
+    });
+  }
+  return {
+    id: String(1000 + n),
+    author: { id: authorId, bot, globalName: authorId, username: authorId },
+    member: { displayName: authorId },
+    content: 'look',
+    cleanContent: 'look',
+    createdTimestamp: T0 + n * 1000,
+    reference: null,
+    attachments,
+    stickers: new Map(),
+    embeds,
+    messageSnapshots: new Map(),
+  };
+}
+
+/**
+ * A chat holding `historyAsc` (raw messages, oldest first), read into the events the interface would deliver.
+ */
+function fakeChannel(
+  id: string,
+  historyAsc: Array<Record<string, Untyped>>,
+  { readable = true }: { readable?: boolean } = {}
+) {
+  const stub = { id, name: id, parent: null, guild: { id: 'g1' }, isThread: () => false };
+  const events = historyAsc.map((raw) => {
+    const event = toEvent(
+      { ...raw, channel: stub, channelId: id, guild: stub.guild },
+      'selfUser',
+      normalizeOptions({})
+    );
+    removeField(event, 'raw');
+    return event;
+  });
+  const info = channel(id, { permissions: { read: readable, send: readable, attach: readable, react: readable } });
+  return { info, events };
+}
+
+/** The fake interface holding `rooms`, with the core's reads over it. */
+function fakeClient(rooms: Array<Record<string, Untyped>>) {
+  const world = rig();
+  for (const { info, events } of rooms) {
+    world.fake.seedChat(info);
+    for (const event of events) world.fake.seedEvent(event);
+  }
+  return world;
+}
+
+/**
+ * What the backfill takes of the interface.
+ */
+const depsOf = (world: Record<string, Untyped>) => ({ reads: world.reads, iface: () => IFACE });
+
+// The switch is code and the library's measures are constants (300 entries kept, 500 messages read a channel, 20 GIFs
+// described after a count).
+function fakeHot() {
+  return { config: { bot: {} } };
+}
+
+function fakeLog() {
+  const entries: Array<Untyped> = [];
+  const push = (level: string) => (message: string, fields: Record<string, Untyped>) =>
+    entries.push({ level, message, fields });
+  return { entries, info: push('info'), warn: push('warn'), error: push('error') };
+}
+
+/** Captions every item it is handed; records the calls. */
+function fakeDescriber() {
+  return {
+    calls: [],
+    async describeMany(placeId: string, items: Array<Record<string, Untyped>>, opts: Record<string, Untyped>) {
+      this.calls.push(wrongly({ placeId, items, opts }));
+      return {
+        descriptions: new Map(items.map((item) => [item.itemId, `caption of ${item.itemId}`])),
+        newCount: items.length,
+      };
+    },
+  };
+}
+
+/**
+ * c1: TENOR_A three times (the first embed id keeps counting), a gif file twice, TENOR_B once,
+ * the persona's gif; c2: TENOR_B once more.
+ */
+function standardChannels() {
+  return [
+    fakeChannel('c1', [
+      rawMessage(1, { embeds: [tenorEmbed(TENOR_A)] }),
+      rawMessage(2, { authorId: 'b', embeds: [tenorEmbed(TENOR_A)] }),
+      rawMessage(3, { authorId: 'b', gifFile: '555' }),
+      rawMessage(4, { embeds: [tenorEmbed(TENOR_A)] }),
+      rawMessage(5, { authorId: 'c', gifFile: '555' }),
+      rawMessage(6, { embeds: [tenorEmbed(TENOR_B, 'Salut')] }),
+      rawMessage(7, { authorId: 'selfUser', embeds: [tenorEmbed(TENOR_B)] }),
+    ]),
+    fakeChannel('c2', [rawMessage(9, { authorId: 'c', embeds: [tenorEmbed(TENOR_B, 'Salut')] })]),
+  ];
+}
+
+function countsByUrl(store: GifStore) {
+  return Object.fromEntries(
+    Object.values(store.getGifs().entries).map((entry) => [
+      entry.kind === 'link' ? entry.url : entry.itemId,
+      entry.count,
+    ])
+  );
+}
+
+// A bot is a person to the persona, so the bot's GIF in c4 counts like a member's.
+test("gif backfill run: counts everyone's gifs over every readable channel, a bot's too, self skipped", async () => {
+  await withStore(async (store: GifStore) => {
+    const log = fakeLog();
+    const hidden = fakeChannel('c3', [rawMessage(10, { embeds: [tenorEmbed(TENOR_A)] })], { readable: false });
+    const bots = fakeChannel('c4', [rawMessage(8, { authorId: 'otherBot', bot: true, gifFile: '777' })]);
+    const world = fakeClient([...standardChannels(), hidden, bots]);
+    const backfill = createGifBackfill(wrongly({ ...depsOf(world), hot: fakeHot(), store, log }));
+
+    const result = await backfill.run(placeOfRoot(backfill, 'g1'));
+    assert.deepEqual(result, { ok: true, channels: 3, messages: 8, gifs: 8, described: 0 });
+    assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2, 777: 1 });
+    assert.equal(store.getGifs().entries['1001#e0'].count, 3, 'the first embed id keeps counting');
+    assert.equal(
+      world.asked('history').some((ref: Untyped) => ref.chatId === 'c3'),
+      false,
+      'a chat the persona may not read is never read'
+    );
+
+    const stamp = present(store.getGifs().backfill);
+    assert.equal(stamp.channels, 3);
+    assert.equal(stamp.messages, 8);
+    assert.ok(Number.isFinite(Date.parse(stamp.at)));
+
+    const done = log.entries.find((e) => e.message === 'gif-backfill: done');
+    assert.deepEqual(done.fields, { channels: 3, messages: 8, gifs: 8, described: 0 });
+  });
+});
+
+test('gif backfill run: a second run is a no-op and never double-counts', async () => {
+  await withStore(async (store: GifStore) => {
+    const log = fakeLog();
+    const world = fakeClient(standardChannels());
+    const backfill = createGifBackfill(wrongly({ ...depsOf(world), hot: fakeHot(), store, log }));
+
+    await backfill.run(placeOfRoot(backfill, 'g1'));
+    const fetches = world.asked('history').length;
+    assert.deepEqual(await backfill.run(placeOfRoot(backfill, 'g1')), { ok: false, reason: 'done' });
+    assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2 });
+    assert.equal(world.asked('history').length, fetches, 'no history read on the no-op');
+    assert.deepEqual(log.entries.find((e) => e.message === 'gif-backfill: skipped').fields, { reason: 'done' });
+  });
+});
+
+test('gif backfill run: the first run resets what was recorded on arrival, never counting it twice', async () => {
+  await withStore(async (store: GifStore) => {
+    // Recorded on arrival: a message the history window also holds, and one gone from it.
+    store.recordGifs(placeOfRoot(store, 'g1'), [
+      { id: '1001', ts: T0 + 1000, placeId: 'c1', links: [{ id: '1001#e0', kind: 'gif', url: TENOR_A }] },
+      {
+        id: 'old',
+        ts: T0 - 1000,
+        placeId: 'c1',
+        links: [{ id: 'old#e0', kind: 'gif', url: 'https://tenor.com/view/gone-9' }],
+      },
+    ]);
+    const backfill = createGifBackfill(
+      wrongly({
+        ...depsOf(fakeClient(standardChannels())),
+        hot: fakeHot(),
+        store,
+        log: fakeLog(),
+      })
+    );
+
+    await backfill.startIfNeeded(placeOfRoot(backfill, 'g1'));
+    assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2, 'https://tenor.com/view/gone-9': 0 });
+    assert.equal(store.getGifs().entries['1001#e0'].id, 'g1', 'the arrival handle is kept');
+    assert.equal(store.getGifs().entries['old#e0'].id, 'g2');
+  });
+});
+
+test('gif backfill run: describes the top backfillDescribe entries without a cached caption, as real requests', async () => {
+  await withStore(async (store: GifStore) => {
+    const describer: Record<string, Untyped> = fakeDescriber();
+    const hot = fakeHot();
+    // The most used gif already has a caption (its first embed id): it is skipped, not re-described.
+    store.putMediaEntry('g1', '1001#e0', { text: 'a cat dancing', ts: T0 });
+    const backfill = createGifBackfill(
+      wrongly({
+        ...depsOf(fakeClient(standardChannels())),
+        hot,
+        store,
+        describer,
+        log: fakeLog(),
+      })
+    );
+
+    const result: Record<string, Untyped> = await backfill.run(placeOfRoot(backfill, 'g1'));
+    assert.equal(result.described, 2);
+    assert.equal(describer.calls.length, 1);
+    const [call] = describer.calls;
+    assert.equal(call.placeId, 'g1');
+    assert.deepEqual(
+      call.opts,
+      { concurrency: 1 },
+      'one GIF at a time; every describer request counts, no option to say so'
+    );
+    assert.deepEqual(
+      call.items.map(({ itemId, kind, url }: Record<string, Untyped>) => ({ itemId, kind, url })),
+      [
+        { itemId: '1006#e0', kind: 'gif', url: `${TENOR_B}/proxy.png` },
+        { itemId: '555', kind: 'gif', url: 'https://cdn.discordapp.com/attachments/1/555/r.gif' },
+      ],
+      'the embed thumbnail and the attachment file, in rank order (same count, TENOR_B used last)'
+    );
+  });
+});
+
+test("gif backfill run: the describer gets each GIF's whole picture item, so a library GIF is watched from its animation", async () => {
+  await withStore(async (store: GifStore) => {
+    const describer: Record<string, Untyped> = fakeDescriber();
+    const gifv = { ...tenorEmbed(TENOR_A), video: { url: `${TENOR_A}/loop.mp4`, proxyURL: `${TENOR_A}/proxy.mp4` } };
+    const channels = [
+      fakeChannel('c1', [rawMessage(1, { embeds: [gifv] }), rawMessage(2, { authorId: 'b', gifFile: '555' })]),
+    ];
+    const backfill = createGifBackfill(
+      wrongly({
+        ...depsOf(fakeClient(channels)),
+        hot: fakeHot(),
+        store,
+        describer,
+        log: fakeLog(),
+      })
+    );
+
+    await backfill.run(placeOfRoot(backfill, 'g1'));
+    const [firstCall] = describer.calls;
+    const byId: Record<string, Untyped> = new Map(
+      firstCall.items.map((item: Record<string, Untyped>) => [item.itemId, item])
+    );
+    // The provider's own address first, since a measured attachment address expires and a provider's does not.
+    assert.equal(byId.get('1001#e0').animationUrl, `${TENOR_A}/loop.mp4`, 'the gifv mp4 travels with the item');
+    assert.equal(byId.get('1001#e0').source, 'embed');
+    assert.equal(byId.get('1001#e0').url, `${TENOR_A}/proxy.png`, 'the still frame stays the fallback');
+    assert.equal(byId.get('555').source, 'attachment', 'an attached .gif is its own animation');
+    assert.equal(byId.get('555').url, 'https://cdn.discordapp.com/attachments/1/555/r.gif');
+  });
+});
+
+// The history read describes every GIF it finds, with no limit of twenty, and downloads each file once from its direct
+// address. Bug: the old limit of 20 left the rest undescribed.
+function manyAttached(count: number) {
+  return [
+    fakeChannel(
+      'c1',
+      Array.from({ length: count }, (_, i) => rawMessage(i + 1, { gifFile: String(5000 + i) }))
+    ),
+  ];
+}
+
+test('gif backfill run: describes every GIF it finds, past twenty', async () => {
+  await withStore(async (store: GifStore) => {
+    const describer: Record<string, Untyped> = fakeDescriber();
+    const backfill = createGifBackfill(
+      wrongly({ ...depsOf(fakeClient(manyAttached(25))), hot: fakeHot(), store, describer, log: fakeLog() })
+    );
+    const result: Record<string, Untyped> = await backfill.run(placeOfRoot(backfill, 'g1'));
+    assert.equal(result.described, 25);
+  });
+});
+
+test('gif backfill run: downloads the file of every GIF it finds from its direct address', async () => {
+  await withStore(async (store: GifStore, dir: string) => {
+    const asked: Array<string> = [];
+    const fetchBytes = (url: string) => {
+      asked.push(url);
+      return Promise.resolve({ bytes: new TextEncoder().encode(url), contentType: 'image/gif' });
+    };
+    const backfill = createGifBackfill(
+      wrongly({
+        ...depsOf(fakeClient(manyAttached(25))),
+        hot: fakeHot(),
+        store,
+        describer: fakeDescriber(),
+        dataDir: dir,
+        fetchBytes,
+        log: fakeLog(),
+      })
+    );
+    await backfill.run(placeOfRoot(backfill, 'g1'));
+    const filed = () => Object.values(store.getGifs().entries).filter((entry) => entry.file).length;
+    for (let i = 0; i < 2000 && filed() < 25; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(filed(), 25);
+    assert.equal(new Set(asked).size, 25);
+    assert.ok(asked.every((url) => url.startsWith('https://cdn.discordapp.com/attachments/1/')));
+  });
+});
+
+test('gif backfill run: no describer describes nothing', async () => {
+  await withStore(async (store: GifStore) => {
+    const none = createGifBackfill(
+      wrongly({
+        ...depsOf(fakeClient(standardChannels())),
+        hot: fakeHot(),
+        store,
+        log: fakeLog(),
+      })
+    );
+    assert.equal(wrongly<{ described: number }>(await none.run(placeOfRoot(none, 'g1'))).described, 0);
+  });
+});
+
+// The messages read per channel are the constant 500, so the GIF sits in the oldest of 501.
+test('gif backfill run: backfillMessages caps the messages read per channel', async () => {
+  await withStore(async (store: GifStore) => {
+    const rooms = [
+      fakeChannel('c1', [
+        rawMessage(0, { embeds: [tenorEmbed(TENOR_A)] }),
+        ...Array.from({ length: 500 }, (_, n) => rawMessage(n + 1, { embeds: [tenorEmbed(TENOR_B, 'Salut')] })),
+      ]),
+    ];
+    const backfill = createGifBackfill(
+      wrongly({ ...depsOf(fakeClient(rooms)), hot: fakeHot(), store, log: fakeLog() })
+    );
+
+    const result = await backfill.run(placeOfRoot(backfill, 'g1'));
+    assert.deepEqual(result, { ok: true, channels: 1, messages: 500, gifs: 500, described: 0 });
+    assert.deepEqual(countsByUrl(store), { [TENOR_B]: 500 });
+  });
+});
+
+test('gif backfill run: refused while paused and while another run is in flight', async () => {
+  await withStore(async (store: GifStore) => {
+    const backfill = createGifBackfill(
+      wrongly({
+        ...depsOf(fakeClient(standardChannels())),
+        hot: fakeHot(),
+        store,
+        log: fakeLog(),
+      })
+    );
+
+    const { data } = store.state;
+    data.paused = true;
+    assert.deepEqual(await backfill.run(placeOfRoot(backfill, 'g1')), { ok: false, reason: 'paused' });
+    data.paused = false;
+
+    const first = backfill.run(placeOfRoot(backfill, 'g1'));
+    assert.equal(backfill.isRunning(), true);
+    assert.deepEqual(await backfill.run(placeOfRoot(backfill, 'g1')), {
+      ok: false,
+      reason: 'running',
+    });
+    assert.equal((await first).ok, true);
+    assert.equal(backfill.isRunning(), false);
+  });
+});
+
+test('gif backfill run: an unknown guild is skipped', async () => {
+  await withStore(async (store: GifStore) => {
+    const backfill = createGifBackfill(
+      wrongly({
+        ...depsOf(fakeClient(standardChannels())),
+        hot: fakeHot(),
+        store,
+        log: fakeLog(),
+      })
+    );
+    assert.deepEqual(await backfill.run('nope'), { ok: false, reason: 'no-place' });
+  });
+});
+
+test('gif backfill startIfNeeded: runs once when the feature is on and nothing is stamped', async () => {
+  await withStore(async (store: GifStore) => {
+    const world = fakeClient(standardChannels());
+    const backfill = createGifBackfill(wrongly({ ...depsOf(world), hot: fakeHot(), store, log: fakeLog() }));
+
+    await backfill.startIfNeeded(placeOfRoot(backfill, 'g1'));
+    assert.equal(Object.keys(store.getGifs().entries).length, 3);
+    const fetches = world.asked('history').length;
+    await backfill.startIfNeeded(placeOfRoot(backfill, 'g1'));
+    assert.equal(world.asked('history').length, fetches, 'stamped: never again at startup');
+  });
+});
+
+test('gif backfill startIfNeeded: an error is logged, never thrown', async () => {
+  await withStore(async (store: GifStore) => {
+    const log = fakeLog();
+    const reads = {
+      chats: () => Promise.reject(new Error('boom')),
+    };
+    const backfill = createGifBackfill(wrongly({ reads, iface: () => IFACE, hot: fakeHot(), store, log }));
+
+    await backfill.startIfNeeded(placeOfRoot(backfill, 'g1'));
+    assert.ok(log.entries.some((e) => e.level === 'error' && e.message === 'gif-backfill: failed'));
+    assert.equal(backfill.isRunning(), false);
+  });
+});

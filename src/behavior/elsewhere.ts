@@ -1,0 +1,199 @@
+// Two pure parts of reading one place and writing in another: the audience comparison that keeps a narrower channel's
+// content out of a wider one, and the link of a message, the address the interface gave it.
+//
+// No I/O, no platform SDK: platform objects are read by the callers and handed over as plain values (ids and sets of
+// ids). Every function returns new values and never mutates its input.
+
+import { accountIdOf as idOf } from '../memory/recent.ts';
+import type { MessageUrlTemplate } from '../protocol/adapter.ts';
+import { portIface, portMessageUrl } from '../interface/capabilities.ts';
+
+// ---- the audience rail ------------------------------------------------------------------
+
+/**
+ * Who can view one channel, read by the caller from the platform's permissions.
+ * `@everyone`'s overwrite belongs to `everyone` and `roles`, never to
+ * `roleAllow` / `roleDeny`. `everyone`: @everyone can view it (its overwrite applied). `roles`: ids of the roles that
+ * can view it, each on its own (@everyone's and that role's overwrite applied; Administrator views everything).
+ * `roleAllow`, `roleDeny`: ids of the roles whose overwrite allows or denies ViewChannel. `memberAllow`, `memberDeny`:
+ * members with an overwrite allowing or denying ViewChannel. `memberRoles` (optional): for the members named by an
+ * overwrite, the ids of the roles they hold (from the member cache); a member missing from it is unknown.
+ */
+export type Audience = {
+  everyone: boolean;
+  roles: Set<string>;
+  roleAllow: Set<string>;
+  roleDeny: Set<string>;
+  memberAllow: Set<string>;
+  memberDeny: Set<string>;
+  memberRoles?: Map<string, Set<string>>;
+};
+
+/** Whether `value` has the Audience shape. */
+function isAudience(value: unknown): value is Audience {
+  const audience = value as Partial<Audience> | null | undefined;
+  return (
+    audience !== null &&
+    audience !== undefined &&
+    typeof audience === 'object' &&
+    typeof audience.everyone === 'boolean' &&
+    audience.roles instanceof Set &&
+    audience.roleAllow instanceof Set &&
+    audience.roleDeny instanceof Set &&
+    audience.memberAllow instanceof Set &&
+    audience.memberDeny instanceof Set
+  );
+}
+
+/** Whether every item of `inner` is in `outer`. */
+function isSubset(inner: Iterable<string>, outer: ReadonlySet<string>): boolean {
+  for (const item of inner) if (!outer.has(item)) return false;
+  return true;
+}
+
+/**
+ * With a role denied on the source, whether no member can hold that role and
+ * still view the destination without the source. The platform applies a member's
+ * role overwrites together (every role deny, then every role allow), so a
+ * member holding a role denied on the source and another role that views the
+ * destination is hidden from the source unless one of their roles is allowed
+ * there. Safe when either (a) @everyone cannot view the destination and every
+ * role that can is explicitly allowed on the source (whoever reaches the
+ * destination holds a role whose allow beats any role deny on the source), or
+ * (b) the destination denies every role the source denies and allows no role
+ * the source does not (whoever holds such a role reaches the destination only
+ * through an allow that the source repeats). Otherwise blocks.
+ */
+function roleDeniesContained(dest: Audience, source: Audience): boolean {
+  if (dest.everyone === false && isSubset(dest.roles, source.roleAllow)) return true;
+  return isSubset(source.roleDeny, dest.roleDeny) && isSubset(dest.roleAllow, source.roleAllow);
+}
+
+/**
+ * Whether a member allowed by name on the destination provably views the
+ * source: allowed by name there too; else, with their roles known, not denied
+ * by name on the source, none of their roles denied there, and either the
+ * source is viewable by @everyone or one of their roles views it. With their
+ * roles unknown only the source's @everyone view with no role denied and no
+ * deny of that member proves it (they may hold a denied role).
+ * `heldRoles` is the member's role ids, when known.
+ */
+function memberViewsSource(accountId: string, source: Audience, heldRoles?: Set<string>): boolean {
+  if (source.memberAllow.has(accountId)) return true;
+  if (source.memberDeny.has(accountId)) return false;
+  if (!(heldRoles instanceof Set)) return source.everyone && source.roleDeny.size === 0;
+  for (const role of heldRoles) if (source.roleDeny.has(role)) return false;
+  if (source.everyone) return true;
+  for (const role of heldRoles) if (source.roleAllow.has(role) || source.roles.has(role)) return true;
+  return false;
+}
+
+/**
+ * Whether everyone who can view the destination can view the source, so the
+ * source's content may enter a turn there. There is no shortcut for a source
+ * @everyone can view: a role overwrite on the source may still hide it, so
+ * every step runs on every pair. The check, in order: a source @everyone
+ * cannot view never covers a destination @everyone can view; every role that
+ * views the destination must view the source; a role denied on the source
+ * must not reach the destination through a combination of roles
+ * (`roleDeniesContained`); every member allowed by name on the destination
+ * must provably view the source (`memberViewsSource`): allowed by name there
+ * too, or proven by the source's @everyone view when the source denies no
+ * role and does not deny that member; every member denied on the source must
+ * be denied on the destination. So a source @everyone can view that denies no
+ * role and no member covers every destination through the full check: each
+ * role's view starts from its own and @everyone's base permissions, so every
+ * role views such a source, and the member step accepts the destination's
+ * allows by name. A member's roles prove their view of the source only
+ * when the audience carries them (`memberRoles`, from the member cache);
+ * otherwise the check holds for any set of roles a member may hold. It may block a safe
+ * pair (a role with Administrator views every channel, but nothing in the
+ * shape says which role has it); it never covers a pair where some
+ * combination of roles and overwrites shows the destination and hides the
+ * source. A missing or malformed audience never covers.
+ */
+export function audienceCovers(dest: unknown, source: unknown): boolean {
+  if (!isAudience(dest) || !isAudience(source)) return false;
+  if (dest.everyone && !source.everyone) return false;
+  if (!isSubset(dest.roles, source.roles)) return false;
+  if (source.roleDeny.size > 0 && !roleDeniesContained(dest, source)) return false;
+  for (const accountId of dest.memberAllow)
+    if (!memberViewsSource(accountId, source, dest.memberRoles?.get(accountId))) return false;
+  return isSubset(source.memberDeny, dest.memberDeny);
+}
+
+// ---- the link of a message ----------------------------------------------------------------
+
+/** A message as the interface named it: where it is, and `url`, its address on the platform when it has one. */
+export type MessageReference = { iface: string; chatId: string; messageId: string; url?: string | null };
+
+/**
+ * The reference of a message with the address the interface's template gives it, from the values of its three slots
+ * (`url` null when the interface declared no template, or an id is missing). A message with no `root` (null) is
+ * in a private chat.
+ */
+export function messageReference(
+  iface: string,
+  template: MessageUrlTemplate | null | undefined,
+  slots: { root: unknown; chat: unknown; message: unknown }
+): MessageReference {
+  const ids = [idOf(slots.chat), idOf(slots.message)];
+  const root = slots.root === null ? null : idOf(slots.root);
+  let url: string | null = null;
+  if (template && ids[0] && ids[1] && (slots.root === null || root !== null)) {
+    url = (slots.root === null ? template.direct : template.root)
+      .replaceAll('{root}', root ?? '')
+      .replaceAll('{chat}', ids[0])
+      .replaceAll('{message}', ids[1]);
+  }
+  return { iface, chatId: ids[0] ?? '', messageId: ids[1] ?? '', url };
+}
+
+/**
+ * The link to one message: the address the interface put on its reference (a URL given by the interface, not
+ * wording; the text around it comes from `labels.elsewhere.link`). Null when the reference has none or an id is
+ * missing.
+ */
+export function messageLink(ref: MessageReference | null | undefined): string | null {
+  if (!ref || idOf(ref.chatId) === null || idOf(ref.messageId) === null) return null;
+  return typeof ref.url === 'string' && ref.url !== '' ? ref.url : null;
+}
+
+/**
+ * The link to a message in the address form of `port` (its `capabilities().messageUrl`) from the values of the
+ * template's slots, null when the port gives none. A message with no `root` (null) is in a private chat.
+ */
+export function messageLinkOf(port: unknown, root: unknown, chat: unknown, message: unknown): string | null {
+  return messageLink(messageReference(portIface(port), portMessageUrl(port), { root, chat, message }));
+}
+
+/** A message a post may link to: the channel it is in and its id. */
+export type LinkTarget = { placeId: string; messageId: string };
+
+/**
+ * The jump links (`messageLink`) of one turn's posts -- its messages, then the GIF, then the picture -- asked in
+ * posting order; act and dryAct share the rule, so a rehearsal shows the links a real turn posts. A post answering a
+ * pulled line (`pulledId`) links to that line; on a turn about another channel the first post links to `sourceTarget`
+ * when it answers none. One line is linked at most once per turn: a second answer to it carries no link. `linkOf`
+ * gives the link of a message of a channel, `pulledIds` maps every pulled line to its channel.
+ * @returns The next post's link, or null.
+ */
+export function createLinker({
+  linkOf,
+  pulledIds,
+  sourceTarget,
+}: {
+  linkOf: (placeId: string | undefined, messageId: string) => string | null;
+  pulledIds: ReadonlyMap<string, string>;
+  sourceTarget: LinkTarget | null;
+}): (pulledId: string | null) => string | null {
+  const linked = new Set<string>();
+  let first = true;
+  return (pulledId) => {
+    const target = pulledId ? { placeId: pulledIds.get(pulledId), messageId: pulledId } : first ? sourceTarget : null;
+    first = false;
+    if (!target || linked.has(target.messageId)) return null;
+    linked.add(target.messageId);
+    return linkOf(target.placeId, target.messageId);
+  };
+}

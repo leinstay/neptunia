@@ -1,0 +1,353 @@
+// The rights gateway every persona skill call passes before it may run. The persona is their own
+// principal, and a call of theirs runs on their grants alone: who asked for it, one person, several or
+// nobody, refuses nothing. The requester (the member whose message led to the call), the current
+// chat and the audience come from the server, never from the model's arguments. After access, the
+// arguments, a destructive skill's cooldown and the budget are checked, in that order, right before
+// execution, and the operation then applies its own rules when it runs. The effects of an ordinary reply pass `checkReplyEffect`, carried over. Pure: the
+// caller passes the live config (the persona's grants included, `bot.access`) read at the moment of use,
+// the bot's own user id, the image client whose daily caps are the drawing budget, and the errand
+// tasks whose caps are an errand's budget (src/errands/store.ts#budget). Codes are
+// kebab-case; `reason` is a short machine-readable detail (a schema path, a config key, an ops
+// refusal code), never wording. `abilityRoute` decides where a call of a model role that runs as the persona's tool goes when
+// the role is down (src/llm/role-health.ts): to the core model when it declares the role's ability, else nowhere.
+
+import { skillRegistry, describeSkill } from './registry.ts';
+import { CARRIED_OVER, skillAccess } from './access.ts';
+import { schemaError } from './schema.ts';
+import { skillArgs } from './discovery.ts';
+import { MINUTE_MS } from '../time.ts';
+import { CODE } from './codes.ts';
+import { CORE_ROLE, ROLE_ABILITY, modelAbilities, roleModel } from '../llm/roles.ts';
+import type { RoleDownReason, RoleHealth } from '../llm/role-health.ts';
+import { idText, isObj, objOf } from './types.ts';
+import { ERRAND_TOOLS } from './definitions.ts';
+import type { Skill, SkillMap } from './types.ts';
+import type { WakeAction } from './access.ts';
+import type { PlaceCandidate, PlaceChoices } from './place-names.ts';
+import { MCP_TOOL_PREFIX } from '../subharness/mcp-server.ts';
+
+/**
+ * A refusal of a call: its code and a short machine-readable detail. A read call that named a place which is not one
+ * place also carries `choices`, the places the persona may read (src/tools/place-names.ts), and `place`, what renders them.
+ */
+export type Refusal = {
+  ok: false;
+  code: string;
+  reason: string;
+  values?: Readonly<Record<string, unknown>>;
+  choices?: ReadonlyArray<PlaceCandidate>;
+  place?: { match: PlaceChoices & { kind: 'several' | 'none' | 'found' }; given: string };
+};
+
+/** The member whose message led to a call. */
+export type Requester = { id?: string | null; roleIds?: ReadonlyArray<string> };
+
+/** Where a call is made: the current chat and who is in it. */
+export type Audience = { chatId?: string | null; accountIds?: ReadonlyArray<string> };
+
+/** What a budget answers: whether a cap is spent, and which one when it is not the drawing's. */
+type Budget = { spent?: boolean; userSpent?: boolean; code?: string; key?: string };
+
+/**
+ * What the gateway reads from the caller beside the config: the registry and operation lookup, the clients whose
+ * caps are the budgets, the turn's wake and its last destructive run. Every field is optional but `config`.
+ */
+export type GateContext = {
+  config?: unknown;
+  selfId?: string | null;
+  images?: { quota?: (who: { accountId: string | null }) => unknown };
+  speech?: { quota?: () => unknown };
+  tasks?: { budget?: (agent: unknown) => unknown };
+  registry?: SkillMap;
+  ownInitiative?: boolean;
+  wakeKind?: string;
+  wakeActions?: ReadonlyArray<WakeAction>;
+  lastRunAt?: number | null;
+  now?: number;
+};
+
+function refused(code: string, reason: string): Refusal {
+  return { ok: false, code, reason };
+}
+
+/** The chat a call aims at: its `place` argument (an id the interface resolved), else the current one. */
+function targetChat(args: unknown, audience: Audience | null): string | null {
+  const given = isObj(args) ? args.place : undefined;
+  return given === undefined || given === null ? (audience?.chatId ?? null) : idText(given);
+}
+
+/**
+ * The budget of a paid skill that has one: a function of the call's context answering
+ * `{ spent }` (`code` and `key` naming the refusal and the cap that is spent), or null when unavailable. An errand's is
+ * its agent's caps (open tasks and tasks a day), `context.tasks`, the agent the tool files for (ERRAND_TOOLS); a drawing
+ * and a voice message have no daily budget.
+ */
+const taskBudget =
+  (agent: string) =>
+  (context: GateContext): unknown =>
+    typeof context.tasks?.budget === 'function' ? context.tasks.budget(agent) : null;
+const BUDGETS: Readonly<Record<string, (context: GateContext) => unknown>> = Object.freeze(
+  Object.fromEntries(Object.entries(ERRAND_TOOLS).map(([tool, agent]) => [tool, taskBudget(agent)]))
+);
+
+/** Minutes between two destructive calls from one channel (`tools.destructiveCooldownMinutes`; config.json's value). */
+const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
+
+/**
+ * Null unless a call of this destructive skill (src/tools/definitions.ts) from this channel succeeded less than
+ * `tools.destructiveCooldownMinutes` ago (`context.lastRunAt`, the caller's record, against
+ * `context.now`), else `cooldown` with its values: `window`, the setting's minutes, and `minutes`, the whole
+ * minutes left until the skill may run again (rounded up, at least 1).
+ */
+function cooldownRefusal(skill: Skill, context: GateContext): Refusal | null {
+  const { lastRunAt, now } = context;
+  if (skill.effects !== 'destructive' || typeof lastRunAt !== 'number' || typeof now !== 'number') return null;
+  if (!Number.isFinite(lastRunAt) || !Number.isFinite(now)) return null;
+  const given = objOf(objOf(context.config).tools).destructiveCooldownMinutes;
+  const minutes = typeof given === 'number' ? given : DESTRUCTIVE_COOLDOWN_MINUTES;
+  const left = minutes * MINUTE_MS - (now - lastRunAt);
+  if (left <= 0) return null;
+  const wait = Math.min(minutes, Math.max(1, Math.ceil(left / MINUTE_MS)));
+  return { ...refused(CODE.COOLDOWN, 'tools.destructiveCooldownMinutes'), values: { minutes: wait, window: minutes } };
+}
+
+/** Null when a paid skill with a budget still has some today, else the refusal; a budget it cannot read fails closed. */
+function budgetRefusal(skill: Skill, context: GateContext): Refusal | null {
+  if (skill.costClass !== 'paid') return null;
+  const ask = BUDGETS[skill.name];
+  if (!Object.hasOwn(BUDGETS, skill.name) || ask === undefined) return null;
+  const answer = ask(context);
+  if (!isObj(answer)) return refused(CODE.NO_BUDGET, 'unavailable');
+  const budget: Budget = answer;
+  if (budget.spent === true)
+    return refused(
+      typeof budget.code === 'string' && budget.code ? budget.code : CODE.DAILY_CAP,
+      typeof budget.key === 'string' && budget.key ? budget.key : 'unavailable'
+    );
+  return null;
+}
+
+/**
+ * Whether the persona may make one skill call now. Checks, in order: the principal is the
+ * persona; `features.tools` is on (off: everything refused); the registry has the skill; the persona
+ * may use it (src/tools/access.ts#skillAccess: a carried-over skill aimed at the current
+ * chat -- no `channel` argument, or the current one -- else a grant to their user id, never
+ * in safe mode); the arguments match its schema; a
+ * destructive skill's cooldown in this channel (`context.lastRunAt`, `context.now`); a paid
+ * skill's budget. Where a message may go and whose message may be changed is
+ * the operation's own rule (src/tools/operations/message.ts), checked when it runs. Never throws.
+ * `wakeKind` and `wakeActions` (an inner turn, with `ownInitiative`): the wake envelope is checked with the access.
+ */
+export function checkSkill({
+  skill: name,
+  args,
+  principal,
+  audience,
+  context = {},
+}: {
+  skill: string;
+  args: unknown;
+  principal: { kind?: string } | null | undefined;
+  audience?: Audience | null;
+  context?: GateContext;
+}): { ok: true } | Refusal {
+  if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, idText(principal?.kind));
+  const registry = context.registry ?? skillRegistry();
+  const skill = registry.get(name);
+  if (!skill) return refused(CODE.UNKNOWN_SKILL, idText(name));
+  const given = objOf(args);
+
+  const access = skillAccess({
+    skill,
+    selfId: context.selfId ?? null,
+    config: context.config,
+    chatId: targetChat(args, null),
+    currentChatId: audience?.chatId ?? null,
+    // An inner turn's wake envelope (src/tools/access.ts#wakeEnvelopeRefusal): its kind and the turn's calls so far.
+    wakeKind: context.ownInitiative === true && typeof context.wakeKind === 'string' ? context.wakeKind : null,
+    wakeActions: Array.isArray(context.wakeActions) ? context.wakeActions : null,
+  });
+  if (!access.allowed)
+    return refused(access.reason, access.detail ?? (access.reason === CODE.SAFE_MODE ? 'tools.safeMode' : skill.name));
+
+  // A file-only post: the persona's text (the body argument) left empty beside a file (src/tools/executors.ts#resolveCall); a GIF-only post: no text beside a `gif`.
+  const bodyArg = skill.dispatch?.body ?? null;
+  const body = bodyArg === null ? undefined : given[bodyArg];
+  const gifOnly =
+    bodyArg !== null &&
+    (body === '' || body === undefined) &&
+    ((typeof given.gif === 'string' && given.gif !== '') || (typeof given.media === 'string' && given.media !== ''));
+  const fileOnly = gifOnly || (bodyArg !== null && body === '' && typeof given.file === 'string' && given.file !== '');
+  const argsError = fileOnly
+    ? schemaError(Object.fromEntries(Object.entries(given).filter(([key]) => key !== bodyArg)), {
+        ...skill.argsSchema,
+        required: (skill.argsSchema.required ?? []).filter((key) => key !== bodyArg),
+      })
+    : schemaError(args, skill.argsSchema);
+  if (argsError) return refused(CODE.INVALID_ARGS, argsError);
+
+  return cooldownRefusal(skill, context) ?? budgetRefusal(skill, context) ?? { ok: true };
+}
+
+/**
+ * Whether one effect of the persona's ordinary reply may happen now -- a `<msg>` or `<gif>`
+ * (`message.create`), a `<react>` (`message.react.add`), a `draw.create` call, always in the
+ * current chat: carried over without a grant (src/tools/access.ts#CARRIED_OVER), even in
+ * safe mode. Never throws.
+ */
+export function checkReplyEffect({
+  skill,
+  principal,
+}: {
+  skill: string;
+  principal: { kind?: string } | null | undefined;
+}): { ok: true } | Refusal {
+  if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, idText(principal?.kind));
+  if (!CARRIED_OVER.includes(skill)) return refused(CODE.UNKNOWN_SKILL, idText(skill));
+  return { ok: true };
+}
+
+/**
+ * The catalogue as the persona would see it in `audience`'s chat (the discovery step: what they
+ * can do is what is granted to them): one row per registry skill whose
+ * feature switch is on (src/tools/access.ts#skillFeatureOn), in order, `{ name, title,
+ * whenToUse, allowed, reason }`, the texts from the skills layer (`texts`: `hot.prompts.tools`,
+ * '' when missing). `reason` is skillAccess's (`carried-over`, `allowed`, `not-allowed`,
+ * `safe-mode`, `skills-off`). `args` is what the skill takes (src/tools/discovery.ts#skillArgs:
+ * the command's option names, for `<skills>` to list); the arguments' values, targets and budget
+ * are per call and left to `checkSkill`. The callers pass `requester` and `getOp`, and the rows
+ * read neither: they are the same for whoever asks.
+ */
+export function listSkills({
+  config,
+  selfId = null,
+  texts,
+  audience = {},
+  registry = skillRegistry(),
+}: {
+  config: unknown;
+  selfId?: string | null;
+  texts?: unknown;
+  requester?: Requester | null;
+  audience?: Audience;
+  registry?: SkillMap;
+  getOp?: (name: string) => unknown;
+}): Array<ListedSkill> {
+  const rows: Array<ListedSkill> = [];
+  for (const skill of registry.values()) {
+    const { title, whenToUse } = describeSkill(skill, texts);
+    const current = audience?.chatId ?? null;
+    const { allowed, reason } = skillAccess({
+      skill,
+      config,
+      selfId,
+      chatId: current,
+      currentChatId: current,
+    });
+    rows.push({ name: skill.name, title, whenToUse, allowed, reason, args: skillArgs(skill) });
+  }
+  return rows;
+}
+
+/** One row of the catalogue as the persona would see it. */
+export type ListedSkill = {
+  name: string;
+  title: string;
+  whenToUse: string;
+  allowed: boolean;
+  reason: string;
+  args: ReturnType<typeof skillArgs>;
+};
+
+/**
+ * A tool name as the persona's definitions hold it. On Claude's subscription route the model calls each tool as
+ * `mcp__nep__<name>` (src/subharness/mcp-server.ts), and the prefix goes before anything reads the call.
+ */
+export function bareToolName(name: string): string {
+  return name.startsWith(MCP_TOOL_PREFIX) ? name.slice(MCP_TOOL_PREFIX.length) : name;
+}
+
+/** The model roles that run as the persona's tools and fall back to the core model, in the order their route line names them. */
+export const TOOL_ROLES = Object.freeze(['vision', 'video', 'drawing', 'speech'] as const);
+
+/** Where one call of a model role goes: its own model, the core model, or nowhere. */
+export type AbilityRoute =
+  | { kind: 'role'; role: string; model: string }
+  | { kind: 'core'; role: string; ability: string; model: string; reason: RoleDownReason }
+  | { kind: 'unavailable'; role: string; ability: string; reason: RoleDownReason };
+
+const isToolRole = (role: string): boolean => TOOL_ROLES.some((name) => name === role);
+
+/** The ability a model role serves (src/llm/roles.ts#ROLE_ABILITY), `text` for one that names none. */
+function abilityOf(role: string): string {
+  const table: Readonly<Record<string, string>> = ROLE_ABILITY;
+  return Object.hasOwn(table, role) ? (table[role] ?? 'text') : 'text';
+}
+
+/**
+ * The route of one call of `role` now: its own model while `health` says it is up; when it is down, the core model if
+ * the core declares the role's ability (`models.abilities.<model id>`), else `unavailable` with why the role is down.
+ * Only the tool roles (TOOL_ROLES) fall back: the analyzer and the embedding role always go to their own model.
+ */
+export function abilityRoute({
+  config,
+  role,
+  health,
+}: {
+  config: unknown;
+  role: string;
+  health: RoleHealth | null;
+}): AbilityRoute {
+  // roleModel and modelAbilities read the config as an object; any other value has no models and gives the defaults.
+  const models = config !== null && typeof config === 'object' ? config : undefined;
+  const own = { kind: 'role', role, model: String(roleModel(models, role) ?? '') } as const;
+  const down = isToolRole(role) ? (health?.down(config, role) ?? null) : null;
+  if (down === null) return own;
+  const ability = abilityOf(role);
+  const core = String(roleModel(models, CORE_ROLE) ?? '');
+  return modelAbilities(models, core).includes(ability)
+    ? { kind: 'core', role, ability, model: core, reason: down.reason }
+    : { kind: 'unavailable', role, ability, reason: down.reason };
+}
+
+/**
+ * One call of `role` on its route: `call` runs with the core model's id when the route is the core, with null for the
+ * role's own model, and not at all when it is `unavailable`. `call` tells `health` how its own model's request went;
+ * when that put the role down, the same call is routed again at once. Resolves the route the value came from.
+ */
+export async function callOnRoute<TValue>({
+  config,
+  role,
+  health,
+  call,
+}: {
+  config: unknown;
+  role: string;
+  health: RoleHealth | null;
+  call: (model: string | null) => Promise<TValue>;
+}): Promise<{ route: AbilityRoute; value: TValue | null }> {
+  const first = abilityRoute({ config, role, health });
+  if (first.kind === 'unavailable') return { route: first, value: null };
+  const value = await call(first.kind === 'core' ? first.model : null);
+  if (first.kind === 'core') return { route: first, value };
+  const again = abilityRoute({ config, role, health });
+  if (again.kind === 'role') return { route: first, value };
+  return { route: again, value: again.kind === 'core' ? await call(again.model) : null };
+}
+
+/** The result of a call that did not happen because its role is down and the core model lacks the ability. */
+export function abilityUnavailable(route: { ability: string; reason: RoleDownReason }): {
+  status: 'failed';
+  code: string;
+  values: { ability: string; why: RoleDownReason };
+  route: 'unavailable';
+  data: { text: string };
+} {
+  return {
+    status: 'failed',
+    code: CODE.ABILITY_UNAVAILABLE,
+    values: { ability: route.ability, why: route.reason },
+    route: 'unavailable',
+    data: { text: '' },
+  };
+}

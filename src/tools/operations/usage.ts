@@ -1,0 +1,732 @@
+// The costs fields of the owner's `status.show` card: `keys.base`, what each OpenRouter key of the
+// core allows and has spent; `costs.base`, today's requests per model role from the bot's own
+// accounting (drawing's row included); `costs.errands`, the errand agents' runs and estimated spend (scout and
+// server from the errand records, src/errands/costs.ts), rendered here by agentCostsLines. The
+// accumulator is fed by the `llm: usage` log lines (src/log.ts#onLog, subscribed in src/index.ts
+// via `usageTap`), the one place every chat completion and embedding request reports its tokens
+// and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no
+// tokens); it keeps the last KEEP_DAYS UTC days (today included), in memory, and the database `usage.json` unit
+// keeps them across a restart (written at most once a minute, and once more on shutdown;
+// through the memory writer). A line that names the interface of its turn (`iface`) also adds to that interface's row
+// of the day, kept apart from the role rows. Only numbers, role codes and interface names are kept. The costs are OpenRouter's reported
+// ones: a BYOK request is billed by the provider and shows here at OpenRouter's list price (the
+// upstream cost when the answer carries it). The renderers are pure and take every word from
+// `labels.status.costs`.
+
+import * as nodeFs from 'node:fs';
+import path from 'node:path';
+import { operationalValue } from '../../memory/db/operational.ts';
+import { PERSONA_ID } from '../../memory/db/ids.ts';
+
+import { createReadSeam } from '../../memory/db/readers/common.ts';
+import type { MemoryDbService } from '../../memory/db/service.ts';
+import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../../time.ts';
+import { fill } from '../../format.ts';
+import { log as defaultLog } from '../../log.ts';
+import { IMAGE_ROLE } from '../../llm/images.ts';
+import { isAgentName } from '../../agent-runner/profiles.ts';
+import { isObj, objOf } from '../types.ts';
+import type { Obj, Untyped } from '../types.ts';
+
+/** A role's counters: requests, tokens and dollars. */
+export type Counters = {
+  requests: number;
+  promptTokens: number;
+  cachedTokens: number;
+  completionTokens: number;
+  cost: number;
+};
+
+/** One role's row of the accumulator. */
+export type RoleRow = Counters & { role: string };
+
+/** One interface's row of a sum: the requests of the turns of that interface. */
+export type InterfaceRow = Counters & { iface: string };
+
+/** What a sum over days answers: the rows per role and, apart, the rows per interface of the requests that named one. */
+export type DaysSum = {
+  rows: Array<RoleRow>;
+  interfaces: Array<InterfaceRow>;
+  total: Counters;
+  since: string;
+  partial: boolean;
+};
+
+/** One request as the accumulator records it. */
+export type UsageEntry = {
+  role?: string | null;
+  /** The interface of the turn the request belongs to; none adds no interface row. */
+  iface?: string | null;
+  promptTokens?: unknown;
+  cachedTokens?: unknown;
+  completionTokens?: unknown;
+  cost?: unknown;
+};
+
+/** The accumulator `createUsage` builds. */
+export type Usage = {
+  record(entry?: UsageEntry): void;
+  byRole(): Array<RoleRow>;
+  sumDays(days: number, filter?: { only?: ReadonlyArray<string>; except?: ReadonlyArray<string> }): DaysSum;
+  save(opts?: { force?: boolean }): Promise<boolean>;
+};
+
+/** An account or activity read: the answer's data, or why there is none. */
+export type AccountRead = { ok: true; data: Untyped } | { ok: false; reason: string; status?: number | null };
+
+/** The file under `data/` the per-day accumulator persists in. */
+export const USAGE_FILE = 'usage.json';
+
+/** How many UTC days the accumulator keeps, today included: enough for a rolling 30-day sum. */
+export const KEEP_DAYS = 31;
+
+/** The least time between two writes of the file (a forced write on shutdown aside). */
+export const SAVE_EVERY_MS = MINUTE_MS;
+
+/** The file's schema version. */
+const VERSION = 1;
+
+/** The role a generated picture counts under (src/llm/images.ts#IMAGE_ROLE). */
+const DRAWING_ROLE = IMAGE_ROLE;
+
+/** The role code of a usage line that names none. */
+const NO_ROLE = 'other';
+
+const COUNTERS: ReadonlyArray<keyof Counters> = Object.freeze([
+  'requests',
+  'promptTokens',
+  'cachedTokens',
+  'completionTokens',
+  'cost',
+]);
+
+const isAmount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+const amountOr0 = (value: unknown): number => (isAmount(value) ? value : 0);
+
+/** A UTC day key, `YYYY-MM-DD`. */
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Role rows by cost, then requests (both descending), then role name. */
+function sortRows(rows: Array<RoleRow>): Array<RoleRow> {
+  return rows.sort(
+    (a, b) => b.cost - a.cost || b.requests - a.requests || (a.role < b.role ? -1 : a.role > b.role ? 1 : 0)
+  );
+}
+
+/** A role's counters with every field a finite number >= 0 (0 for anything else). */
+function cleanRow(row: unknown): Counters {
+  const given = objOf(row);
+  return Object.fromEntries(COUNTERS.map((key) => [key, amountOr0(given[key])])) as Counters;
+}
+
+/**
+ * Create the accumulator, loading `data/usage.json` when it is there (a missing or broken file
+ * starts empty; days older than the last KEEP_DAYS, or after today, are dropped). A file of the
+ * older two-day format loads as it is.
+ *
+ * `dataDir` is the `data/` directory, `fs` a `node:fs`-shaped API (`readFileSync`, `promises.mkdir|writeFile|rename`).
+ * `record` adds one request to today's row of its role (`other` without one; a count that is
+ *   not a finite number >= 0 adds 0). `byRole` lists today's roles by cost, then requests (both
+ *   descending), then role name. `sumDays` sums the last `days` UTC days, today included (at most
+ *   KEEP_DAYS), over the roles in `only` (when given) and not in `except`: `rows` per role in
+ *   `byRole`'s order, `total` (every counter summed), `since` the first day the sum covers -- the
+ *   window's first day, or the accumulator's first kept day when it holds fewer days (today when it
+ *   is empty) -- and `partial` whether `since` is later than the window's first day. `save` writes the file when a request came since the last write
+ *   and, unless `force`, a minute has passed since it; resolves whether it wrote. A failed write
+ *   is logged (`usage: save failed`, its code) and tried again on the next call.
+ */
+export function createUsage({
+  dataDir,
+  memoryDb,
+  now = Date.now,
+  fs = nodeFs,
+  log = defaultLog,
+}: {
+  dataDir: string;
+  memoryDb?: Pick<MemoryDbService, 'readHandle' | 'writeOperational'>;
+  now?: () => number;
+  fs?: typeof nodeFs;
+  log?: { warn: (message: string, fields?: Obj) => void };
+}): Usage {
+  const file = path.join(dataDir, USAGE_FILE);
+  const seam = createReadSeam({ memoryDb, log, reader: 'usage' });
+  const days: Record<string, Record<string, Counters>> = {}; // day -> role -> counters
+  const ifaces: Record<string, Record<string, Counters>> = {}; // day -> interface -> counters
+  let dirty = false;
+  let lastSaveAt = -Infinity;
+  let chain: Promise<void> = Promise.resolve();
+
+  /** Only the last KEEP_DAYS UTC days, today included, stay. */
+  function prune(): void {
+    const nowMs = now();
+    const today = utcDay(nowMs);
+    const first = utcDay(nowMs - (KEEP_DAYS - 1) * DAY_MS);
+    for (const kept of [days, ifaces])
+      for (const day of Object.keys(kept)) if (!DAY_KEY.test(day) || day < first || day > today) delete kept[day];
+  }
+
+  /** `stored` (day -> key -> counters) into `into`, every counter cleaned. */
+  function readDays(stored: Obj, into: Record<string, Record<string, Counters>>): void {
+    for (const [day, keyed] of Object.entries(stored)) {
+      if (!isObj(keyed)) continue;
+      into[day] = Object.fromEntries(
+        Object.entries(keyed)
+          .filter(([, row]) => isObj(row))
+          .map(([key, row]) => [key, cleanRow(row)])
+      );
+    }
+  }
+
+  function load(): void {
+    let parsed: unknown;
+    try {
+      parsed = memoryDb
+        ? seam.run(() => {
+            const stored = operationalValue(seam.db(), 'usage', PERSONA_ID);
+            return stored.found ? stored.value : null;
+          })
+        : (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown);
+    } catch (error) {
+      if (memoryDb) throw error;
+      const code = objOf(error).code;
+      if (code !== 'ENOENT') log.warn('usage: load failed', { code: code ?? null });
+      return;
+    }
+    const stored = objOf(parsed).days;
+    if (!isObj(stored)) return;
+    readDays(stored, days);
+    // A file written before the interface rows has none: the days load as they are.
+    const byIface = objOf(parsed).interfaces;
+    if (isObj(byIface)) readDays(byIface, ifaces);
+    prune();
+  }
+
+  function record({ role, iface, promptTokens, cachedTokens, completionTokens, cost }: UsageEntry = {}): void {
+    const day = utcDay(now());
+    const add = (row: Counters): void => {
+      row.requests += 1;
+      row.promptTokens += amountOr0(promptTokens);
+      row.cachedTokens += amountOr0(cachedTokens);
+      row.completionTokens += amountOr0(completionTokens);
+      row.cost += amountOr0(cost);
+    };
+    const key = typeof role === 'string' && role ? role : NO_ROLE;
+    add(((days[day] ??= {})[key] ??= cleanRow(null)));
+    if (typeof iface === 'string' && iface) add(((ifaces[day] ??= {})[iface] ??= cleanRow(null)));
+    prune();
+    dirty = true;
+  }
+
+  function byRole(): Array<RoleRow> {
+    const today = days[utcDay(now())] ?? {};
+    return sortRows(Object.entries(today).map(([role, row]) => ({ role, ...row })));
+  }
+
+  /** The interface rows of the days from `start` to `today`, by cost, then requests, then name. */
+  function sumInterfaces(start: string, today: string): Array<InterfaceRow> {
+    const byIface: Record<string, Counters> = {};
+    for (const [day, keyed] of Object.entries(ifaces)) {
+      if (day < start || day > today) continue;
+      for (const [iface, row] of Object.entries(keyed)) {
+        const sum = (byIface[iface] ??= cleanRow(null));
+        for (const field of COUNTERS) sum[field] += amountOr0(row[field]);
+      }
+    }
+    return Object.entries(byIface)
+      .map(([iface, row]) => ({ iface, ...row }))
+      .sort((a, b) => b.cost - a.cost || b.requests - a.requests || (a.iface < b.iface ? -1 : 1));
+  }
+
+  function sumDays(
+    count: number,
+    { only, except }: { only?: ReadonlyArray<string>; except?: ReadonlyArray<string> } = {}
+  ): DaysSum {
+    const nowMs = now();
+    const today = utcDay(nowMs);
+    const span = Number.isInteger(count) && count > 0 ? Math.min(count, KEEP_DAYS) : 1;
+    const start = utcDay(nowMs - (span - 1) * DAY_MS);
+    const kept = Object.keys(days)
+      .filter((day) => day <= today)
+      .sort();
+    const first = kept[0];
+    const since = first === undefined ? today : first > start ? first : start;
+    const onlySet = Array.isArray(only) ? new Set(only) : null;
+    const exceptSet = new Set(Array.isArray(except) ? except : []);
+    const sums: Record<string, Counters> = {};
+    for (const [day, roles] of Object.entries(days)) {
+      if (day < start || day > today) continue;
+      for (const [role, row] of Object.entries(roles)) {
+        if ((onlySet && !onlySet.has(role)) || exceptSet.has(role)) continue;
+        const sum = (sums[role] ??= cleanRow(null));
+        for (const field of COUNTERS) sum[field] += amountOr0(row[field]);
+      }
+    }
+    const rows = sortRows(Object.entries(sums).map(([role, row]) => ({ role, ...row })));
+    const total = cleanRow(null);
+    for (const row of rows) for (const field of COUNTERS) total[field] += row[field];
+    return { rows, interfaces: sumInterfaces(start, today), total, since, partial: since !== start };
+  }
+
+  async function write(): Promise<void> {
+    prune();
+    // The interface and key rows go in only when a request named one, so a file without them stays as it was.
+    const value = {
+      v: VERSION,
+      days,
+      ...(Object.keys(ifaces).length > 0 ? { interfaces: ifaces } : {}),
+    };
+    if (memoryDb) {
+      await memoryDb.writeOperational({ op: 'value', of: 'usage', subject: PERSONA_ID, value });
+      return;
+    }
+    const text = JSON.stringify(value);
+    const tmp = `${file}.tmp`;
+    await fs.promises.mkdir(dataDir, { recursive: true });
+    await fs.promises.writeFile(tmp, text);
+    await fs.promises.rename(tmp, file);
+  }
+
+  function save({ force = false }: { force?: boolean } = {}): Promise<boolean> {
+    const run = chain.then(async (): Promise<boolean> => {
+      if (!dirty || (!force && now() - lastSaveAt < SAVE_EVERY_MS)) return false;
+      dirty = false;
+      try {
+        await write();
+        lastSaveAt = now();
+        return true;
+      } catch (error) {
+        dirty = true;
+        log.warn('usage: save failed', { code: objOf(error).code ?? null });
+        return false;
+      }
+    });
+    chain = run.then(
+      () => {},
+      () => {}
+    );
+    return run;
+  }
+
+  load();
+  return { record, byRole, sumDays, save };
+}
+
+/**
+ * A log listener (src/log.ts#onLog) feeding `usage` from every `llm: usage` line: its role, its interface, prompt,
+ * cached and completion tokens, and its cost (`upstreamCost` when the line has one, else `cost`);
+ * and from every `images: generated` line (src/llm/images.ts, which logs no `llm: usage`): one
+ * request of the `drawing` role with its `cost` and no tokens, and every `speech: synthesized` line
+ * (src/speech/synth.ts): one request of the `speech` role, its estimated `cost`.
+ * Never throws on an odd entry.
+ */
+export function usageTap(usage: Pick<Usage, 'record'>): (entry: unknown) => void {
+  return (given) => {
+    if (!isObj(given)) return;
+    const entry = given;
+    if (entry.msg === 'images: generated') {
+      usage.record({ role: DRAWING_ROLE, cost: entry.cost });
+      return;
+    }
+    // A voice synthesis (src/speech/synth.ts): one request of the `speech` role with its estimated cost and no tokens.
+    if (entry.msg === 'speech: synthesized') {
+      usage.record({ role: typeof entry.role === 'string' ? entry.role : null, cost: entry.cost });
+      return;
+    }
+    if (entry.msg !== 'llm: usage') return;
+    usage.record({
+      role: typeof entry.role === 'string' ? entry.role : null,
+      iface: typeof entry.iface === 'string' ? entry.iface : null,
+      promptTokens: entry.promptTokens,
+      cachedTokens: entry.cachedTokens,
+      completionTokens: entry.completionTokens,
+      cost: isAmount(entry.upstreamCost) ? entry.upstreamCost : entry.cost,
+    });
+  };
+}
+
+/**
+ * One read-only account GET of the llm client (`keyInfo`, src/llm/openrouter.ts),
+ * reduced to `{ ok: true, data }` (the answer's `data` object) or `{ ok: false, reason, status? }`
+ * with `reason` one of `no-client` (no such method), `http` (a non-2xx answer, with its status),
+ * `bad-answer` (no `data` object), `timeout`, `network`. Never rejects.
+ */
+export async function readAccount(call: AccountCall): Promise<AccountRead> {
+  return readData(call, isObj);
+}
+
+/** An account GET of the llm client: its status and parsed body. */
+export type AccountCall = (() => Promise<{ ok: boolean; status: number; json: Obj | null }>) | null | undefined;
+
+/**
+ * One activity GET of the llm client (`activity`, src/llm/openrouter.ts), reduced like
+ * `readAccount`, its `data` being the answer's array of rows. Never rejects.
+ */
+export async function readActivity(call: AccountCall): Promise<AccountRead> {
+  return readData(call, Array.isArray);
+}
+
+/** `readAccount` / `readActivity`: the answer's `data` when `accept` takes it. */
+async function readData(call: AccountCall, accept: (value: unknown) => boolean): Promise<AccountRead> {
+  if (typeof call !== 'function') return { ok: false, reason: 'no-client' };
+  let answer: Awaited<ReturnType<NonNullable<AccountCall>>>;
+  try {
+    answer = await call();
+  } catch (err) {
+    const name = objOf(err).name;
+    return { ok: false, reason: name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'network' };
+  }
+  if (!answer.ok) return { ok: false, reason: 'http', status: answer.status };
+  const data = answer.json?.data;
+  if (!accept(data)) return { ok: false, reason: 'bad-answer' };
+  return { ok: true, data };
+}
+
+/**
+ * A key's spend over the completed UTC days of the last 7 and 30 (today excluded: 6 and 29 days
+ * before `today`) from its activity rows (GET /activity's `data`: one row per day, model and
+ * endpoint, `date` `YYYY-MM-DD ...`); a day's spend is `usage + byok_usage_inference` summed over
+ * its rows (a field that is not a finite number >= 0 counts 0). Null when `rows` is no array. Pure.
+ * `today` is `YYYY-MM-DD`, UTC.
+ */
+export function activitySums(rows: unknown, today: string): { last7: number; last30: number } | null {
+  if (!Array.isArray(rows)) return null;
+  const todayMs = Date.parse(`${today}T00:00:00.000Z`);
+  const sums = { last7: 0, last30: 0 };
+  for (const entry of rows as Array<unknown>) {
+    const row = objOf(entry);
+    const day = typeof row.date === 'string' ? row.date.slice(0, 10) : '';
+    if (!DAY_KEY.test(day)) continue;
+    const back = Math.round((todayMs - Date.parse(`${day}T00:00:00.000Z`)) / DAY_MS);
+    if (!(back >= 1 && back <= 29)) continue;
+    const spend = amountOr0(row.usage) + amountOr0(row.byok_usage_inference);
+    sums.last30 += spend;
+    if (back <= 6) sums.last7 += spend;
+  }
+  return sums;
+}
+
+/** A token count for the card: `812`, `9.3k`, `974k`, `1.23M`. */
+export function compactTokens(n: unknown): string {
+  const value = amountOr0(n);
+  if (value < 1000) return String(Math.round(value));
+  if (value < 10_000) return `${(value / 1000).toFixed(1)}k`;
+  if (Math.round(value / 1000) < 1000) return `${Math.round(value / 1000)}k`;
+  return `${(value / 1_000_000).toFixed(2)}M`;
+}
+
+/** Dollars with two decimals. */
+const usd = (value: unknown): string => amountOr0(value).toFixed(2);
+
+/** Dollars per request with three decimals, a half rounded up (a float quotient lands just under it). */
+const perRequest = (cost: unknown, requests: number): string =>
+  (Math.round((amountOr0(cost) / requests) * 1000 + 1e-6) / 1000).toFixed(3);
+
+/** `fill` of a label that is a non-empty string; null otherwise (the line is left out). */
+function line(template: unknown, values: Obj): string | null {
+  return typeof template === 'string' && template ? fill(template, values) : null;
+}
+
+/** \`labels.status.costs\`, or null when the labels hold none. */
+function costsLabels(labels: unknown): Untyped {
+  const costs = objOf(objOf(labels).status).costs;
+  return isObj(costs) ? (costs as Untyped) : null;
+}
+
+/** `labels.status.costs` as a plain record of words, or null when the labels hold none. */
+function costsWords(labels: unknown): Obj | null {
+  const costs = objOf(objOf(labels).status).costs;
+  return isObj(costs) ? costs : null;
+}
+
+/** Why an account read failed, through `labels.reasons`. */
+function reasonText(outcome: { reason: string; status?: number | null }, L: Untyped): string {
+  const reasons = objOf(L.reasons);
+  const keys: Record<string, string> = {
+    timeout: 'timeout',
+    network: 'network',
+    http: 'http',
+    'no-client': 'noClient',
+    'bad-answer': 'badAnswer',
+  };
+  const key = keys[outcome.reason] ?? 'badAnswer';
+  return line(reasons[key], { status: outcome.status ?? '-' }) ?? outcome.reason;
+}
+
+/** The budget that describes the key's limit: the `key_limit` one, else the effective budget, else the first. */
+function keyBudget(data: Untyped): Untyped {
+  const budgets: Array<Untyped> = Array.isArray(data.budgets) ? (data.budgets as Array<unknown>).filter(isObj) : [];
+  return (
+    budgets.find((budget) => budget.scope === 'key_limit') ??
+    (isObj(data.effective_budget) ? data.effective_budget : null) ??
+    budgets[0] ??
+    null
+  );
+}
+
+const INTERVAL_USAGE: Readonly<Record<string, string>> = Object.freeze({
+  daily: 'usage_daily',
+  weekly: 'usage_weekly',
+  monthly: 'usage_monthly',
+});
+
+/** The rolling windows of a usage line, in order: the `sumDays` result's key and its label. */
+const WINDOWS = Object.freeze([
+  ['last7', 'last7'],
+  ['last30', 'last30'],
+]);
+
+/** What the key has spent against `limit`: the budget's own figure, else the limit less what remains, else the usage of its window. */
+function spentOf(data: Untyped, budget: Untyped, limit: number, interval: unknown): number | null {
+  if (isAmount(budget?.spend_usd)) return budget.spend_usd as number;
+  const remaining = isAmount(budget?.remaining_usd) ? budget.remaining_usd : data.limit_remaining;
+  if (isAmount(remaining)) return Math.max(0, limit - remaining);
+  if (interval === null && isAmount(data.usage)) return data.usage as number;
+  const field = typeof interval === 'string' ? INTERVAL_USAGE[interval] : undefined;
+  return field !== undefined && isAmount(data[field]) ? data[field] : null;
+}
+
+/** The key line (src: GET /key's `data`): spend over limit with its notes, or no limit with the total used. */
+function keyLine(data: Untyped, L: Untyped, lead: string): string | null {
+  const budget = keyBudget(data);
+  const limit = isAmount(budget?.limit_usd) ? budget.limit_usd : data.limit;
+  if (!isAmount(limit)) {
+    return isAmount(data.usage) ? line(L.keyNone, { lead, used: usd(data.usage) }) : line(L.keyNonePlain, { lead });
+  }
+  const hasReset = budget && Object.hasOwn(budget, 'reset_interval') ? true : Object.hasOwn(data, 'limit_reset');
+  const interval = budget && Object.hasOwn(budget, 'reset_interval') ? budget.reset_interval : data.limit_reset;
+  const spent = spentOf(data, budget, limit, interval);
+
+  const notes: Array<string | null> = [];
+  if (hasReset) {
+    if (typeof interval === 'string' && interval) {
+      const word =
+        (isObj(L.intervals) && typeof L.intervals[interval] === 'string' && L.intervals[interval]) || interval;
+      const at = budget?.resets_at ? utcMinute(budget.resets_at) : null;
+      notes.push(at && at !== '-' ? line(L.resetsAt, { interval: word, at }) : line(L.resets, { interval: word }));
+    } else {
+      notes.push(line(L.neverResets, {}));
+    }
+  }
+  const byok = typeof budget?.include_byok === 'boolean' ? budget.include_byok : data.include_byok_in_limit;
+  if (byok === true) notes.push(line(L.byokCounted, {}));
+  if (byok === false) notes.push(line(L.byokNotCounted, {}));
+  const kept = notes.filter(Boolean);
+  const values = { lead, spent: spent === null ? '-' : usd(spent), limit: usd(limit) };
+  return kept.length > 0
+    ? line(L.keyLimit, { ...values, notes: kept.join(L.noteSeparator ?? '') })
+    : line(L.keyLimitPlain, values);
+}
+
+/** The usage line of `parts` (the null ones dropped), or null when none is left. */
+function partsLine(parts: ReadonlyArray<string | null>, L: Untyped): string | null {
+  const kept = parts.filter(Boolean);
+  return kept.length > 0 ? line(L.usage, { parts: kept.join(L.partSeparator ?? '') }) : null;
+}
+
+/** The usage line: today from GET /key's `data` (null: not read), then the rolling last 7 and
+ * last 30 days from the bot's own accumulator (`windows`, `sumDays` results), each only when
+ * present; a window shorter than asked carries its first day through `since`. */
+function usageLine(data: Untyped, windows: Untyped, L: Untyped): string | null {
+  const parts: Array<string | null> = [];
+  if (isObj(data) && isAmount(data.usage_daily)) parts.push(line(L.usageToday, { usd: usd(data.usage_daily) }));
+  for (const [key, label] of WINDOWS) {
+    const window = isObj(windows) ? windows[key] : null;
+    if (!isObj(window)) continue;
+    const since = window.partial ? (line(L.since, { day: window.since }) ?? '') : '';
+    parts.push(line(L[label], { usd: usd(objOf(window.total).cost), since }));
+  }
+  return partsLine(parts, L);
+}
+
+/** The usage line with the key's activity (`activitySums`): today from GET /key's `data`, then
+ * the last 7 and 30 days as today plus their completed days. Null without today's figure. */
+function activityLine(data: Untyped, activity: Untyped, L: Untyped): string | null {
+  if (!isObj(data) || !isAmount(data.usage_daily)) return null;
+  const today = data.usage_daily;
+  return partsLine(
+    [
+      line(L.usageToday, { usd: usd(today) }),
+      line(L.last7, { usd: usd(today + amountOr0(activity.last7)), since: '' }),
+      line(L.last30, { usd: usd(today + amountOr0(activity.last30)), since: '' }),
+    ],
+    L
+  );
+}
+
+/** A key's usage line: with its activity (`activityLine`), else `fallback()`. */
+function keyUsageLine(data: Untyped, activity: Untyped, L: Untyped, fallback: () => string | null): string | null {
+  return (isObj(activity) ? activityLine(data, activity, L) : null) ?? fallback();
+}
+
+/** One role row through `template`; a row with no token at all (a drawing) shows its
+ * token counts as `-`; `{avg}` is the cost per request through `L.avg` (three decimals), empty
+ * with no request or no label. */
+function rowLine(template: unknown, row: RoleRow, L: Untyped): string | null {
+  const tokens = row.promptTokens + row.cachedTokens + row.completionTokens > 0;
+  const count = (n: number): string => (tokens ? compactTokens(n) : '-');
+  return line(template, {
+    role: row.role,
+    requests: row.requests,
+    in: count(row.promptTokens),
+    cached: count(row.cachedTokens),
+    out: count(row.completionTokens),
+    cost: usd(row.cost),
+    avg: row.requests > 0 ? (line(L.avg, { usd: perRequest(row.cost, row.requests) }) ?? '') : '',
+  });
+}
+
+/** The roles of a role key as its lead names them: an agent on disk as `agentsName`, any other role as itself, each
+ * shown name once, in order. */
+function shownRoles(roles: ReadonlyArray<string>, agentsName: unknown): Array<string> {
+  const nameOf = (role: string): string =>
+    isAgentName(role) && typeof agentsName === 'string' && agentsName ? agentsName : role;
+  return [...new Set(roles.map(nameOf))];
+}
+
+/**
+ * The `keys.base` field's lines, every word from `labels.status.costs` (a missing
+ * label leaves its line out; no `status.costs` at all gives []): per key, its limit line
+ * immediately followed by its own usage line -- the main key (lead `keyLead`), then each role key
+ * (a key the chains of other roles are on, lead `roleKeyLead` with `{roles}` joined by `roleSeparator`, each role named
+ * through `agentsName` when it is an agent and each name once, so the errand agents' roles show as one word). A limit line is
+ * `keyLimit` with its `notes` (the reset and whether BYOK counts) or `keyLimitPlain`; `keyNone` /
+ * `keyNonePlain` without a limit; `keyUnavailable` on a failed read. A usage line is `usage` of
+ * its parts: for the main and the role keys `usageToday` (today from the key's record) and
+ * `last7` / `last30` (the key's roles' rolling sums from the accumulator, `since` when it holds
+ * fewer days). A key with its activity (the management key's read, `activitySums`)
+ * shows instead `usageToday`, then `last7` and `last30` as today plus the completed days (no
+ * `since`), when its record gives today's figure. The key's label is never read. Pure.
+ * `key` and each role key's `key` as `readAccount` resolves; each
+ *   `activity` as `activitySums` returns (null: not read); `windows` as `createUsage().sumDays`
+ *   returns, the main key's over the roles no role key takes.
+ */
+export function keyCostsLines({
+  key,
+  activity = null,
+  labels,
+  windows = null,
+  roleKeys = [],
+}: {
+  key: AccountRead;
+  activity?: Untyped;
+  labels: unknown;
+  windows?: Untyped;
+  roleKeys?: ReadonlyArray<{ roles: ReadonlyArray<string>; key: AccountRead; activity?: Untyped; windows?: Untyped }>;
+}): Array<string> {
+  const L = costsLabels(labels);
+  if (!L) return [];
+  const lines: Array<string | null> = [];
+  const lead = typeof L.keyLead === 'string' ? L.keyLead : '';
+  const unavailable = (outcome: AccountRead | null | undefined, word: string): string | null =>
+    line(L.keyUnavailable, {
+      lead: word,
+      reason: reasonText(outcome && !outcome.ok ? outcome : { reason: 'bad-answer' }, L),
+    });
+  lines.push(key.ok ? keyLine(key.data, L, lead) : unavailable(key, lead));
+  const dataOf = (outcome: AccountRead | null | undefined): Untyped => (outcome?.ok ? outcome.data : null);
+  lines.push(keyUsageLine(dataOf(key), activity, L, () => usageLine(dataOf(key), windows, L)));
+  for (const extra of Array.isArray(roleKeys) ? roleKeys : []) {
+    const roles = Array.isArray(extra.roles) ? extra.roles : [];
+    const roleLead = line(L.roleKeyLead, {
+      roles: shownRoles(roles, L.agentsName).join(typeof L.roleSeparator === 'string' ? L.roleSeparator : ', '),
+    });
+    if (!roleLead) continue;
+    lines.push(extra.key.ok ? keyLine(extra.key.data, L, roleLead) : unavailable(extra.key, roleLead));
+    lines.push(
+      keyUsageLine(dataOf(extra.key), extra.activity, L, () => usageLine(dataOf(extra.key), extra.windows, L))
+    );
+  }
+  return lines.filter((text): text is string => Boolean(text));
+}
+
+/**
+ * The lines that say which key each role with a key list runs on (`llm.keyStates()`, names only): `labels.status.costs.keyState`
+ * (`{role}`, `{key}`, `{since}`), `{since}` being `keySince` (`{when}`, `when` formats the switch time) once the role has
+ * switched and empty before. [] without the `keyState` label or without a state. Pure.
+ */
+export function keyStateLines({
+  states,
+  labels,
+  when,
+}: {
+  states: ReadonlyArray<{ role: string; key: string; switchedAt: number | null }>;
+  labels: unknown;
+  when: (ms: number) => string;
+}): Array<string> {
+  const L = costsWords(labels);
+  if (!L) return [];
+  const lines = states.map((state) =>
+    line(L.keyState, {
+      role: state.role,
+      key: state.key,
+      since: state.switchedAt === null ? '' : (line(L.keySince, { when: when(state.switchedAt) }) ?? ''),
+    })
+  );
+  return lines.filter((text): text is string => text !== null);
+}
+
+/**
+ * The `costs.base` field's lines, every word from `labels.status.costs` (no
+ * `status.costs` gives []): one `role` line per row in the given order, each with `{avg}`, the
+ * cost per request; `byRoleEmpty` alone when there is no row. No header and no total. Pure.
+ * `rows` are as `createUsage().byRole()` returns.
+ */
+export function roleCostsLines({
+  rows,
+  labels,
+}: {
+  rows: ReadonlyArray<RoleRow> | null;
+  labels: unknown;
+}): Array<string> {
+  const L = costsLabels(labels);
+  if (!L) return [];
+  const list = Array.isArray(rows) ? rows : [];
+  const lines = list.length === 0 ? [line(L.byRoleEmpty, {})] : list.map((row) => rowLine(L.role, row, L));
+  return lines.filter((text): text is string => Boolean(text));
+}
+
+/** The windows of an agent's spend line, in order (src/errands/costs.ts#COST_WINDOWS's names). */
+const AGENT_WINDOWS: ReadonlyArray<string> = Object.freeze(['today', 'last7', 'last30']);
+
+/**
+ * The `costs.errands` field's lines, every word from `labels.status.costs` (no `status.costs`
+ * gives []): one line per agent in the given order, `agentLine` ({agent} {parts}) with one
+ * `agentWindow` part ({window} {runs} {in} {out} {usd}; tokens compact, the window named through
+ * `agentWindows.today | last7 | last30`) per window joined by `partSeparator`, or `agentNoRuns`
+ * ({agent}) when the agent has no run in the last 30 days or no record at all; then `agentEstimate`, the
+ * note that the dollars are OpenCode's estimate. Pure. `totals` is as src/errands/costs.ts#agentCosts returns; an
+ * agent it lacks has no run.
+ */
+export function agentCostsLines({
+  agents,
+  totals,
+  labels,
+}: {
+  agents: ReadonlyArray<string>;
+  totals: Untyped;
+  labels: unknown;
+}): Array<string> {
+  const L = costsLabels(labels);
+  if (!L) return [];
+  const names = objOf(L.agentWindows);
+  const lines = (Array.isArray(agents) ? agents : []).flatMap((agent): Array<string | null> => {
+    const row = isObj(totals) && isObj(totals[agent]) ? (totals[agent] as Untyped) : null;
+    const counted =
+      row && AGENT_WINDOWS.some((window) => amountOr0(row[window]?.runs) > 0 || amountOr0(row[window]?.usd) > 0);
+    if (!counted) return [line(L.agentNoRuns, { agent })];
+    const parts = AGENT_WINDOWS.map((window) => {
+      const sums = objOf(row[window]);
+      const shown = names[window];
+      const name = typeof shown === 'string' && shown ? shown : window;
+      return line(L.agentWindow, {
+        window: name,
+        runs: amountOr0(sums.runs),
+        in: compactTokens(sums.input),
+        out: compactTokens(sums.output),
+        usd: usd(sums.usd),
+      });
+    }).filter(Boolean);
+    return [parts.length > 0 ? line(L.agentLine, { agent, parts: parts.join(L.partSeparator ?? '') }) : null];
+  });
+  return [...lines, line(L.agentEstimate, {})].filter((text): text is string => Boolean(text));
+}

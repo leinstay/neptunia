@@ -1,0 +1,381 @@
+// Operations `intention.set`, `intention.update`, `intention.cancel` and `intention.list`, reached by
+// `intention.* action:add|update|cancel|list`: the persona's intentions
+// (src/intentions/, docs/inner-life.md). `intention.set` (a new one of theirs, `pending`; its purpose
+// the body of their call), `intention.update` (accept a candidate with `state:pending`, close one with
+// `state:done`, drop it with `state:dropped` and a `reason:` (a desire they considered and let go; also
+// `intention.set state:dropped reason:...` records one born dropped), edit its purpose, due time, expiry, destination, chain or completion condition, or
+// set it waiting on an errand: `errand:<errand id>` and/or `deadline:`; a `deadline` without an errand
+// waits on the errand their same turn hands off), `intention.cancel` (also how they reject a
+// candidate), `intention.list`. The persona's own state, so their own calls run on their grant alone
+// (src/tools/definitions.ts, trait `self`). A call never widens anything: a wait
+// names only an errand the errand store holds, a place to begin in is recorded once the interface says
+// the persona may write there and the place is no mirror of their diary (`diary-mirror`), an intention set with no place begins in
+// the chat of the call and is refused the same way when that chat is a mirror's, and a candidate is accepted only where its origin allows
+// (src/intentions/model.ts#acceptRefusal). An update or a cancel without `id=` whose body is one bare
+// intention id takes that as the id (isIntentionId);
+// any other body stays the update's purpose (or is ignored by the cancel). Off unless
+// `features.intentions` is exactly true (read now): every action answers `feature-off`. Times are
+// `<n>m`, `<n>h`, `<n>d` from now, an ISO date-time, or a wall clock in `bot.timezone` --
+// `HH:MM`, `<weekday> HH:MM` (src/intentions/model.ts#parseWhen); `every=` (`day`, `week`, `<n>h`,
+// `<n>d`; `none` on an update) makes an intention recurring (model.js#parseEvery). `attend=<place>`
+// makes an attention (docs/inner-life.md, the section on attention): the place's address (a channel option,
+// so their `#handle` resolves as any channel argument does), `people=` (ids, comma or space
+// separated; their `@handle`s are resolved to ids before the call reaches here), `settle=` seconds
+// and `perday=` their own daily bound (defaults `wakes.attention.settleSeconds` /
+// `perDayDefault`; the option is lowercase as the command tree wants it, the record's field is `perDay`);
+// the body is its purpose, the place's address when they give none. An update may change
+// `people`, `settle`, `perday` and `expires`; `due=` and `every=` on an attention are
+// refused (`attend-with-due`, `attend-with-every`).
+// Answers are operator lines (ids, states, times, the recurrence, the place), the purpose on one line.
+
+import { formatClock, formatDate } from '../../format.ts';
+import { oneLine } from '../../memory/clamp.ts';
+import { HEARTBEAT_ORIGIN, isIntentionId, parseEvery, parseWhen } from '../../intentions/model.ts';
+import { isMirrorPlace } from '../../memory/db/mirrors.ts';
+import { isOwnerCaller } from './grants.ts';
+import { defineOp, perEnv, invalid, denied } from './registry.ts';
+import { writablePlace } from './shared.ts';
+import { CODE } from '../codes.ts';
+import { idText, objOf } from '../types.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
+import type { Intention } from '../../intentions/types.ts';
+
+/** The service's refusal codes that mean bad arguments rather than a failure. */
+const INVALID = new Set([
+  'no-purpose',
+  'bad-due',
+  'bad-every',
+  'every-without-due',
+  'bad-expiry',
+  'due-after-expiry',
+  'bad-deadline',
+  'wait-without-errand',
+  'no-errand',
+  'errand-ended',
+  'bad-move',
+  'terminal',
+  'not-found',
+  'bad-attend',
+  'attend-with-due',
+  'attend-with-every',
+  'not-attend',
+  'reason-required',
+]);
+
+/** The persona's call's key: a restarted turn or wake that makes the same call answers with the record the first one made. */
+function callKeyOf(context: OpContext): string | null {
+  return context?.actor === 'persona' && typeof context.idempotencyKey === 'string' ? context.idempotencyKey : null;
+}
+
+const handlers = perEnv((env) => {
+  const { hot, now = Date.now } = env;
+
+  /** The intention service, or an Error naming what is missing. */
+  function intentions() {
+    if (!env.intentions || typeof env.intentions.set !== 'function')
+      throw Object.assign(new Error('intentions are not running'), { code: CODE.NOT_CONFIGURED });
+    return env.intentions;
+  }
+
+  /** Whether the chat the command runs in is a private chat. */
+  function inPrivate(context: OpContext) {
+    if (context?.dmChat === true) return true;
+    const here = env.chatOf(context);
+    return here ? env.directory.isDm(here) : false;
+  }
+
+  /** `args[key]` as a moment (parseWhen, the wall-clock forms in `bot.timezone`), undefined when not given; an `invalid` error when it does not parse. */
+  function moment(args: Obj, key: string): number | undefined {
+    const given = args[key];
+    if (given === undefined || given === null || given === '') return undefined;
+    const at = parseWhen(idText(given), now(), { timezone: hot.config?.bot?.timezone ?? 'UTC' });
+    if (at === null)
+      throw invalid(`${key}: a time like 30m, 6h, 2d, 21:00, mon 20:00 or an ISO date-time`, CODE.BAD_TIME);
+    return at;
+  }
+
+  /** `args.every` as the record's recurrence (parseEvery), undefined when not given; an `invalid` error when it does not parse. */
+  function every(args: Obj) {
+    const text = args.every;
+    if (text === undefined || text === null || text === '') return undefined;
+    const parsed = parseEvery(text);
+    if (!parsed.ok) throw invalid('every: day, week, <n>h, <n>d or none', CODE.BAD_EVERY);
+    return parsed.every;
+  }
+
+  /** A text argument trimmed, undefined when not given. */
+  function text(args: Obj, key: string): string | undefined {
+    const value = args[key];
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  }
+
+  /** `args.people` as ids (comma or space separated; `<@id>` unwrapped), undefined when not given. */
+  function peopleOf(args: Obj) {
+    const value = text(args, 'people');
+    if (value === undefined) return undefined;
+    return value
+      .split(/[\s,]+/)
+      .map((token) => token.replace(/^<@!?(\d+)>$/, '$1').trim())
+      .filter(Boolean);
+  }
+
+  /** `args[key]` as a whole number >= `min`, undefined when not given; an `invalid` error (`bad-attend`) otherwise. */
+  function integer(args: Obj, key: string, min: number): number | undefined {
+    const value = args[key];
+    if (value === undefined || value === null || value === '') return undefined;
+    const written = idText(value).trim();
+    const n = typeof value === 'number' ? value : /^\d{1,9}$/.test(written) ? Number(written) : NaN;
+    if (!Number.isInteger(n) || n < min) throw invalid(`${key}: a whole number of at least ${min}`, CODE.BAD_ATTEND);
+    return n;
+  }
+
+  /** The attention arguments given (`people`, `settle`, `perday`), or null when none is. */
+  function attendPatch(args: Obj) {
+    const people = peopleOf(args);
+    const settle = integer(args, 'settle', 0);
+    const perDay = integer(args, 'perday', 1);
+    if (people === undefined && settle === undefined && perDay === undefined) return null;
+    return {
+      ...(people !== undefined ? { people } : {}),
+      ...(settle !== undefined ? { settle } : {}),
+      ...(perDay !== undefined ? { perDay } : {}),
+    };
+  }
+
+  /**
+   * The id of `intention.update` / `intention.cancel`: `id` when given, else the call's body (its
+   * `text`) when that is one bare token shaped like an intention id (isIntentionId): the persona wrote
+   * the id in the body and nothing else. Any other body stays what it is (the update's purpose).
+   * Returns `{ id, args }`, the args without the text that was the id.
+   */
+  function idOf(args: Obj) {
+    const id = text(args, 'id');
+    if (id) return { id, args };
+    const body = text(args, 'text');
+    if (body && isIntentionId(body)) return { id: body, args: { ...args, text: undefined } };
+    return { id: undefined, args };
+  }
+
+  /**
+   * The time of `ts` for an answer line: the date and the clock in `bot.timezone`, as the
+   * `<intentions>` block writes them (src/intentions/blocks.ts#when), so a due the persona set reads
+   * against the clock their prompt shows and never as a UTC figure they take for a past moment.
+   */
+  function stamp(ts: number): string {
+    const timezone = hot.config?.bot?.timezone ?? 'UTC';
+    const labels = objOf(objOf(hot.prompts).labels);
+    const locale = (labels.locale as string | undefined) ?? 'en-US';
+    return `${formatDate(ts, timezone, locale)} ${formatClock(ts, timezone, locale)}`;
+  }
+
+  /** One intention as an answer line. */
+  function lineOf(record: Untyped): string {
+    const parts = [`${record.id} ${record.status}`];
+    // A dropped one is over: its reason and its purpose only, no due or expiry to act on.
+    if (record.status === 'dropped')
+      return `${parts[0]}, reason ${oneLine(record.reason ?? '')}: ${oneLine(record.purpose)}`;
+    if (Number.isFinite(record.dueAt)) parts.push(`due ${stamp(record.dueAt)}`);
+    // A pending intention with no wake for the persona: said at once, so a due left in the purpose text is caught in the turn.
+    else if (record.status === 'pending' && !record.every?.period && !record.attend?.place) parts.push('no due');
+    if (record.every?.period) parts.push(`every ${record.every.period}`);
+    const { attend } = record as Intention;
+    if (attend?.place) {
+      parts.push(`attend ${attend.place}`);
+      if (attend.people.length > 0) parts.push(`people ${attend.people.join(',')}`);
+      parts.push(`settle ${attend.settle}s`, `today ${attend.today?.wakes ?? 0}/${attend.perDay}`);
+    }
+    if (record.status === 'waiting')
+      parts.push(`awaiting ${record.awaitingErrandId} until ${stamp(record.waitDeadline)}`);
+    else if (record.outcome?.errandId) parts.push(`errand ${record.outcome.errandId} ${record.outcome.state}`);
+    else if (record.note) parts.push(record.note);
+    if (record.waitRequested) parts.push('wait asked');
+    parts.push(`expires ${stamp(record.expiresAt)}`);
+    return `${parts.join(', ')}: ${oneLine(record.purpose)}`;
+  }
+
+  /** A service answer as the operation's result. */
+  function answer(result: Untyped, verb: string): Obj {
+    if (result.ok) {
+      const line = lineOf(result.intention);
+      return {
+        status: 'ok',
+        code: CODE.OK,
+        summary: `intention ${verb}: ${line}`,
+        data: {
+          text: `intention ${verb}: ${line}`,
+          intention: { id: result.intention.id, status: result.intention.status },
+        },
+      };
+    }
+    const status = INVALID.has(result.code) ? 'invalid' : 'failed';
+    // A heartbeat's cap names the open ones from heartbeats, so the persona can update or cancel one instead.
+    const open =
+      Array.isArray(result.open) && result.open.length > 0
+        ? `; open from heartbeats: ${(result.open as Array<Untyped>).map((record: Untyped) => `${record.id} (${oneLine(record.purpose)}${record.every?.period ? `, every ${record.every.period}` : ''})`).join('; ')}`
+        : '';
+    return { status, code: result.code, summary: `intention not ${verb}: ${result.code}${open}`, data: null };
+  }
+
+  /** The members of the call's chat: who asked, whom the persona's turn answered, whom they mentioned. */
+  function participantsOf(context: OpContext) {
+    const ids = [
+      context?.accountId,
+      context?.repliedAuthorId,
+      ...(Array.isArray(context?.mentionAccountIds) ? context.mentionAccountIds : []),
+    ];
+    return [...new Set(ids.filter((id) => (typeof id === 'string' && id) || typeof id === 'number').map(String))];
+  }
+
+  /**
+   * Where the caller is, for the service's visibility rule: an owner's own command sees every
+   * intention; anyone else (the persona's own call included) a private chat's only in that chat.
+   */
+  function whereOf(context: OpContext) {
+    const owner = context?.actor !== 'persona' && isOwnerCaller(hot.config, context);
+    return {
+      all: owner,
+      dmChatId: !owner && inPrivate(context) ? env.chatOf(context) : null,
+    };
+  }
+
+  /** What the caller's context says about where and when the call came from. */
+  function origin(context: OpContext) {
+    const persona = context?.actor === 'persona';
+    return {
+      by: persona ? 'persona' : isOwnerCaller(hot.config, context) ? 'owner' : 'member',
+      turnId: persona && context?.turnId ? idText(context.turnId) : null,
+      messageId: context?.sourceMessageId ? idText(context.sourceMessageId) : null,
+      placeId: env.chatOf(context),
+      scope: inPrivate(context) ? 'dm' : 'group',
+      participants: participantsOf(context),
+      ...(context?.publicationBoundary ? { publicationBoundary: context.publicationBoundary } : {}),
+      // The engine's stamp: what the persona's heartbeat turn creates (the wake kind comes from the envelope, never from their words).
+      origin: persona && context?.wakeKind === HEARTBEAT_ORIGIN ? HEARTBEAT_ORIGIN : null,
+    };
+  }
+
+  /** The name of the persona's interface, '' with no port. */
+  function portIface(): string {
+    const port = env.port as { iface?: unknown } | null | undefined;
+    return typeof port?.iface === 'string' ? port.iface : '';
+  }
+
+  /**
+   * A place to begin in, refused when the persona cannot write there (src/tools/operations/shared.ts#writablePlace) and when it
+   * is the place of a diary mirror, where only the mirrors' publisher posts (src/behavior/mirror.ts).
+   */
+  async function checkBegin(place: string | undefined, context: OpContext): Promise<void> {
+    if (!place) return;
+    const target = await writablePlace({ reads: env.reads, store: env.store, iface: portIface(), id: place, context });
+    if (isMirrorPlace(env.memoryDb, target.iface, target.chatId))
+      throw denied(`a mirror of your diary, ${place}`, CODE.DIARY_MIRROR);
+  }
+
+  /** An intention set with no place to begin in begins in the chat of the call: refused when that is a diary mirror's. */
+  function checkOrigin(context: OpContext): void {
+    const chatId = env.chatOf(context);
+    if (chatId !== null && isMirrorPlace(env.memoryDb, portIface(), chatId))
+      throw denied(`a mirror of your diary, ${chatId}`, CODE.DIARY_MIRROR);
+  }
+
+  /**
+   * `intention.set`: a new intention, its purpose the text; with `attend` an attention on that place. A place to begin
+   * in (`placeId`) is optional, and one the persona cannot write in, a root included, is refused.
+   */
+  async function cmdSet(args: Obj, context: OpContext): Promise<Obj> {
+    const place = text(args, 'attend');
+    const purpose = text(args, 'text') ?? place;
+    if (!purpose) throw invalid('a purpose is required');
+    const begin = text(args, 'placeId');
+    if (begin) await checkBegin(begin, context);
+    else checkOrigin(context);
+    const from = origin(context);
+    const state = text(args, 'state');
+    if (state !== undefined && state !== 'dropped') throw invalid('state must be dropped');
+    const result = intentions().set({
+      purpose,
+      callKey: callKeyOf(context),
+      ...(state ? { state, reason: text(args, 'reason') ?? null } : {}),
+      attend: place ? { place, ...(attendPatch(args) ?? {}) } : null,
+      dueAt: moment(args, 'due') ?? null,
+      every: every(args) ?? null,
+      expiresAt: moment(args, 'expires') ?? null,
+      ...(text(args, 'standing') === 'true' || args.standing === true ? { standing: true } : {}),
+      destination: text(args, 'placeId') ?? null,
+      completionCondition: text(args, 'condition') ?? null,
+      chainId: text(args, 'chain') ?? null,
+      errandId: text(args, 'errand') ?? null,
+      deadline: moment(args, 'deadline') ?? null,
+      ...from,
+    });
+    return answer(result, 'set');
+  }
+
+  /** `intention.update id ...` (the id alone in the body counts as `id`, idOf); a new place to begin in as in `cmdSet`. */
+  async function cmdUpdate(given: Obj, context: OpContext): Promise<Obj> {
+    const { id, args } = idOf(given);
+    if (!id) throw invalid('an id is required');
+    await checkBegin(text(args, 'placeId'), context);
+    const state = text(args, 'state');
+    if (state !== undefined && state !== 'pending' && state !== 'done' && state !== 'dropped')
+      throw invalid('state must be pending, done or dropped');
+    const from = origin(context);
+    const due = moment(args, 'due');
+    const recurrence = every(args);
+    const attend = attendPatch(args);
+    const result = intentions().update(id, {
+      ...(text(args, 'text') ? { purpose: text(args, 'text') } : {}),
+      ...(due !== undefined ? { dueAt: due } : {}),
+      ...(recurrence !== undefined ? { every: recurrence } : {}),
+      ...(attend ? { attend } : {}),
+      ...(moment(args, 'expires') !== undefined ? { expiresAt: moment(args, 'expires') } : {}),
+      ...(text(args, 'placeId') ? { destination: text(args, 'placeId') } : {}),
+      ...(text(args, 'condition') ? { completionCondition: text(args, 'condition') } : {}),
+      ...(text(args, 'chain') ? { chainId: text(args, 'chain') } : {}),
+      ...(text(args, 'errand') ? { errandId: text(args, 'errand') } : {}),
+      ...(moment(args, 'deadline') !== undefined ? { deadline: moment(args, 'deadline') } : {}),
+      ...(state ? { state } : {}),
+      ...(state === 'dropped' ? { reason: text(args, 'reason') ?? null } : {}),
+      turnId: from.turnId,
+      by: from.by,
+      ...whereOf(context),
+    });
+    return answer(result, 'updated');
+  }
+
+  /** `intention.cancel id` (the id alone in the body counts as `id`, idOf). */
+  function cmdCancel(given: Obj, context: OpContext): Obj {
+    const { id } = idOf(given);
+    if (!id) throw invalid('an id is required');
+    return answer(intentions().cancel(id, { by: origin(context).by, ...whereOf(context) }), 'cancelled');
+  }
+
+  /** `intention.list`: the open intentions, a private chat's own only in that chat (an owner's command sees all). */
+  function cmdList(args: Obj, context: OpContext): Obj | string {
+    const records = intentions().list(whereOf(context));
+    return records.length > 0 ? records.map(lineOf).join('\n') : 'no open intentions';
+  }
+
+  return { cmdSet, cmdUpdate, cmdCancel, cmdList };
+});
+
+defineOp({
+  name: 'intention.set',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdSet(args, ctx),
+});
+defineOp({
+  name: 'intention.update',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdUpdate(args, ctx),
+});
+defineOp({
+  name: 'intention.cancel',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdCancel(args, ctx),
+});
+defineOp({
+  name: 'intention.list',
+  rights: { kind: 'read' },
+  run: (args, ctx) => handlers(ctx.env).cmdList(args, ctx),
+});

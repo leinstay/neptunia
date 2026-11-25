@@ -1,0 +1,1050 @@
+// The observation envelope (spec 2026-10-24-memory-schema-v7, sections 1.3, 1.4 and 4; section 11
+// items 1, 3, 8 override them). An interface adapter says what it saw as one plain object, versioned
+// (`OBSERVATION_VERSION`); the core resolves everything else itself, so a new interface is an adapter, not a schema.
+//
+//   { v, iface, authority, connection?, native: { kind, key, generation?, revision, subtype? }, edited?,
+//     place: { authority, key, kind, chat: 'dm' | 'group' | undefined, parent?, title?, address?, partner? },
+//     author: { kind: 'account' | 'self', authority?, key?, display?, generation?, account_kind? },
+//     occurredAt, observedAt, text, media?, mentions?, direct?, relations?: [{ predicate, target }],
+//     extra?, consoleOwner?: { person } }
+//   (`native.revision` may be absent only with `edited: true`: observe takes it from the database.)
+//
+// observe(handle, envelope) checks the envelope, then in ONE transaction resolves or creates the authority, the place,
+// the account (the persona's own account is linked to their person, the owner's command line to the owner's person,
+// and any other account seen for the first time gets a meta-person of its own),
+// writes the source with its author's person (`author_person`, rows.ts#deriveRow) and its
+// audience (the place's chat: `group` -> `aud:group:<iface>`, `dm` -> `aud:dm:<place>`, anything else ->
+// `aud:internal`) and its relations. Idempotent on the native tuple: the source id is the hash of
+// (authority, native kind, key, generation, revision, subtype), and a replay writes nothing. A malformed envelope is
+// refused with a code (`{ ok: false, code }`) and writes nothing; a refusal found while writing rolls the whole
+// transaction back. Native keys are aliases in `external_keys` (one resolver, ids.ts#resolveAlias, at the event time).
+//
+// Schema v9: every account, place and source an observation writes is projected into the graph in the same
+// transaction (graph.ts#projectRow).
+//
+// The live observation path: the core maps an interface's normalised `message.received` event to an envelope
+// (observe-event.ts#observationOf) and the pipeline sends it to the writer. It lands on the rows already stored:
+//   - an account, place or source whose native tuple is already stored (authority, native key, generation; a source
+//     also by native kind, revision and subtype, matched on its columns whatever its id) is that row: observe never
+//     mints a second id for it. A node found by its columns and not yet in `external_keys` is registered there;
+//   - a tuple of the interface whose ids keep their readable spelling, first generation, is created under it
+//     (ids.ts#interfaceAccountId, #interfacePlaceOf, #legacySourceIdOf), so a unit write that brings the same row adopts it
+//     (upsert.ts#writeRow) instead of writing a second one;
+//   - an envelope with `edited: true` and no revision takes the newest stored revision of its native key: the same
+//     text is that revision (a replay), another text the next one (none stored: 2, the first was 1). The count lives in
+//     the database, so it survives a restart. The edit's row takes the `occurredAt` of the first stored revision, whatever
+//     moment the event carried: a line stays where it was said, and a read orders lines by `occurred_at` and `rowid` on
+//     `sources_place_time`;
+//   - `author.account_kind` (`user`, `bot`, `shared`, `self`) is the account's kind, updated on a stored account;
+//     `mentions` (native user ids) and `direct` are the line's columns;
+//   - a DM place observed with a partner (`place.partner`) names the partner's person, the meta-person a new partner
+//     account gets or the person its verified link names; the DM stays its own audience. A stored DM place without a
+//     partner gets it filled in;
+//   - `place.address` is the chat id the interface gave, stored as the place's `native_id` for a direct chat as for a
+//     channel and handed back as it is to read or send there. A later address replaces the stored one;
+//   - the persona's own account (author `self`) is linked to `person:self` on any interface, and a line of the owner's
+//     command line that carries `consoleOwner` links its account, and the accounts it lists, to the owner's person
+//     before the place is resolved (identity-links.ts). Rows stored under `<iface>/global` for an interface whose
+//     native authority differs are moved to the native one first.
+// The observation is the record of a seen line, so the service passes the line's record day (the key of its place's
+// record of the day) and the row is written in it: the day's holder columns (line-holder.ts) and `position` the next
+// one of the day, and a stored line of the tuple with no holder yet is stamped the same way. Without a record day the
+// row has none. With one the result also carries the line's `revision` (an edit's is the one
+// counted here).
+// Logs carry codes only (`log.debug?.()`).
+
+import { messageLocator } from './message-locator.ts';
+import type { NativeMessageLocator } from './recall.ts';
+import type { MessageLocator } from './message-locator.ts';
+import { log as engineLog } from '../../log.ts';
+import { canonicalKey, interfaceAccountId, interfacePlaceOf, legacySourceIdOf, nodeId, resolveAlias } from './ids.ts';
+import { hasMessageFamilies } from './message-family-catalog.ts';
+import { envelopeItems, fillLineMedia } from './media-store.ts';
+import { addKey, addRelation, deriveRow, ensureAuthority, ensureInterface, resolveRelationsTo } from './rows.ts';
+import { AUD_INTERNAL, SCOPE_INTERNAL, dmAudienceId, groupAudienceId, groupScope } from './scope.ts';
+import { RELATION_PREDICATES } from './schema.ts';
+import { markStemsPending } from './stems.ts';
+import { OWNER_CONSOLE_IFACE, adoptNativeAuthority, linkOwnerAccount, linkSelfAccount } from './identity-links.ts';
+import { rescopeDmPlace } from './dm-rescope.ts';
+import { ensureAccountPerson } from './person-links.ts';
+import { authorPersonOf } from './meta-person-write.ts';
+import { projectRow } from './graph.ts';
+import { lineColumns, lineHolderOfText, nextLinePosition } from './line-holder.ts';
+import { ingestOption, insertIngest } from './ingest.ts';
+import { dbOf, isWholeNumber } from './types.ts';
+import { nativeAuthorityOf } from '../../protocol/identity.ts';
+import type { Connection, Db, Log, MemoryHandle, Row } from './types.ts';
+import type { Scope } from './scope.ts';
+
+/** The version of the envelope this module reads. */
+export const OBSERVATION_VERSION = 1;
+/** Place kinds an envelope may name (spec 1.4). */
+export const PLACE_KINDS: ReadonlyArray<string> = Object.freeze([
+  'server',
+  'workspace',
+  'channel',
+  'room',
+  'thread',
+  'dm',
+  'group_dm',
+  'wall',
+  'community',
+  'board',
+  'discussion',
+  'mailbox',
+  'local_console',
+]);
+const AUTHOR_KINDS: ReadonlyArray<string> = ['account', 'self'];
+/** The kinds of an account (schema v7 `accounts.kind`). */
+export const ACCOUNT_KINDS: ReadonlyArray<string> = Object.freeze(['user', 'bot', 'shared', 'self']);
+/** Source subtypes that are the line's own kind (the legacy record's `seen` / `said`). */
+const LINE_KINDS = new Set(['seen', 'said']);
+
+/** Refusal codes (a refusal writes nothing). */
+export const OBSERVE_CODES = Object.freeze({
+  BAD_ENVELOPE: 'BAD_ENVELOPE',
+  BAD_VERSION: 'BAD_VERSION',
+  BAD_IFACE: 'BAD_IFACE',
+  BAD_AUTHORITY: 'BAD_AUTHORITY',
+  BAD_NATIVE: 'BAD_NATIVE',
+  BAD_PLACE: 'BAD_PLACE',
+  BAD_AUTHOR: 'BAD_AUTHOR',
+  BAD_TIME: 'BAD_TIME',
+  BAD_TEXT: 'BAD_TEXT',
+  BAD_MEDIA: 'BAD_MEDIA',
+  BAD_RELATION: 'BAD_RELATION',
+  BAD_EXTRA: 'BAD_EXTRA',
+  BAD_CONNECTION: 'BAD_CONNECTION',
+  BAD_KIND: 'BAD_KIND',
+  UNKNOWN_SOURCE: 'UNKNOWN_SOURCE',
+  UNKNOWN_PLACE: 'UNKNOWN_PLACE',
+  AMBIGUOUS_ALIAS: 'AMBIGUOUS_ALIAS',
+  CONVERSATION_CONFLICT: 'CONVERSATION_CONFLICT',
+  KEY_COLLISION: 'KEY_COLLISION',
+  AUDIENCE_CONFLICT: 'AUDIENCE_CONFLICT',
+  AUTHOR_COMBINATION: 'AUTHOR_COMBINATION',
+  NUL_IN_KEY: 'NUL_IN_KEY',
+  BAD_KEY_PART: 'BAD_KEY_PART',
+});
+const REFUSALS = new Set<string>(Object.values(OBSERVE_CODES));
+
+const refusal = (code: string): Error & { code: string } =>
+  Object.assign(new Error(`memory observe: ${code}`), { code });
+const isObject = (value: unknown): value is Row => value !== null && typeof value === 'object' && !Array.isArray(value);
+const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
+/** Absent, null or a filled string. */
+const optionalText = (value: unknown): boolean => value === undefined || value === null || filled(value);
+const isoOk = (value: unknown): boolean => filled(value) && Number.isFinite(Date.parse(value));
+const optInt = (value: unknown, min: number): boolean =>
+  value === undefined || value === null || (isWholeNumber(value) && value >= min);
+const json = (value: unknown): string => JSON.stringify(value);
+const toIso = (ms: number): string => new Date(ms).toISOString();
+// A list of names only compares, so any value is safe to ask it about.
+const isOneOf = (list: ReadonlyArray<string>, value: unknown): boolean => list.includes(value as string);
+
+/** What `observe` answers: refused with a code, or written (or replayed) with the ids it touched. */
+export type ObserveResult = Row & {
+  ok: boolean;
+  code?: string;
+  replayed?: boolean;
+  sourceId?: string;
+  placeId?: string;
+  audienceId?: string;
+  written?: number;
+};
+
+/** One place an envelope names: its authority and key, its kind and chat and, for a DM, the partner. */
+type PlaceRef = {
+  authority: string;
+  key: string;
+  kind: string;
+  chat?: string | null;
+  title?: string | null;
+  parent?: string | null;
+  /** The top of the tree, when a parent of its own may not know it yet. */
+  top?: string | null;
+  /** The chat id the interface gave, stored as the place's `native_id`. */
+  address?: string | null;
+  partner?: { key: string; authority?: string; display?: string | null } | null;
+};
+/** The author of an envelope: an account or the persona. */
+type AuthorRef = {
+  kind: 'account' | 'self';
+  key?: string | null;
+  authority?: string | null;
+  display?: string | null;
+  generation?: number | null;
+  account_kind?: string | null;
+};
+/** The target of a relation: one of our sources, or a native tuple. */
+type RelationTarget = {
+  source?: string;
+  authority?: string;
+  kind?: string;
+  key?: string;
+  generation?: number;
+  revision?: number;
+};
+
+export type MessageChat = Readonly<{
+  id: string;
+  chatType: 'channel' | 'thread' | 'group_dm' | 'dm';
+  partnerId?: string;
+  parentId?: string;
+}>;
+
+/** The observation envelope (see the head of this file), as `checkEnvelope` accepts it. */
+export type Envelope = {
+  v: number;
+  iface: string;
+  authority: string;
+  connection?: string | null;
+  native: { kind: string; key: string; generation?: number; revision?: number | null; subtype?: string | null };
+  edited?: boolean | null;
+  place: PlaceRef;
+  author: AuthorRef;
+  occurredAt: string;
+  observedAt: string;
+  text: string;
+  media?: Array<unknown> | null;
+  mentions?: Array<string> | null;
+  direct?: boolean | null;
+  relations?: Array<{ predicate: string; target: RelationTarget }> | null;
+  extra?: Row | null;
+  messageLocator?: MessageLocator;
+  messageChat?: MessageChat;
+  messageReply?: NativeMessageLocator;
+  consoleOwner?: ConsoleOwner | null;
+};
+
+/**
+ * On a line of the owner's command line: the owner's person (`bot.ownerPerson`, or the one the core minted for a raw
+ * install), linked to the command line's account in the same transaction (identity-links.ts).
+ */
+export type ConsoleOwner = { person: string };
+
+/** Runs `fn` in the handle's transaction; a refusal becomes `{ ok: false, code }` (logged with its code only). */
+function guarded<TResult>(
+  handle: MemoryHandle,
+  fn: () => TResult,
+  log: Partial<Log> | null | undefined
+): TResult | { ok: false; code: string } {
+  try {
+    return handle.transaction(fn);
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code;
+    if (code !== undefined && REFUSALS.has(code)) {
+      log?.debug?.('memory observe: refused', { code });
+      return { ok: false, code };
+    }
+    throw error;
+  }
+}
+
+// ---------- validation ----------
+
+const authorityOk = (iface: string, authority: unknown): boolean =>
+  filled(authority) && authority.startsWith(`${iface}/`) && authority.length > iface.length + 1;
+
+function targetOk(iface: string, target: unknown): boolean {
+  if (!isObject(target)) return false;
+  if (target.source !== undefined) return filled(target.source);
+  return (
+    filled(target.kind) &&
+    filled(target.key) &&
+    (target.authority === undefined || authorityOk(iface, target.authority)) &&
+    optInt(target.generation, 1) &&
+    optInt(target.revision, 0)
+  );
+}
+
+function nativeDetailsOk(envelope: Row, native: Row): boolean {
+  if (native.subtype !== undefined && native.subtype !== null && !filled(native.subtype)) return false;
+  if (envelope.messageLocator === undefined) return true;
+  const locator = messageLocator(envelope.messageLocator, envelope.iface);
+  return locator !== null && locator.origin === 'protocol-message' && native.kind === 'message';
+}
+
+/** The refusal code of an envelope, or null when it can be written. Pure. */
+export function checkEnvelope(envelope: unknown): string | null {
+  const C = OBSERVE_CODES;
+  if (!isObject(envelope)) return C.BAD_ENVELOPE;
+  const e = envelope;
+  if (e.v !== OBSERVATION_VERSION) return C.BAD_VERSION;
+  if (!filled(e.iface) || e.iface.includes('/')) return C.BAD_IFACE;
+  if (!authorityOk(e.iface, e.authority)) return C.BAD_AUTHORITY;
+  if (e.connection !== undefined && e.connection !== null && !filled(e.connection)) return C.BAD_CONNECTION;
+  const n = e.native;
+  if (e.edited !== undefined && e.edited !== null && typeof e.edited !== 'boolean') return C.BAD_NATIVE;
+  const revisionOk =
+    isObject(n) &&
+    (isWholeNumber(n.revision)
+      ? n.revision >= 0
+      : e.edited === true && (n.revision === undefined || n.revision === null));
+  if (
+    !isObject(n) ||
+    !filled(n.kind) ||
+    !filled(n.key) ||
+    !optInt(n.generation, 1) ||
+    !revisionOk ||
+    !nativeDetailsOk(e, n)
+  )
+    return C.BAD_NATIVE;
+  const p = e.place;
+  if (!isObject(p) || !authorityOk(e.iface, p.authority) || !filled(p.key) || !isOneOf(PLACE_KINDS, p.kind))
+    return C.BAD_PLACE;
+  if (
+    !optionalText(p.parent) ||
+    (p.title !== undefined && p.title !== null && typeof p.title !== 'string') ||
+    !optionalText(p.address)
+  )
+    return C.BAD_PLACE;
+  if (
+    p.partner !== undefined &&
+    p.partner !== null &&
+    (!isObject(p.partner) ||
+      !filled(p.partner.key) ||
+      (p.partner.authority !== undefined && !authorityOk(e.iface, p.partner.authority)))
+  )
+    return C.BAD_PLACE;
+  const a = e.author;
+  if (!isObject(a) || !isOneOf(AUTHOR_KINDS, a.kind)) return C.BAD_AUTHOR;
+  if (a.authority !== undefined && a.authority !== null && !authorityOk(e.iface, a.authority)) return C.BAD_AUTHOR;
+  if (a.display !== undefined && a.display !== null && typeof a.display !== 'string') return C.BAD_AUTHOR;
+  if (!optInt(a.generation, 1)) return C.BAD_AUTHOR;
+  if (a.account_kind !== undefined && a.account_kind !== null && !isOneOf(ACCOUNT_KINDS, a.account_kind))
+    return C.BAD_AUTHOR;
+  if (a.kind === 'account' && !filled(a.key)) return C.BAD_AUTHOR;
+  if (a.kind === 'self' && a.key !== undefined && a.key !== null && !filled(a.key)) return C.BAD_AUTHOR;
+  if (!isoOk(e.occurredAt) || !isoOk(e.observedAt)) return C.BAD_TIME;
+  if (typeof e.text !== 'string') return C.BAD_TEXT;
+  if (e.media !== undefined && e.media !== null && !Array.isArray(e.media)) return C.BAD_MEDIA;
+  if (e.mentions !== undefined && e.mentions !== null && (!Array.isArray(e.mentions) || !e.mentions.every(filled)))
+    return C.BAD_RELATION;
+  if (e.direct !== undefined && e.direct !== null && typeof e.direct !== 'boolean') return C.BAD_ENVELOPE;
+  if (e.relations !== undefined && e.relations !== null) {
+    if (!Array.isArray(e.relations)) return C.BAD_RELATION;
+    for (const relation of e.relations) {
+      if (
+        !isObject(relation) ||
+        !isOneOf(RELATION_PREDICATES, relation.predicate) ||
+        !targetOk(e.iface, relation.target)
+      )
+        return C.BAD_RELATION;
+    }
+  }
+  return tailCode(e);
+}
+
+/** The refusal code of the envelope's optional tail: `extra` an object, `consoleOwner` well formed. */
+function tailCode(e: Row): string | null {
+  if (e.extra !== undefined && e.extra !== null && !isObject(e.extra)) return OBSERVE_CODES.BAD_EXTRA;
+  return consoleOwnerOk(e.iface, e.consoleOwner) ? null : OBSERVE_CODES.BAD_ENVELOPE;
+}
+
+/** A console owner, when there is one, names a person, on the command line only. */
+function consoleOwnerOk(iface: unknown, owner: unknown): boolean {
+  if (owner === undefined || owner === null) return true;
+  return iface === OWNER_CONSOLE_IFACE && isObject(owner) && filled(owner.person) && owner.person.startsWith('person:');
+}
+
+// ---------- resolution ----------
+
+/** The table of a node kind whose rows carry their native tuple in columns (schema v7). */
+const TUPLE_TABLES: Record<string, string> = { account: 'accounts', place: 'places' };
+
+/**
+ * The node a native key names: the exact generation when one is given, else the alias that holds at the event time
+ * (ids.ts#resolveAlias). An account or place stored with that tuple in its columns but missing from `external_keys` is
+ * found there and registered. Null when the key was never stored; an ambiguous alias is a refusal, never "the latest".
+ */
+function nodeOf(
+  db: Db,
+  authority: unknown,
+  kind: string,
+  key: string,
+  generation: unknown,
+  atIso: unknown,
+  at: string
+): string | null {
+  let found: unknown;
+  if (Number.isInteger(generation)) {
+    found =
+      db
+        .prepare(
+          'SELECT node_id FROM external_keys WHERE authority_id = ? AND object_kind = ? AND native_key = ? AND generation = ?'
+        )
+        .get(authority, kind, key, generation)?.node_id ?? null;
+  } else {
+    found = resolveAlias(db, authority, kind, key, atIso);
+    if (found !== null && typeof found === 'object') throw refusal(OBSERVE_CODES.AMBIGUOUS_ALIAS);
+  }
+  if (found || !TUPLE_TABLES[kind]) return found as string | null;
+  const gen = isWholeNumber(generation) ? generation : 1;
+  const row = db
+    .prepare(`SELECT id FROM "${TUPLE_TABLES[kind]}" WHERE authority_id = ? AND native_key = ? AND generation = ?`)
+    .get(authority, key, gen);
+  if (!row) return null;
+  addKey(db, authority, kind, key, row.id, { generation: gen, at });
+  return row.id as string;
+}
+
+function insertRow(db: Db, table: string, row: Row): void {
+  const cols = Object.keys(row);
+  db.prepare(
+    `INSERT INTO "${table}" (${cols.map((col) => `"${col}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
+  ).run(...cols.map((col) => (row[col] === undefined ? null : row[col])));
+}
+
+/**
+ * The person an account is linked to: its current verified link (`account_person_links`), else the compatibility
+ * column when the account says `verified`; null for an account nobody linked.
+ */
+function linkedPersonOf(db: Db, accountId: unknown): unknown {
+  const link = db
+    .prepare(
+      "SELECT person_id FROM account_person_links WHERE account_id = ? AND state = 'verified' AND valid_to_at IS NULL ORDER BY recorded_at DESC, id LIMIT 1"
+    )
+    .get(accountId);
+  if (link?.person_id) return link.person_id;
+  const row = db.prepare('SELECT person_id, link FROM accounts WHERE id = ?').get(accountId);
+  return row?.link === 'verified' && filled(row.person_id) ? row.person_id : null;
+}
+
+/**
+ * The account of a native key, created (with no person) when missing. `kind` (an envelope's `account_kind`) is the
+ * account's kind: a new account takes it (`user` when none is given), a stored one is updated to it. Returns
+ * `{ id, person_id }`.
+ */
+export function accountOf(
+  db: Db,
+  iface: string,
+  {
+    authority,
+    key,
+    display = null,
+    generation = null,
+    kind = null,
+  }: { authority: unknown; key: string; display?: unknown; generation?: unknown; kind?: string | null },
+  atIso: unknown,
+  at: string
+): { id: string; person_id: unknown } {
+  const found = nodeOf(db, authority, 'account', String(key), generation, atIso, at);
+  if (found) {
+    const row = db.prepare('SELECT id, person_id, kind FROM accounts WHERE id = ?').get(found);
+    if (row) {
+      if (filled(kind) && row.kind !== kind) {
+        db.prepare('UPDATE accounts SET kind = ? WHERE id = ?').run(kind, row.id);
+        projectRow(db, 'accounts', { id: row.id }, { at });
+      }
+      return { id: row.id as string, person_id: row.person_id ?? null };
+    }
+  }
+  const gen = isWholeNumber(generation) ? generation : 1;
+  const id = found ?? interfaceAccountId(authority, String(key), gen);
+  const row = deriveRow(db, 'accounts', {
+    id,
+    iface,
+    native_id: String(key),
+    person_id: null,
+    link: null,
+    names: filled(display) ? json([display]) : null,
+    authority_id: authority,
+    native_key: String(key),
+    generation: gen,
+    kind: filled(kind) ? kind : 'user',
+  });
+  insertRow(db, 'accounts', row);
+  addKey(db, authority, 'account', String(key), id, { generation: gen, at });
+  projectRow(db, 'accounts', { id }, { at });
+  return { id, person_id: null };
+}
+
+export type ObservationPlaceInput = Pick<Envelope, 'iface' | 'authority' | 'place' | 'occurredAt'>;
+
+/** The partner account of a DM envelope (created when missing) and the person it is linked to. */
+function partnerOf(db: Db, envelope: ObservationPlaceInput, at: string): { account: string; person: unknown } | null {
+  const p = envelope.place;
+  if (p.chat !== 'dm' || !isObject(p.partner)) return null;
+  const account = accountOf(
+    db,
+    envelope.iface,
+    { authority: p.partner.authority ?? envelope.authority, key: p.partner.key, display: p.partner.display ?? null },
+    envelope.occurredAt,
+    at
+  );
+  ensureAccountPerson(db, account.id, at);
+  return { account: account.id, person: linkedPersonOf(db, account.id) };
+}
+
+/**
+ * The place that contains an envelope's place, created when a `<kind>:<id>` key names one no line was seen in yet, so
+ * the chain of parents holds whatever order they are seen in. A parent key of another shape resolves or stays a note.
+ */
+function parentPlaceOf(db: Db, envelope: ObservationPlaceInput, at: string): string | null {
+  const { authority, parent } = envelope.place;
+  if (!filled(parent)) return null;
+  const match = /^([a-z_]+):(.+)$/.exec(parent);
+  const kind = match?.[1];
+  // A sidebar grouping an old interface build still declares is no place: the room sits under the envelope's top.
+  if (kind === 'category') {
+    const { top } = envelope.place;
+    return filled(top) ? topPlaceOf(db, envelope, top, at) : null;
+  }
+  const found =
+    nodeOf(db, authority, 'place', parent, null, envelope.occurredAt, at) ??
+    (kind === undefined ? null : placeByNative(db, authority, kind, match?.[2] ?? ''));
+  if (kind === undefined) return found;
+  const id = found ?? placeOf(db, { ...envelope, place: { authority, key: parent, kind } }, at).id;
+  const top = envelope.place.top;
+  if (filled(top) && top !== parent) fillParent(db, id, topPlaceOf(db, envelope, top, at), at);
+  return id;
+}
+
+/** The `extra` of a new place whose declared parent resolved to nothing: the key stays as a note, a category's goes. */
+function parentNote(declared: unknown, resolved: string | null): string | null {
+  return filled(declared) && !resolved && !declared.startsWith('category:') ? json({ parent: declared }) : null;
+}
+
+/** A place stored under another spelling of its native key: the same authority, kind and native id. */
+function placeByNative(db: Db, authority: unknown, kind: string, native: string): string | null {
+  const row = db
+    .prepare('SELECT id FROM places WHERE authority_id = ? AND kind = ? AND native_id = ?')
+    .get(authority, kind, native);
+  return typeof row?.id === 'string' ? row.id : null;
+}
+
+/** The id of an envelope's stored place: by its key, a server also by its native id. */
+function storedPlaceOf(db: Db, envelope: ObservationPlaceInput, at: string): string | null {
+  const p = envelope.place;
+  const native = /^server:(.+)$/.exec(p.key);
+  return (
+    nodeOf(db, p.authority, 'place', p.key, null, envelope.occurredAt, at) ??
+    (native ? placeByNative(db, p.authority, 'server', native[1] ?? '') : null)
+  );
+}
+
+/** The place at the top of an envelope's tree, created when no line named it yet. */
+function topPlaceOf(db: Db, envelope: ObservationPlaceInput, top: string, at: string): string {
+  const match = /^([a-z_]+):(.+)$/.exec(top);
+  const kind = match?.[1] ?? 'server';
+  const found =
+    nodeOf(db, envelope.place.authority, 'place', top, null, envelope.occurredAt, at) ??
+    placeByNative(db, envelope.place.authority, kind, match?.[2] ?? top);
+  if (found) return found;
+  const place = { authority: envelope.place.authority, key: top, kind } as ObservationPlaceInput['place'];
+  return placeOf(db, { ...envelope, place }, at).id;
+}
+
+/** A place that has no parent yet takes `parent`; a stored parent stays. */
+function fillParent(db: Db, id: string, parent: string, at: string): void {
+  const row = db.prepare('SELECT parent_id FROM places WHERE id = ?').get(id);
+  if (!row || row.parent_id || id === parent) return;
+  db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(parent, id);
+  projectRow(db, 'places', { id }, { at });
+}
+
+/** A place first made as someone's parent has no title until a line of its own names it. */
+function fillTitle(db: Db, existing: Row, title: unknown, at: string): void {
+  if (existing.name || !filled(title)) return;
+  db.prepare('UPDATE places SET name = ? WHERE id = ?').run(title, existing.id);
+  projectRow(db, 'places', { id: existing.id }, { at });
+}
+
+/** The address an envelope gives a place, else `fallback`. */
+const addressOr = (address: unknown, fallback: string | null): string | null => (filled(address) ? address : fallback);
+
+/** A place takes the address its envelope gives, the chat id its interface named: a stored one that differs is replaced. */
+function fillAddress(db: Db, existing: Row, address: unknown, at: string): void {
+  if (!filled(address) || existing.native_id === address) return;
+  db.prepare('UPDATE places SET native_id = ? WHERE id = ?').run(address, existing.id);
+  projectRow(db, 'places', { id: existing.id }, { at });
+}
+
+/**
+ * The writer kind `place-address` (session-write.ts): the chat an interface opened for a place that held no address,
+ * when the core asked it to open a direct chat (`dm.chat`), stored as the place's `native_id`. A place that holds an
+ * address keeps it, since a message's own address is the interface's word on it. A write that names the partner's
+ * platform id and its interface (`partner`, `iface`) instead of a place is the direct chat the core opens ahead with a person who
+ * has none stored: the place is made as a person's first direct message makes it (`placeOf`), keyed by the partner,
+ * with the chat as its address. Answers how many places took it and, for a partner, the place's id.
+ */
+export function applyPlaceAddress(connection: Connection, update: Row): { stored: number; placeId?: string } {
+  const { placeId, address, partner, iface, at } = update;
+  if (filled(partner) && filled(iface) && filled(address) && filled(at)) {
+    const db = dbOf(connection);
+    const authority = nativeAuthorityOf(iface);
+    ensureAuthority(db, authority, iface, authority.slice(iface.length + 1));
+    const place = { authority, key: `dm:${partner}`, kind: 'dm', chat: 'dm', address, partner: { key: partner } };
+    const envelope: ObservationPlaceInput = { iface, authority, place, occurredAt: at };
+    const made = placeOf(db, envelope, at);
+    return { stored: 1, placeId: made.id };
+  }
+  if (!filled(placeId) || !filled(address)) return { stored: 0 };
+  const result = dbOf(connection)
+    .prepare('UPDATE places SET native_id = ? WHERE id = ? AND native_id IS NULL')
+    .run(address, placeId);
+  return { stored: Number(result.changes) };
+}
+
+/** A DM place that just took its partner person: the rows from before the link take it too, with the audience they had. */
+function keepDmOne(db: Db, stored: Row, partnerPerson: unknown): void {
+  if (typeof partnerPerson === 'string' && partnerPerson !== stored.partner_person)
+    rescopeDmPlace(db, String(stored.id), partnerPerson);
+}
+
+/** The place of an envelope, created when missing; its chat filled or checked. Returns its row. */
+function placeOf(
+  db: Db,
+  envelope: ObservationPlaceInput,
+  at: string
+): { id: string; chat: string | null; partner_person: unknown } {
+  const p = envelope.place;
+  const declared = p.chat === 'dm' || p.chat === 'group' ? p.chat : null;
+  const id = storedPlaceOf(db, envelope, at);
+  const existing = id
+    ? db
+        .prepare(
+          'SELECT id, chat, native_id, partner_person, partner_account, parent_id, name, seen_from_at, seen_to_at FROM places WHERE id = ?'
+        )
+        .get(id)
+    : null;
+  const parent = parentPlaceOf(db, envelope, at);
+  if (existing) {
+    if (declared && existing.chat && existing.chat !== declared) throw refusal(OBSERVE_CODES.CONVERSATION_CONFLICT);
+    const chat = existing.chat ?? declared;
+    const from =
+      existing.seen_from_at && existing.seen_from_at <= envelope.occurredAt
+        ? existing.seen_from_at
+        : envelope.occurredAt;
+    const to =
+      existing.seen_to_at && existing.seen_to_at >= envelope.occurredAt ? existing.seen_to_at : envelope.occurredAt;
+    // A stored DM place without its partner gets it; a partner already stored is never replaced.
+    const partner =
+      chat === 'dm' && (!existing.partner_person || !existing.partner_account) ? partnerOf(db, envelope, at) : null;
+    const partnerPerson = existing.partner_person ?? partner?.person ?? null;
+    const partnerAccount = existing.partner_account ?? partner?.account ?? null;
+    const parentId = existing.parent_id ?? parent ?? null;
+    fillTitle(db, existing, p.title, at);
+    fillAddress(db, existing, p.address, at);
+    if (
+      chat !== existing.chat ||
+      from !== existing.seen_from_at ||
+      to !== existing.seen_to_at ||
+      partnerPerson !== (existing.partner_person ?? null) ||
+      partnerAccount !== (existing.partner_account ?? null) ||
+      parentId !== (existing.parent_id ?? null)
+    ) {
+      db.prepare(
+        'UPDATE places SET chat = ?, scope_kind = COALESCE(scope_kind, ?), seen_from_at = ?, seen_to_at = ?, partner_person = ?, partner_account = ?, parent_id = ? WHERE id = ?'
+      ).run(chat, chat, from, to, partnerPerson, partnerAccount, parentId, existing.id);
+      keepDmOne(db, existing, partnerPerson);
+      projectRow(db, 'places', { id: existing.id }, { at });
+    }
+    return { id: existing.id as string, chat: chat as string | null, partner_person: partnerPerson };
+  }
+  const partner = declared === 'dm' ? partnerOf(db, envelope, at) : null;
+  const spelled = interfacePlaceOf(p.authority, p.key, 1);
+  const placeId = spelled.id;
+  const row = deriveRow(db, 'places', {
+    id: placeId,
+    iface: envelope.iface,
+    kind: p.kind,
+    native_id: addressOr(p.address, spelled.native_id),
+    parent_id: parent,
+    scope_kind: declared,
+    name: filled(p.title) ? p.title : null,
+    authority_id: p.authority,
+    native_key: p.key,
+    generation: 1,
+    chat: declared,
+    partner_person: partner?.person ?? null,
+    partner_account: partner?.account ?? null,
+    seen_from_at: envelope.occurredAt,
+    seen_to_at: envelope.occurredAt,
+    extra: parentNote(p.parent, parent),
+  });
+  insertRow(db, 'places', row);
+  addKey(db, p.authority, 'place', p.key, placeId, { generation: 1, at });
+  projectRow(db, 'places', { id: placeId }, { at });
+  return { id: placeId, chat: declared, partner_person: row.partner_person };
+}
+
+/** Resolves the same validated place for message observations and authorless deletions. */
+export function resolveObservationPlace(
+  db: Db,
+  envelope: ObservationPlaceInput,
+  at: string
+): { id: string; chat: string | null; partner_person: unknown } {
+  return placeOf(db, envelope, at);
+}
+
+/** The author columns of an envelope: `{ kind, account }`. */
+function authorOf(db: Db, envelope: Envelope, at: string): { kind: string; account: string | null } {
+  const a = envelope.author;
+  const authority = a.authority ?? envelope.authority;
+  const generation = isWholeNumber(a.generation) ? a.generation : null;
+  if (a.kind === 'account') {
+    const account = accountOf(
+      db,
+      envelope.iface,
+      { authority, key: a.key as string, display: a.display ?? null, generation, kind: a.account_kind ?? null },
+      envelope.occurredAt,
+      at
+    ).id;
+    ensureAccountPerson(db, account, at);
+    return { kind: 'account', account };
+  }
+  const account = filled(a.key)
+    ? accountOf(
+        db,
+        envelope.iface,
+        { authority, key: a.key, display: a.display ?? null, generation, kind: a.account_kind ?? 'self' },
+        envelope.occurredAt,
+        at
+      ).id
+    : null;
+  if (account !== null) linkSelfAccount(db, account, at);
+  return { kind: 'self', account };
+}
+
+/** The scope triple and audience of a line in a place: the place's chat, else internal (fail closed). */
+export function observationAudience(
+  iface: string,
+  place: { id: string; chat: string | null; partner_person: unknown }
+): { scope: Scope; audience: string } {
+  if (place.chat === 'group') return { scope: groupScope(iface), audience: groupAudienceId(iface) };
+  if (place.chat === 'dm')
+    return {
+      scope: {
+        scope_kind: 'dm',
+        scope_iface: iface,
+        scope_dm: (place.partner_person as string | null | undefined) ?? null,
+      },
+      audience: dmAudienceId(place.id),
+    };
+  return { scope: { ...SCOPE_INTERNAL }, audience: AUD_INTERNAL };
+}
+
+/** The `sources.kind` of an envelope: its subtype when that is a line kind (`seen`, `said`), else by its author. */
+const lineKindOf = (envelope: Envelope): string =>
+  LINE_KINDS.has(envelope.native.subtype as string)
+    ? (envelope.native.subtype as string)
+    : envelope.author.kind === 'self'
+      ? 'said'
+      : 'seen';
+
+/**
+ * The source id of an envelope's native tuple (its revision given): the legacy importer's spelling when the tuple is
+ * one it writes (ids.ts#legacySourceIdOf), else the hash of the tuple.
+ */
+export function observedSourceId(envelope: Pick<Envelope, 'authority' | 'native'>): string {
+  const n = envelope.native;
+  return (
+    legacySourceIdOf({
+      authority: envelope.authority,
+      kind: n.kind,
+      key: n.key,
+      generation: n.generation ?? 1,
+      revision: n.revision,
+      subtype: n.subtype ?? null,
+    }) ?? nodeId('source', [envelope.authority, n.kind, n.key, n.generation ?? 1, n.revision, n.subtype ?? null])
+  );
+}
+
+/** The stored line of a native tuple (any id spelling): its columns, the kind included. */
+function storedLineOf(db: Db, envelope: Envelope, revision: unknown): string | null {
+  const n = envelope.native;
+  const found = db
+    .prepare(
+      `SELECT id FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ? AND revision = ? AND kind = ?
+    ORDER BY rowid LIMIT 1`
+    )
+    .get(envelope.authority, n.kind, n.key, n.generation ?? 1, revision, lineKindOf(envelope));
+  return (found?.id as string | undefined) ?? null;
+}
+
+/**
+ * The revision of an edit with none given (see the head of this file): `{ revision, sourceId }`, `sourceId` the stored
+ * line when its newest revision already holds this text.
+ */
+function editRevisionOf(
+  db: Db,
+  envelope: Envelope
+): { revision: number; sourceId: string | null; firstAt: string | null } {
+  const n = envelope.native;
+  const first = db
+    .prepare(
+      `SELECT occurred_at FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ?
+    AND kind IN ('seen', 'said') AND revision IS NOT NULL AND retired_at IS NULL ORDER BY revision, rowid LIMIT 1`
+    )
+    .get(envelope.authority, n.kind, n.key, n.generation ?? 1);
+  const firstAt = typeof first?.occurred_at === 'string' ? first.occurred_at : null;
+  const newest = db
+    .prepare(
+      `SELECT id, revision, text FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ?
+    AND kind IN ('seen', 'said') AND revision IS NOT NULL AND retired_at IS NULL ORDER BY revision DESC, rowid LIMIT 1`
+    )
+    .get(envelope.authority, n.kind, n.key, n.generation ?? 1);
+  if (!newest) return { revision: 2, sourceId: null, firstAt };
+  if (newest.text === envelope.text)
+    return { revision: newest.revision as number, sourceId: newest.id as string, firstAt };
+  return { revision: (newest.revision as number) + 1, sourceId: null, firstAt };
+}
+
+/** The source key of an envelope in `external_keys` (the native key, revision and subtype under its authority). */
+const sourceKeyOf = (n: Envelope['native']): string => canonicalKey(n.kind, [n.key, n.revision, n.subtype ?? null]);
+
+/**
+ * A line of the persona's recorded before its echo names no author, and the echo brings their account. Only a line in a
+ * message family: the importer's rows keep the author they were written with. 1 when it was filled, else 0.
+ */
+function fillOwnAuthor(db: Db, e: Envelope, sourceId: string, at: string): number {
+  if (e.author.kind !== 'self' || !hasMessageFamilies(db)) return 0;
+  const stored = db
+    .prepare(
+      `SELECT s.author_account FROM sources s JOIN message_families f ON f.authority_id = s.authority_id
+       AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation WHERE s.id = ?`
+    )
+    .get(sourceId);
+  if (!stored || stored.author_account !== null) return 0;
+  // The echo resolves its place as every observation does, before the author.
+  placeOf(db, e, at);
+  const { account } = authorOf(db, e, at);
+  db.prepare('UPDATE sources SET author_account = ?, author_person = ? WHERE id = ?').run(
+    account,
+    authorPersonOf(db, account),
+    sourceId
+  );
+  return 1;
+}
+
+/**
+ * A line already stored (by the sync or an earlier observation): it is registered under its native key when it is not
+ * yet, gets the connection it came by when it has none, the persona's account when it is their line recorded before its
+ * echo, the media references it lacks, and the relations it lacks. Nothing else of it changes.
+ */
+function replayOf(db: Db, envelope: Envelope, sourceId: string, at: string, unit: string | null = null): ObserveResult {
+  const e = envelope;
+  if (filled(unit)) {
+    const stored = db.prepare(`SELECT writer FROM sources WHERE id = ?`).get(sourceId);
+    const line = lineHolderOfText(unit);
+    if (stored && (stored.writer === null || stored.writer === undefined) && line) {
+      db.prepare('UPDATE sources SET position = ?, writer = ?, holder_id = ?, period = ? WHERE id = ?').run(
+        nextLinePosition(db, line),
+        line.writer,
+        line.holder_id,
+        line.period,
+        sourceId
+      );
+    }
+  }
+  ensureAuthority(db, e.authority, e.iface, e.authority.slice(e.iface.length + 1));
+  addKey(db, e.authority, 'source', sourceKeyOf(e.native), sourceId, { generation: e.native.generation ?? 1, at });
+  if (
+    filled(e.connection) &&
+    db.prepare('SELECT iface FROM connections WHERE id = ?').get(e.connection)?.iface === e.iface
+  ) {
+    db.prepare('UPDATE sources SET connection_id = ? WHERE id = ? AND connection_id IS NULL').run(
+      e.connection,
+      sourceId
+    );
+  }
+  if (hasMediaItems(e)) fillLineMedia(db, sourceId, envelopeItems(e.media), { at, edit: e.edited === true });
+  let relations = fillOwnAuthor(db, e, sourceId, at);
+  for (const relation of e.relations ?? []) {
+    const target =
+      relation.target.source !== undefined
+        ? { source: relation.target.source }
+        : { authority: e.authority, ...relation.target };
+    relations += addRelation(db, sourceId, relation.predicate, target, { at });
+  }
+  if (relations > 0) projectRow(db, 'sources', { id: sourceId }, { at });
+  return { ok: true, replayed: true, sourceId, ...(filled(unit) ? { revision: e.native.revision } : {}), written: 0 };
+}
+
+const hasMediaItems = (e: Envelope): boolean => Array.isArray(e.media) && e.media.length > 0;
+
+function sourceExtraOf(e: Envelope): Row {
+  const extra: Row = {};
+  if (e.messageReply) extra.$messageReply = e.messageReply;
+  if (e.messageLocator) extra.$messageLocator = messageLocator(e.messageLocator, e.iface);
+  if (e.native.subtype) extra.subtype = e.native.subtype;
+  return extra;
+}
+
+/**
+ * The account of the owner's command line, linked to the owner's person before the line's place is resolved, so the DM
+ * and the line itself name that person.
+ */
+function claimConsole(db: Db, e: Envelope, at: string): void {
+  const owner = e.consoleOwner;
+  if (!owner) return;
+  const partner = e.place.partner;
+  const key = e.author.kind === 'account' ? e.author.key : partner?.key;
+  if (filled(key)) {
+    const authority = e.author.kind === 'account' ? (e.author.authority ?? e.authority) : e.authority;
+    const account = accountOf(db, e.iface, { authority, key }, e.occurredAt, at);
+    linkOwnerAccount(db, account.id, owner.person, at);
+  }
+}
+
+/**
+ * The envelope with its revision: an edit with none takes it from the database's count. `known` is the stored line when
+ * the edit's text is already that revision, `wrote` the moment the row is stored with, the first revision's when the line
+ * has one, since an edit event may carry the moment of the edit.
+ */
+function withEditRevision(db: Db, given: Envelope): { e: Envelope; known: string | null; wrote: string } {
+  if (Number.isInteger(given.native.revision)) return { e: given, known: null, wrote: given.occurredAt };
+  const edit = editRevisionOf(db, given);
+  return {
+    e: { ...given, native: { ...given.native, revision: edit.revision } },
+    known: edit.sourceId,
+    wrote: edit.firstAt ?? given.occurredAt,
+  };
+}
+
+function writeObservation(
+  db: Db,
+  given: Envelope,
+  at: string,
+  log: Partial<Log> | null | undefined,
+  unit: string | null = null
+): ObserveResult {
+  adoptNativeAuthority(db, given.iface);
+  const { e, known, wrote } = withEditRevision(db, given);
+  const n = e.native;
+  const sourceId = known ?? storedLineOf(db, e, n.revision) ?? observedSourceId(e);
+  if (db.prepare('SELECT 1 AS ok FROM sources WHERE id = ?').get(sourceId)) return replayOf(db, e, sourceId, at, unit);
+  ensureInterface(db, e.iface);
+  const partner = e.place.partner;
+  const authorities = new Set([
+    e.authority,
+    e.place.authority,
+    e.author.authority,
+    partner?.authority,
+    ...(e.relations ?? []).map((r) => r.target?.authority),
+  ]);
+  for (const authority of authorities)
+    if (filled(authority)) ensureAuthority(db, authority, e.iface, authority.slice(e.iface.length + 1));
+  const connection = filled(e.connection) ? e.connection : null;
+  if (connection) {
+    const stored = db.prepare('SELECT iface FROM connections WHERE id = ?').get(connection);
+    if (stored && stored.iface !== e.iface) throw refusal(OBSERVE_CODES.BAD_CONNECTION);
+    if (!stored)
+      db.prepare('INSERT INTO connections (id, iface, authority_id) VALUES (?, ?, ?)').run(
+        connection,
+        e.iface,
+        e.authority
+      );
+  }
+  claimConsole(db, e, at);
+  const place = placeOf(db, e, at);
+  const author = authorOf(db, e, at);
+  const { scope, audience } = observationAudience(e.iface, place);
+  const extra = sourceExtraOf(e);
+  const line = lineHolderOfText(unit);
+  const kind = lineKindOf(e);
+  // The native message a line replies to, in the line's own kind and authority (the legacy `reply_to` column).
+  const reply = (e.relations ?? []).find(
+    (r) =>
+      r.predicate === 'replies_to' &&
+      r.target.source === undefined &&
+      r.target.kind === n.kind &&
+      (r.target.authority === undefined || r.target.authority === e.authority)
+  );
+  const row = deriveRow(
+    db,
+    'sources',
+    {
+      id: sourceId,
+      kind,
+      iface: e.iface,
+      native_id: n.key,
+      native_kind: n.kind,
+      generation: n.generation ?? 1,
+      revision: n.revision,
+      place_id: place.id,
+      author_account: author.account,
+      author_kind: author.kind,
+      reply_to: reply ? String(reply.target.key) : null,
+      occurred_at: wrote,
+      recorded_at: e.observedAt,
+      seen_at: author.kind === 'self' ? null : e.observedAt,
+      observed_at: e.observedAt,
+      text: e.text,
+      mentions: Array.isArray(e.mentions) ? json(e.mentions) : null,
+      direct: e.direct === true ? 1 : 0,
+      connection_id: connection,
+      authority_id: e.authority,
+      ...scope,
+      audience_id: audience,
+      origin: 'observation',
+      extra: Object.keys(extra).length > 0 ? json(extra) : null,
+      ...lineColumns(line),
+      position: line ? nextLinePosition(db, line) : null,
+    },
+    { log }
+  );
+  if (row.audience_id !== audience) throw refusal(OBSERVE_CODES.AUDIENCE_CONFLICT);
+  insertRow(db, 'sources', row);
+  addKey(db, e.authority, 'source', sourceKeyOf(n), sourceId, { generation: n.generation ?? 1, at });
+  let relations = 0;
+  for (const relation of e.relations ?? []) {
+    const target =
+      relation.target.source !== undefined
+        ? { source: relation.target.source }
+        : { authority: e.authority, ...relation.target };
+    relations += addRelation(db, sourceId, relation.predicate, target, { at });
+  }
+  const resolved = resolveRelationsTo(db, row, { at });
+  projectRow(db, 'sources', { id: sourceId }, { at });
+  if (hasMediaItems(e)) fillLineMedia(db, sourceId, envelopeItems(e.media), { at });
+  markStemsPending(db);
+  return {
+    ok: true,
+    replayed: false,
+    sourceId,
+    ...(filled(unit) ? { revision: n.revision } : {}),
+    placeId: place.id,
+    author,
+    audienceId: audience,
+    relations,
+    resolved,
+    written: 1,
+  };
+}
+
+/**
+ * Writes one observation (see the head of this file). Returns `{ ok: true, replayed, sourceId, placeId, author,
+ * audienceId, relations, resolved, written }` (with `unit`, also `revision`) or `{ ok: false, code }`
+ * (nothing written). An envelope that carries `ingest` (`{ row, keepDays }`, the ingestion row of the event the line
+ * came with, ingest.ts) has the row written in the same transaction, so the event and its line commit together.
+ * `unit` is the key of the record day the line is written in (see the head of this file).
+ */
+export function observe(
+  handle: MemoryHandle,
+  envelope: unknown,
+  {
+    now = Date.now,
+    log = engineLog,
+    unit = null,
+  }: { now?: () => number; log?: Partial<Log> | null; unit?: string | null } = {}
+): ObserveResult {
+  const code = checkEnvelope(envelope);
+  if (code) {
+    log?.debug?.('memory observe: refused', { code });
+    return { ok: false, code };
+  }
+  const at = now();
+  const ingest = ingestOption(envelope);
+  return guarded(
+    handle,
+    () => {
+      if (ingest) insertIngest(dbOf(handle), ingest.row, { at, keepDays: ingest.keepDays });
+      // `checkEnvelope` accepted it above.
+      return writeObservation(dbOf(handle), envelope as Envelope, toIso(at), log, unit);
+    },
+    log
+  );
+}

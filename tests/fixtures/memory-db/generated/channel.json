@@ -1,0 +1,122 @@
+[
+ {
+  "id": "id",
+  "name": "name",
+  "category": "category",
+  "topic": null,
+  "purpose": "purpose",
+  "topics": "topics",
+  "tone": "tone",
+  "days": {
+   "2026-10-01": 1
+  },
+  "messageCount": 1,
+  "firstMessageAt": 1,
+  "lastMessageAt": 1,
+  "topWriters": [
+   {
+    "id": "topWriters[].id",
+    "count": 1
+   },
+   {
+    "id": "topWriters[].id",
+    "count": 2
+   },
+   {
+    "id": "topWriters[].id",
+    "count": 3
+   }
+  ],
+  "updatedAt": "updatedAt",
+  "writers": {
+   "111111111111111111": {
+    "count": 1,
+    "last": 1
+   }
+  },
+  "notesCheckedAt": null,
+  "notesFlaggedAt": null,
+  "notesSampleReviewedAt": null,
+  "notesAttemptAt": null
+ },
+ {
+  "id": "id",
+  "name": "name",
+  "category": "category",
+  "topic": "topic",
+  "purpose": "purpose",
+  "topics": "topics",
+  "tone": "tone",
+  "days": {
+   "2026-10-01": 2
+  },
+  "messageCount": 2,
+  "firstMessageAt": null,
+  "lastMessageAt": null,
+  "topWriters": [
+   {
+    "id": "topWriters[].id",
+    "count": 1
+   },
+   {
+    "id": "topWriters[].id",
+    "count": 2
+   },
+   {
+    "id": "topWriters[].id",
+    "count": 3
+   }
+  ],
+  "updatedAt": "updatedAt",
+  "writers": {
+   "111111111111111111": {
+    "count": 2,
+    "last": 2
+   }
+  },
+  "notesCheckedAt": "notesCheckedAt",
+  "notesFlaggedAt": "notesFlaggedAt",
+  "notesSampleReviewedAt": "notesSampleReviewedAt",
+  "notesAttemptAt": null
+ },
+ {
+  "id": "id",
+  "name": "name",
+  "category": "category",
+  "topic": "topic",
+  "purpose": "purpose",
+  "topics": "topics",
+  "tone": "tone",
+  "days": {
+   "2026-10-01": 3
+  },
+  "messageCount": 3,
+  "firstMessageAt": null,
+  "lastMessageAt": null,
+  "topWriters": [
+   {
+    "id": "topWriters[].id",
+    "count": 1
+   },
+   {
+    "id": "topWriters[].id",
+    "count": 2
+   },
+   {
+    "id": "topWriters[].id",
+    "count": 3
+   }
+  ],
+  "updatedAt": "updatedAt",
+  "writers": {
+   "111111111111111111": {
+    "count": 3,
+    "last": 3
+   }
+  },
+  "notesCheckedAt": "notesCheckedAt",
+  "notesFlaggedAt": "notesFlaggedAt",
+  "notesSampleReviewedAt": "notesSampleReviewedAt",
+  "notesAttemptAt": null
+ }
+]

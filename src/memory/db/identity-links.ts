@@ -1,0 +1,205 @@
+// The two identities the engine knows without asking anyone: the persona's own accounts and the owner's command line.
+// The observation (observe.ts) links an account whose author is the persona to `person:self` on any interface, by who
+// the author is and never by a name. The command line (`iface: 'cli'`) is spoken only by the `cli` principal, the
+// owner, so its account is linked to the owner's person (`bot.ownerPerson`, handed in by the core with the line) from
+// its first line; a tentative person the persona proposed for it merges into that person, unless it also holds a
+// verified account of someone else. On a raw install the core mints the owner's person with the first line; the other
+// accounts of the owner join it by `/memory bind`. An install that
+// stored the command line under `cli/global` has those rows moved to its native authority (`cli/local`,
+// src/protocol/identity.ts#nativeAuthorityOf) when the next line arrives, so the line finds its account and its place.
+// Used by observe.ts. Counts and codes only.
+
+import { nativeAuthorityOf } from '../../protocol/identity.ts';
+import { projectRow } from './graph.ts';
+import { rescopeDmPlacesOfAccount } from './dm-rescope.ts';
+import { SELF_PERSON, survivorOf } from './ids.ts';
+import { mergePersonInto } from './person-merge.ts';
+import { linkAccount, ownerLinkedPerson } from './person-links.ts';
+import type { Db } from './types.ts';
+
+/** The interface of the owner's command line. */
+export const OWNER_CONSOLE_IFACE = 'cli';
+
+/** What a link to the persona or to the owner did: whether the account's link changed, and who merged on the way. */
+export type IdentityLinked = { linked: boolean; merged: Array<string> };
+
+/** The person of an account's live verified link, whoever wrote it, or null. */
+function verifiedPerson(db: Db, accountId: string): string | null {
+  const row = db
+    .prepare(
+      `SELECT person_id FROM account_person_links WHERE account_id = ? AND state = 'verified' AND valid_to_at IS NULL
+       ORDER BY recorded_at DESC, id DESC LIMIT 1`
+    )
+    .get(accountId);
+  return typeof row?.person_id === 'string' ? row.person_id : null;
+}
+
+/** Links an account of the persona's to their person, made when a raw install has none yet. A link in place stays. */
+export function linkSelfAccount(db: Db, accountId: string, at: string): boolean {
+  db.prepare("INSERT OR IGNORE INTO people (id, kind, status, first_seen_at) VALUES (?, 'self', 'active', ?)").run(
+    SELF_PERSON,
+    at
+  );
+  if (verifiedPerson(db, accountId) === SELF_PERSON) return false;
+  linkAccount(db, accountId, SELF_PERSON, at, { by: 'observation', reason: "the persona's own account" });
+  projectRow(db, 'accounts', { id: accountId }, { at });
+  return true;
+}
+
+/**
+ * The people the persona proposed for an account that may merge into the owner's: a live proposal of theirs whose
+ * person holds no other account and was merged into nobody. A merge guard reads both the link rows and the account
+ * columns: whatever names the person as someone else's keeps it apart.
+ */
+function proposedPeople(db: Db, accountId: string, owner: string): Array<string> {
+  const proposals = db
+    .prepare(
+      `SELECT DISTINCT person_id FROM account_person_links WHERE account_id = ? AND state = 'proposed' AND by = 'her'
+       AND valid_to_at IS NULL ORDER BY person_id`
+    )
+    .all(accountId)
+    .map((row) => String(row.person_id));
+  const holdsOther = db.prepare(
+    `SELECT 1 AS ok FROM account_person_links WHERE person_id = ?1 AND state = 'verified' AND valid_to_at IS NULL
+     AND account_id <> ?2 UNION ALL SELECT 1 FROM accounts WHERE person_id = ?1 AND id <> ?2
+     UNION ALL SELECT 1 FROM people_merges WHERE from_person = ?1 LIMIT 1`
+  );
+  return proposals.filter((person) => person !== owner && person !== SELF_PERSON && !holdsOther.get(person, accountId));
+}
+
+/**
+ * Links `accountId` to the owner's person as the owner's own word, the person made when nobody stored it. The
+ * persona's proposals for the account are closed, and each tentative person of theirs that holds nothing else merges
+ * into the owner's person. The account's DM places name the owner as their partner, and so do the rows those DMs
+ * already hold.
+ */
+export function linkOwnerAccount(db: Db, accountId: string, owner: string, at: string): IdentityLinked {
+  db.prepare("INSERT OR IGNORE INTO people (id, kind, status, first_seen_at) VALUES (?, 'person', 'active', ?)").run(
+    owner,
+    at
+  );
+  const merging = proposedPeople(db, accountId, owner);
+  const current = ownerLinkedPerson(db, accountId);
+  const linked = current === null || survivorOf(db, current) !== survivorOf(db, owner);
+  if (linked) {
+    linkAccount(db, accountId, survivorOf(db, owner), at, { by: 'owner', reason: 'the owner command line' });
+    db.prepare('UPDATE places SET partner_person = ? WHERE partner_account = ?').run(survivorOf(db, owner), accountId);
+    rescopeDmPlacesOfAccount(db, accountId);
+    projectRow(db, 'accounts', { id: accountId }, { at });
+  }
+  for (const person of merging)
+    mergePersonInto(db, { from: person, into: owner, by: 'owner', reason: 'the owner command line', at });
+  return { linked, merged: merging };
+}
+
+/** The tables whose rows carry the authority that issued their native key. */
+const AUTHORITY_TABLES = [
+  'accounts',
+  'places',
+  'sources',
+  'participants',
+  'connections',
+  'message_families',
+  'external_keys',
+] as const;
+
+/**
+ * Whether any row sits under `authority`: one statement whose branches each read the front of an index on
+ * `authority_id` (`accounts_native`, `places_native`, the key of `external_keys`, `sources_native_tuple`, the unique key
+ * of `message_families`, `participants_tuple`). `connections` has no such index and stays out of the check.
+ */
+const HOLDS_AUTHORITY = `SELECT 1 AS ok FROM accounts WHERE authority_id = ?1
+  UNION ALL SELECT 1 FROM places WHERE authority_id = ?1 UNION ALL SELECT 1 FROM external_keys WHERE authority_id = ?1
+  UNION ALL SELECT 1 FROM sources WHERE authority_id = ?1 UNION ALL SELECT 1 FROM message_families WHERE authority_id = ?1
+  UNION ALL SELECT 1 FROM participants WHERE authority_id = ?1 LIMIT 1`;
+
+/** The lines under `?1` whose family under `?1` stays, because `?2` already holds the family's key. */
+const LINE_OF_STAYING_FAMILY = `EXISTS (SELECT 1 FROM message_families f WHERE f.authority_id = ?1
+  AND f.native_kind = sources.native_kind AND f.native_key = sources.native_id AND f.generation = sources.generation
+  AND EXISTS (SELECT 1 FROM message_families g WHERE g.authority_id = ?2 AND g.native_kind = f.native_kind
+  AND g.native_key = f.native_key AND g.generation = f.generation))`;
+
+/**
+ * Moves the rows an interface stored under `<iface>/global` to its native authority when the two differ (the command
+ * line and the core). A row whose key the native authority already holds stays where it is, and a line stays with its
+ * family: a family whose key the native authority holds keeps its lines beside it. Returns how many rows of each table
+ * moved. With nothing to move it costs the one indexed check of `HOLDS_AUTHORITY`.
+ */
+export function adoptNativeAuthority(db: Db, iface: string): Record<string, number> {
+  const from = `${iface}/global`;
+  const to = nativeAuthorityOf(iface);
+  if (to === from) return {};
+  if (!db.prepare(HOLDS_AUTHORITY).get(from)) return {};
+  db.prepare('INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES (?, ?, ?)').run(
+    to,
+    iface,
+    to.slice(iface.length + 1)
+  );
+  const moved: Record<string, number> = {};
+  // The lines move before their families, while the families that stay still sit under `from`.
+  moved.sources = Number(
+    db
+      .prepare(`UPDATE sources SET authority_id = ?2 WHERE authority_id = ?1 AND NOT ${LINE_OF_STAYING_FAMILY}`)
+      .run(from, to).changes
+  );
+  for (const table of AUTHORITY_TABLES)
+    if (table !== 'sources')
+      moved[table] = Number(
+        db.prepare(`UPDATE OR IGNORE "${table}" SET authority_id = ? WHERE authority_id = ?`).run(to, from).changes
+      );
+  return moved;
+}
+
+/** A JSON list of names as stored, its strings alone. */
+function storedNames(value: unknown): Array<string> {
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((one): one is string => typeof one === 'string' && one !== '') : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The name the owner goes by on the command line: the first name of another verified account of the person the command
+ * line's account is linked to, else that person's real name. Null when the account links to nobody or the person has no
+ * stored name or no database is open. The command line's own native id `owner` is never that name.
+ */
+export function ownerConsoleName(db: Db | null): string | null {
+  if (db === null) return null;
+  const own = db
+    .prepare(
+      `SELECT person_id FROM accounts WHERE iface = ? AND native_id = 'owner' AND link = 'verified'
+       AND person_id IS NOT NULL LIMIT 1`
+    )
+    .get(OWNER_CONSOLE_IFACE);
+  const person = typeof own?.person_id === 'string' ? own.person_id : null;
+  if (person === null) return null;
+  const accounts = db
+    .prepare("SELECT names FROM accounts WHERE person_id = ? AND link = 'verified' AND iface <> ? ORDER BY id")
+    .all(person, OWNER_CONSOLE_IFACE);
+  for (const row of accounts) {
+    const [name] = storedNames(row.names);
+    if (name !== undefined) return name;
+  }
+  const real: unknown = db.prepare('SELECT real_name FROM people WHERE id = ?').get(person)?.real_name;
+  return typeof real === 'string' && real !== '' ? real : null;
+}
+
+/**
+ * The owner's chat at the command line: the live DM place of the verified command line account that goes by `owner`, as
+ * its row holds it, or null while none is stored (before the first line there).
+ */
+export function ownerConsolePlace(db: Db | null): string | null {
+  if (db === null) return null;
+  const row = db
+    .prepare(
+      `SELECT p.id FROM places p JOIN accounts a ON a.id = p.partner_account
+        WHERE p.iface = ? AND p.chat = 'dm' AND p.retired_at IS NULL
+          AND a.iface = ? AND a.native_id = 'owner' AND a.link = 'verified'
+        ORDER BY p.rowid LIMIT 1`
+    )
+    .get(OWNER_CONSOLE_IFACE, OWNER_CONSOLE_IFACE);
+  return typeof row?.id === 'string' ? row.id : null;
+}

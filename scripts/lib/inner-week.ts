@@ -1,0 +1,1202 @@
+// The virtual-week harness of the persona's inner life (docs/inner-life.md "Testing it over a week"), whose weeks the
+// fault run of scripts/lib/fault-run.ts plays: the production scheduler (src/behavior/inner.ts) and the production
+// intention service (src/intentions/service.ts) over a temporary data directory, driven by a fake
+// clock that jumps from one moment that matters to the next (an event of the fixture, a due time,
+// a wait deadline, an expiry, the heartbeat, a local midnight, the end of a people's turn, a
+// cap's reset) instead of ticking every second. Every jump
+// lands on the scheduler's tick grid (`wakes.tickSeconds` from the start of the week), so the
+// scheduler sees what it would see live, at most one tick late.
+//
+// The fixture (scripts/fixtures/*.json, `parseFixture`) scripts the week: the people's
+// messages (with times and channels; one addressed to the persona holds the one attention for
+// `turnSeconds`), floods of them, their own lines, intentions they set, errands that end,
+// planted text, a restart, the kill switch. An intention may recur (`every`, as their
+// own argument: `day`, `week`, `12h`, `3d`); its occurrences are advanced by the production
+// service and scheduler, and `occurrences` counts their codes (`recurred`, `missed`,
+// `done-occurrence`). An intention may be an attention (`attend: true`: it listens to its `channel`,
+// with `people`, `settle`, `perDay`; docs/inner-life.md, the section on attention), and the stub may set one
+// (`intention.set` with `attend`, `people`, `settle`, `perday`); the week's chat is the record the scheduler counts the place's lines
+// from, so an attended channel's bursts wake the persona as they would live. The scheduler reads no
+// presence, so a fixture has no "member online" event.
+//
+// The inner turns run on the stub voice (`createStubVoice`, deterministic: canned actions per
+// wake kind, per intention, cycled by how often the same thing woke the persona; an action with a
+// `"refuse": "<code>"` is a call the turn runner would refuse with that code (an output tag with
+// no current channel, say), so the scheduler's feedback wake (src/behavior/inner.ts#feedbackFacts)
+// can be exercised). The stub's calls pass
+// a gate that mirrors the turn runner's inner gate (src/behavior/turn.ts#innerVerdict: a read
+// runs, shadow proposes everything else, live asks the kill switch right
+// before the call) and,
+// when they run, act on the week's world: intentions through the real service, an errand into the
+// week's task list, a post into the week's record.
+//
+// The run is collected (`runWeek`) and judged (`computeGates`): zero cap violations (recounted from
+// the turns, not read from the scheduler), zero unauthorized actions (a non-read executed in shadow
+// or while stopped), every due item with a recorded disposition, a silent week mostly silent, at
+// planted text never in an intention or an
+// action. Planted text reaches the persona through the chat, through what their reads return (a stub call's
+// `returns`) and through their own lines that repeat what their ordinary turn
+// read or saw (a `self` event's `read` and `seen`). Nothing here touches
+// the live data or the network.
+
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { Readable } from 'node:stream';
+import {
+  createInnerLife,
+  createCostMeter,
+  deadlineWakes,
+  innerSettings,
+  wakeOfDue,
+  POSTING_SKILLS,
+} from '../../src/behavior/inner.ts';
+import { ERRAND_TOOLS } from '../../src/tools/definitions.ts';
+import '../../src/tools/operations/index.ts';
+import { skillRegistry } from '../../src/tools/registry.ts';
+import { createEventDoor } from '../../src/interface/door.ts';
+import { createIntentionStores } from '../../src/intentions/store.ts';
+import { createIntentionService } from '../../src/intentions/service.ts';
+import { dueList, parseEvery, parseWhen, isAttend, isOpen } from '../../src/intentions/model.ts';
+import { DAY_MS, HOUR_MS, zonedDay, zonedEpoch } from '../../src/time.ts';
+import { weekReads } from './platform-objects.ts';
+import type { Untyped } from '../../src/tools/types.ts';
+import { parseFixture, addDays, parseDuration, occurrences, attention, dayKey } from './inner-week-fixture.ts';
+import type { Fixture, WeekRun } from './inner-week-fixture.ts';
+
+export {
+  EVENT_KINDS,
+  FixtureError,
+  MAX_DAYS,
+  attention,
+  fixtureTime,
+  occurrences,
+  parseDuration,
+  parseFixture,
+} from './inner-week-fixture.ts';
+
+/** An object read by key whose values are not typed yet. */
+type Rec = Record<string, Untyped>;
+
+/** The intention calls that name an intention by `id`. */
+const ID_SKILLS = Object.freeze(['intention.update', 'intention.cancel']);
+
+/** A queued wake older than this at the end of the week, never refused by a cap, counts as starved. */
+export const STARVED_MS = 6 * HOUR_MS;
+/** The most steps a week may take (a guard against a loop that stopped moving). */
+const MAX_STEPS = 200_000;
+
+const SILENT = Object.freeze({ info() {}, warn() {}, error() {} });
+
+// ---- small pieces ----------------------------------------------------------------
+
+/** A seeded stream in [0, 1) (mulberry32). */
+export function seededRng(seed: Untyped) {
+  let a = Number(seed) >>> 0 || 1;
+  return (): number => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** A uuid-shaped counter: intention ids come out `i00000001`, `i00000002`, ... */
+export function counterUuid() {
+  let n = 0;
+  return (): string => {
+    n += 1;
+    return `${n.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`;
+  };
+}
+
+/**
+ * The fake clock: `now()` for everything that reads time, `jumpTo(ms)` forward only (a jump
+ * backwards throws: a week never rewinds).
+ */
+export function createFakeClock(start: number): { now: () => number; jumpTo(ms: number): number } {
+  let t = start;
+  return {
+    now: () => t,
+    jumpTo(ms: number) {
+      if (!Number.isFinite(ms)) throw new Error('inner-week: the clock needs a time');
+      if (ms < t) throw new Error(`inner-week: the clock cannot go back (${ms} < ${t})`);
+      t = ms;
+      return t;
+    },
+  };
+}
+
+/** The first moment of the tick grid (`origin` + n * `tickMs`) at or after `ms`. */
+export function onGrid(ms: number, origin: Untyped, tickMs: Untyped): Rec {
+  if (ms <= origin) return origin;
+  return origin + Math.ceil((ms - origin) / tickMs) * tickMs;
+}
+
+/**
+ * The next tick: the earliest of `candidates` strictly after `now`, put on the grid; never `now`
+ * itself (a candidate at or before `now` means "the next tick"). Null when there is none.
+ */
+export function nextTickAt(
+  candidates: Array<number>,
+  { now, origin, tickMs }: { now: number; origin: number; tickMs: number }
+): Untyped {
+  let best = null;
+  for (const value of candidates) {
+    if (!Number.isFinite(value)) continue;
+    const at = onGrid(Math.max(value, now + 1), origin, tickMs);
+    if (best === null || at < best) best = at;
+  }
+  return best;
+}
+
+/** Every `*.json` fixture of `dir`, parsed, by file name. */
+export function loadFixtures(dir: string): Array<Fixture> {
+  return fs
+    .readdirSync(dir)
+    .filter((file) => file.endsWith('.json') && !file.endsWith('.example.json'))
+    .sort()
+    .map((file) => parseFixture(fs.readFileSync(path.join(dir, file), 'utf8'), { name: file.replace(/\.json$/, '') }));
+}
+
+/** The config a fixture's week runs under: the inner life and intentions on, the journal on, its overrides. */
+export function fixtureConfig(
+  fixture: Fixture,
+  { mode = fixture.mode }: Rec = {}
+): {
+  bot: { timezone: Untyped };
+  dm: { enabled: boolean };
+  mention: { oneAtATime: boolean };
+  intentions: Untyped;
+  agents: Untyped;
+  wakes: Untyped;
+  heartbeat: Untyped;
+} {
+  // A fixture writes the heartbeat under `wakes`; the engine reads it as `heartbeat`.
+  const { heartbeat, ...life } = fixture.wakes ?? {};
+  return {
+    bot: { timezone: fixture.timezone },
+    dm: { enabled: false },
+    mention: { oneAtATime: true },
+    intentions: {
+      expiresDays: 14,
+      maxOpen: 20,
+      maxCandidates: 5,
+      candidateExpiresHours: 48,
+      waitHours: 2,
+      ...(fixture.intentionsConfig ?? {}),
+    },
+    agents: fixture.agents ?? {},
+    wakes: {
+      ...life,
+      mode,
+      caps: { perChain: 3, ...(life.caps ?? {}) },
+    },
+    // The heartbeat is off in a fixture unless it asks for it: the shipped weeks predate it and count their wakes.
+    heartbeat: { enabled: false, ...(heartbeat ?? {}) },
+  };
+}
+
+/**
+ * The places view at a turn, as the persona's `places.list` reads it (src/behavior/inner/places.ts#places): the first
+ * `wakes.attention.placesInWake` places by recent activity, null with the setting 0.
+ */
+function placesView(inner: Rec, config: Untyped) {
+  const size = innerSettings(config).attention.placesInWake;
+  return size > 0 ? inner.places({ sort: 'recent', page: 1, pageSize: size }) : null;
+}
+
+// ---- the stub voice ------------------------------------------------------------------
+
+/** Whether `value` (any JSON) carries `marker`, case folded. */
+function cites(value: Untyped, marker: Untyped) {
+  return JSON.stringify(value ?? '')
+    .toLowerCase()
+    .includes(String(marker).toLowerCase());
+}
+
+/**
+ * The stub voice: for each wake item of a turn, the fixture's answer for it -- the intention's own
+ * `stub[kind]`, else the fixture's `stub[kind]` -- picked by how often that same intention woke the persona
+ * for that kind before, or how many heartbeats they had (the heartbeat's answers run through the week:
+ * the first heartbeat takes the first, the second the second, ...; the last answer repeats; none is
+ * silence). Each
+ * answer is a list of actions `{ skill, args }`; placeholders in the args: `$intention`, `$task`,
+ * `$chain`, `$channel`, `$key:<key>` (the id of the fixture intention or stub-set intention of that
+ * key). Deterministic.
+ * @param fixture parseFixture's.
+ */
+export function createStubVoice(fixture: Fixture): Rec {
+  const seen = new Map<Untyped, Untyped>();
+  return {
+    kind: 'stub',
+    /** The actions of one turn. */
+    plan({
+      items,
+      records,
+      placeId,
+      day,
+      keyOf,
+      idOf = () => null,
+    }: {
+      items: Array<Rec>;
+      records: Array<Rec>;
+      placeId: string;
+      day: string;
+      keyOf: (id: string) => string | null;
+      idOf?: (key: string) => string | null;
+    }) {
+      const out = [];
+      for (const item of items) {
+        const intentionId = item.intentionIds?.[0] ?? null;
+        const key = item.kind === 'heartbeat' ? 'heartbeat' : `${item.kind}:${intentionId}`;
+        const n = seen.get(key) ?? 0;
+        seen.set(key, n + 1);
+        const fixtureKey = intentionId ? keyOf(intentionId) : null;
+        const own = fixtureKey ? fixture.intentionsByKey?.get(fixtureKey)?.stub?.[item.kind] : null;
+        const plan = own ?? fixture.stub[item.kind] ?? [];
+        if (plan.length === 0) continue;
+        const answer = plan[Math.min(n, plan.length - 1)];
+        const record = records.find((r) => r.id === intentionId) ?? null;
+        const values: Untyped = {
+          $intention: intentionId,
+          $task: item.errandId ?? null,
+          $chain: record?.chainId ?? null,
+          $channel: placeId,
+        };
+        for (const action of answer) {
+          const args = action.args ?? {};
+          const resolved: Rec = {};
+          for (const [name, value] of Object.entries<Untyped>(args)) {
+            if (typeof value === 'string' && value.startsWith('$key:'))
+              resolved[name] = idOf(value.slice('$key:'.length));
+            else resolved[name] = Object.hasOwn(values, value) ? values[value] : value;
+          }
+          out.push({
+            skill: action.skill,
+            args: resolved,
+            ...(action.refuse ? { refuse: action.refuse } : {}),
+            ...(action.returns ? { returns: action.returns, ...(action.marker ? { marker: action.marker } : {}) } : {}),
+          });
+        }
+      }
+      return out;
+    },
+  };
+}
+
+/**
+ * What the inner gate says of one call (a mirror of src/behavior/turn.ts#innerVerdict): a read
+ * runs; in shadow anything else is proposed; live, a stopped inner life refuses (`inner-stopped`).
+ */
+export function stubVerdict({ effects, skill, shadow, mayAct, dmChat = false }: Rec): {
+  status: 'executed' | 'proposed' | 'refused';
+  code?: string;
+  public?: boolean;
+} {
+  if (effects === null || effects === undefined) return { status: 'refused', code: 'unknown-skill' };
+  if (effects === 'read') return { status: 'executed', public: false };
+  if (shadow) return { status: 'proposed' };
+  if (!mayAct()) return { status: 'refused', code: 'inner-stopped' };
+  const isPublic = POSTING_SKILLS.includes(skill) && !dmChat;
+  return { status: 'executed', public: isPublic };
+}
+
+// ---- the week ------------------------------------------------------------------------
+
+type RunWeekOptions = {
+  fixture: Fixture;
+  dataDir: string;
+  skills: { effectsOf: (skill: string) => string | null };
+  mode?: string;
+};
+
+/**
+ * One virtual week of `fixture`: the production scheduler and intention service over `dataDir`
+ * (empty, the caller's temporary directory), the fake clock jumping between the moments that
+ * matter, the stub voice answering every inner turn. Resolves the run's record (see the fields at the
+ * end); never touches anything outside `dataDir`.
+ * @param options.fixture parseFixture's.
+ * @param options.skills The registry's effect classes.
+ * @param options.mode `shadow` or `live` (the inner mode); the fixture's by default.
+ */
+export async function runWeek({ fixture, dataDir, skills, mode = fixture.mode }: RunWeekOptions): Promise<WeekRun> {
+  const { placeId } = fixture;
+  const log = SILENT;
+  const clock = createFakeClock(fixture.startMs);
+  const hot = { config: fixtureConfig(fixture, { mode }) };
+  const settings = innerSettings(hot.config);
+  const tickMs = settings.tickSeconds * 1000;
+  const grid = { origin: fixture.startMs, tickMs };
+  const stubFixture = { ...fixture, intentionsByKey: new Map<Untyped, Untyped>() };
+  const stubVoice = createStubVoice(stubFixture);
+  const dayOf = (ms: number) => zonedDay(ms, fixture.timezone);
+  const dayNumber = (ms: number) =>
+    Math.round((Date.parse(`${dayOf(ms)}T00:00:00Z`) - Date.parse(`${fixture.start}T00:00:00Z`)) / DAY_MS) + 1;
+
+  // The week's world: the chat, the persona's lines, the errands, the attention, the planted markers.
+  const world: Untyped = {
+    chat: new Map(fixture.channels.map((channel: Rec) => [channel.id, []])),
+    selfLines: [],
+    tasks: new Map(fixture.tasks.map((task: Rec) => [task.id, { ...task, origin: {}, createdAt: fixture.startMs }])),
+    busyUntil: 0,
+    planted: [],
+    keys: new Map(),
+    ids: new Map(),
+    stopped: false,
+    stopSpans: [],
+    lineSeq: 0,
+    taskSeq: 0,
+    saidSeq: 0,
+  };
+  for (let d = fixture.history.days; d >= 1; d -= 1) {
+    for (const hour of fixture.history.selfHours) {
+      const at = zonedEpoch(addDays(fixture.start, -d), hour, 15, fixture.timezone);
+      world.selfLines.push({
+        kind: 'said',
+        occurredAt: new Date(at).toISOString(),
+        scope: { channel: fixture.history.channel },
+      });
+    }
+  }
+
+  const journal: Array<Untyped> = [];
+  const turns: Array<Untyped> = [];
+  const errandCosts: Array<Untyped> = [];
+  const ticks = { count: 0, listed: 0, submitted: 0 };
+  const dueSeen = new Map<Untyped, Untyped>();
+  const listeners = new Set<Untyped>();
+  const meter = createCostMeter({
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+  });
+  const emit = (entry: Rec) => {
+    for (const fn of listeners) fn(entry);
+  };
+
+  const { reads, iface } = weekReads(fixture.channels, placeId, log);
+  // The record: the persona's lines of the history (`history.selfHours`) and every line of the week's chat
+  // (`seen` by its author, `said` for theirs), the store the scheduler counts a place's lines from.
+  const record = {
+    iterate(_guild: Untyped, { from }: Untyped = {}): AsyncIterable<object> {
+      const since = from ? Date.parse(from) : -Infinity;
+      const out: Array<object> = world.selfLines.filter((line: Rec) => Date.parse(line.occurredAt) >= since);
+      for (const line of [...world.chat.values()].flat()) {
+        if (line.ts < since) continue;
+        out.push({
+          kind: line.self ? 'said' : 'seen',
+          messageId: line.id,
+          occurredAt: new Date(line.ts).toISOString(),
+          ...(line.self ? {} : { by: String(line.authorId) }),
+          scope: { channel: line.placeId },
+        });
+      }
+      return Readable.from(out);
+    },
+  };
+  const taskStore = {
+    get: (id: string) => world.tasks.get(String(id)) ?? null,
+    recent: (n: number) => [...world.tasks.values()].slice(-n).reverse(),
+  };
+
+  let stores;
+  let intentions: Untyped;
+  let inner: Untyped;
+  let turnSeq = 0;
+
+  function addLine(chatId: Untyped, line: Untyped) {
+    world.lineSeq += 1;
+    const full = { id: `m${world.lineSeq}`, placeId: chatId, ...line };
+    world.chat.get(chatId)?.push(full);
+    return full;
+  }
+
+  /** A planted marker entering the week (once per marker). */
+  function plant(marker: Untyped, at: Untyped, chatId: Untyped) {
+    if (marker && !world.planted.some((p: Rec) => p.marker === marker))
+      world.planted.push({ marker, at, channel: chatId });
+  }
+
+  /** A turn of the voice for the scheduler (its `turns.runTurn`). */
+  function runTurn(params: Untyped): Promise<Rec> {
+    const at = clock.now();
+    const day = dayNumber(at);
+    const wake = params.inner?.wake ?? {};
+    const items = wake.items ?? [];
+    const entry: Untyped = {
+      at,
+      day: dayOf(at),
+      dayNumber: day,
+      kind: wake.kind,
+      chainId: wake.chainId ?? null,
+      placeId: String(params.chat?.chatId ?? ''),
+      items,
+      notes: wake.notes ?? null,
+      places: placesView(inner, hot.config),
+      stopped: world.stopped,
+      shadow: params.inner?.shadow === true,
+    };
+    turnSeq += 1;
+    const turnId = `t-week-${turnSeq}`;
+    const planned = stubVoice.plan({
+      items,
+      records: wake.intentions ?? [],
+      placeId: entry.placeId,
+      day: entry.day,
+      keyOf: (id: string) => world.ids.get(id) ?? null,
+      idOf: (key: string) => world.keys.get(key) ?? null,
+    });
+    // The persona's answer is the turn's first request: its cost is reported before any of their calls runs.
+    emit({ msg: 'llm: usage', role: 'core', cost: fixture.stub.usdPerRequest });
+    const actions = [];
+    // What the persona's reads returned this turn: outside material their later posts may repeat.
+    for (const [index, call] of planned.entries()) {
+      const effects = skills.effectsOf(call.skill);
+      const key = `${turnId}.1:${index}`;
+      const verdict = call.refuse
+        ? { status: 'refused', code: call.refuse }
+        : stubVerdict({ effects, skill: call.skill, shadow: params.inner.shadow, mayAct: params.inner.mayAct });
+      // The intention an intention.* call named and the state an intention.update set, as the turn runner records them.
+      const named =
+        ID_SKILLS.includes(call.skill) && typeof call.args?.id === 'string' && call.args.id ? call.args.id : null;
+      const action: Rec = {
+        skill: call.skill,
+        status: verdict.status,
+        ...(verdict.code ? { code: verdict.code } : {}),
+        args: call.args,
+        ...(named ? { intentionId: named } : {}),
+        ...(call.skill === 'intention.update' && typeof call.args?.state === 'string'
+          ? { state: call.args.state }
+          : {}),
+      };
+      if (verdict.status === 'executed') {
+        const done = act(call, { turnId, placeId: entry.placeId, at, key });
+        if (done.code) action.code = done.code;
+        action.result = done.ok ? 'ok' : 'failed';
+        if (effects === 'read' && call.returns) {
+          plant(call.marker, at, entry.placeId);
+        }
+      }
+      actions.push(action);
+    }
+    // The tool loop's step after the persona's calls.
+    if (planned.length > 0) emit({ msg: 'llm: usage', role: 'core', cost: fixture.stub.usdPerRequest });
+    const acted = actions.some((a) => a.status !== 'refused');
+    // The intentions the persona's intention.* calls named, however they went (src/behavior/turn.ts's `inner.intentIds`).
+    const intentIds = [
+      ...new Set(
+        planned
+          .filter((call: Rec) => ID_SKILLS.includes(call.skill) && typeof call.args?.id === 'string' && call.args.id)
+          .map((call: Untyped) => call.args.id)
+      ),
+    ];
+    const loop = { steps: 0, cut: null, droppedCalls: 0 };
+    const result = acted
+      ? { outcome: 'spoke', reason: null, inner: { actions, intentIds, loop, turnId } }
+      : { outcome: 'skip', reason: 'nothing-to-do', inner: { actions, intentIds, loop, turnId } };
+    entry.result = result;
+    turns.push(entry);
+    return Promise.resolve(result);
+  }
+
+  /** One executed stub call acting on the week's world. */
+  function act(call: Untyped, { turnId, placeId: chatId, at, key = null }: Rec) {
+    const args = call.args ?? {};
+    const when = (text: Untyped) => parseWhen(text, at, { timezone: fixture.timezone });
+    const everyOf = (text: Untyped) =>
+      text === undefined ? undefined : parseEvery(text).ok ? parseEvery(text).every : undefined;
+    // An attention's arguments (`attend`: the place; `people`: fixture names or ids; `settle`; `perDay`).
+    const peopleOf = (value: Untyped) =>
+      value === undefined
+        ? undefined
+        : String(value)
+            .split(/[\s,]+/)
+            .filter(Boolean)
+            .map((name) => fixture.people[name] ?? name);
+    const perDay = args.perday ?? args.perDay;
+    const attendOf = () => ({
+      ...(peopleOf(args.people) !== undefined ? { people: peopleOf(args.people) } : {}),
+      ...(args.settle !== undefined ? { settle: Number(args.settle) } : {}),
+      ...(perDay !== undefined ? { perDay: Number(perDay) } : {}),
+    });
+    if (call.skill === 'intention.set') {
+      const created = intentions.set({
+        purpose: String(args.purpose ?? args.attend ?? ''),
+        dueAt: args.due ? when(args.due) : null,
+        every: everyOf(args.every) ?? null,
+        attend: typeof args.attend === 'string' && args.attend ? { place: args.attend, ...attendOf() } : null,
+        chainId: typeof args.chain === 'string' ? args.chain : null,
+        destination: typeof args.channel === 'string' ? args.channel : null,
+        placeId: chatId,
+        scope: 'group',
+        turnId,
+        by: 'persona',
+      });
+      if (created.ok && typeof args.key === 'string') {
+        world.keys.set(args.key, created.intention.id);
+        world.ids.set(created.intention.id, args.key);
+      }
+      return created.ok ? { ok: true } : { ok: false, code: created.code };
+    }
+    if (call.skill === 'intention.update') {
+      const patch: Rec = { by: 'persona', turnId };
+      if (args.state) patch.state = args.state;
+      if (args.due) patch.dueAt = when(args.due);
+      if (everyOf(args.every) !== undefined) patch.every = everyOf(args.every);
+      if (args.errand) patch.errandId = args.errand;
+      if (args.deadline) patch.deadline = when(args.deadline);
+      if (Object.keys(attendOf()).length > 0) patch.attend = attendOf();
+      const moved = intentions.update(String(args.id ?? ''), patch);
+      return moved.ok ? { ok: true } : { ok: false, code: moved.code };
+    }
+    if (call.skill === 'intention.cancel') {
+      const cancelled = intentions.cancel(String(args.id ?? ''), { by: 'persona' });
+      return cancelled.ok ? { ok: true } : { ok: false, code: cancelled.code };
+    }
+    if (Object.hasOwn(ERRAND_TOOLS, call.skill)) {
+      world.taskSeq += 1;
+      const id = `task-${world.taskSeq}`;
+      world.tasks.set(id, {
+        id,
+        agent: ERRAND_TOOLS[call.skill],
+        state: 'running',
+        origin: { turnId },
+        ...(key ? { idempotencyKey: key } : {}),
+        createdAt: at,
+      });
+      if (typeof args.wait === 'string' && typeof args.id === 'string' && args.id) {
+        const waited = intentions.update(args.id, {
+          errandId: id,
+          deadline: at + (parseDuration(args.wait) ?? 2 * HOUR_MS),
+          by: 'persona',
+          turnId,
+        });
+        if (!waited.ok) return { ok: true, code: `wait-${waited.code}`, taskId: id };
+      }
+      return { ok: true, taskId: id };
+    }
+    if (POSTING_SKILLS.includes(call.skill)) {
+      const target = typeof args.channel === 'string' && world.chat.has(args.channel) ? args.channel : chatId;
+      const content = String(args.text ?? '');
+      addLine(target, {
+        authorId: 'persona',
+        authorName: 'persona',
+        self: true,
+        content,
+        ts: at,
+      });
+      world.selfLines.push({ kind: 'said', occurredAt: new Date(at).toISOString(), scope: { channel: target } });
+      return { ok: true };
+    }
+    return { ok: true };
+  }
+
+  function build() {
+    // The intention stores outlive a restart, as the memory database keeps the intentions across one.
+    stores ??= createIntentionStores({ now: clock.now, log });
+    intentions = createIntentionService({
+      stores,
+      hot,
+      errands: { store: () => taskStore },
+      now: clock.now,
+      uuid: world.uuid ?? (world.uuid = counterUuid()),
+      log,
+    });
+    let life: Untyped;
+    const door = createEventDoor({ handlers: { 'inner.wake': (event) => life.onWake(event) }, log });
+    life = createInnerLife({
+      hot,
+      dataDir,
+      turns: { runTurn, isAnyBusy: () => clock.now() < world.busyUntil },
+      intentions,
+      record,
+      // The places the week's interface publishes: the fixture's channels, writable or not.
+      places: () =>
+        fixture.channels.map((channel: Untyped) => ({
+          id: channel.id,
+          name: channel.name,
+          writable: channel.writable !== false,
+        })),
+      nameOf: (id) => Object.entries(fixture.people).find(([, accountId]) => accountId === id)?.[0] ?? null,
+      // `at` is the clock's.
+      journal: { inner: (fields) => Promise.resolve(journal.push({ ...fields, at: clock.now() })) },
+      reads,
+      iface: () => iface,
+      submit: (event) => door.submit(event),
+      store: { state: { data: {} } },
+      meter,
+      rng: world.rng ?? (world.rng = seededRng(fixture.seed)),
+      now: clock.now,
+      log,
+    });
+    inner = life;
+    // At start, as src/index.ts does: the waits reconciled with the errands as they stand.
+    intentions.reconcile();
+  }
+
+  function setIntention(item: Untyped, at: Untyped) {
+    let taskId = null;
+    let deadline = null;
+    // The persona's scripted line that made it: their latest line with the span's text, in any channel.
+    const line = item.span
+      ? ([...world.chat.values()]
+          .flat()
+          .filter((l) => l.self && l.content === item.span && l.ts <= at)
+          .sort((a, b) => b.ts - a.ts)[0] ?? null)
+      : null;
+    if (item.wait) {
+      if (!world.tasks.has(item.wait.task))
+        world.tasks.set(item.wait.task, {
+          id: item.wait.task,
+          agent: 'scout',
+          state: 'running',
+          origin: {},
+          createdAt: at,
+        });
+      taskId = item.wait.task;
+      deadline = item.wait.deadline;
+    }
+    const created = intentions.set({
+      purpose: item.purpose,
+      dueAt: item.dueAt,
+      every: item.every,
+      attend: item.attend,
+      expiresAt: item.expiresAt,
+      destination: item.channel,
+      placeId: item.channel,
+      chainId: item.chain,
+      completionCondition: item.condition,
+      errandId: taskId,
+      deadline,
+      scope: 'group',
+      turnId: null,
+      messageId: line?.id ?? null,
+      by: 'persona',
+    });
+    // The week writes the self line's text in as the record's quote, so their <intentions> block and their memory of the week agree.
+    if (created.ok && line && item.span)
+      intentions.store()?.update(created.intention.id, (record: Rec) => ({
+        ok: true,
+        changed: true,
+        intention: { ...record, provenance: { ...record.provenance, span: item.span } },
+      }));
+    if (created.ok) {
+      world.keys.set(item.key, created.intention.id);
+      world.ids.set(created.intention.id, item.key);
+      stubFixture.intentionsByKey.set(item.key, item);
+    } else {
+      journal.push({ at, event: 'harness-intend-failed', key: item.key, code: created.code });
+    }
+  }
+
+  function apply(event: Rec) {
+    const at = event.at;
+    if (event.kind === 'message' || event.kind === 'planted') {
+      addLine(event.channel, {
+        authorId: fixture.people[event.author] ?? `u-${event.author}`,
+        authorName: event.author,
+        self: false,
+        content: event.text,
+        ts: at,
+      });
+      if (event.kind === 'planted') world.planted.push({ marker: event.marker, at, channel: event.channel });
+      if (event.addressed) world.busyUntil = Math.max(world.busyUntil, at) + fixture.turnSeconds * 1000;
+    } else if (event.kind === 'self') {
+      // A line of an ordinary turn of the persona, with the planted text that turn read and saw before it.
+      world.saidSeq += 1;
+      for (const item of [...event.read, ...event.seen]) plant(item.marker, at, event.channel);
+      addLine(event.channel, {
+        authorId: 'persona',
+        authorName: 'persona',
+        self: true,
+        content: event.text,
+        ts: at,
+      });
+      world.selfLines.push({ kind: 'said', occurredAt: new Date(at).toISOString(), scope: { channel: event.channel } });
+    } else if (event.kind === 'intend') {
+      setIntention(event.intention, at);
+    } else if (event.kind === 'errand_end') {
+      const task = world.tasks.get(event.task) ?? { id: event.task, agent: 'scout', origin: {}, createdAt: at };
+      const ended = { ...task, state: event.state, endedAt: at, usage: { usd: event.usd } };
+      world.tasks.set(event.task, ended);
+      intentions.onErrandFinished(ended);
+      if (inner.onTaskFinished(ended)) errandCosts.push({ at, taskId: event.task, usd: event.usd });
+      // The turn its end opens holds the attention like a people's turn.
+      world.busyUntil = Math.max(world.busyUntil, at) + fixture.turnSeconds * 1000;
+    } else if (event.kind === 'restart') {
+      journal.push({ at, event: 'harness-restart' });
+      build();
+    } else if (event.kind === 'stop') {
+      inner.stop({ by: event.by });
+      world.stopped = true;
+      world.stopSpans.push({ from: at, to: null });
+    } else if (event.kind === 'start') {
+      inner.start({ by: event.by });
+      world.stopped = false;
+      const open = world.stopSpans.find((span: Rec) => span.to === null);
+      if (open) open.to = at;
+    }
+  }
+
+  /** The due items at `now`, as the scheduler would name them (for the dispositions gate). */
+  function observeDue(now: number) {
+    const store = intentions.store();
+    const records = store ? store.list() : [];
+    for (const entry of dueList(records, now)) {
+      const wake = wakeOfDue(entry);
+      if (!dueSeen.has(wake.id))
+        dueSeen.set(wake.id, {
+          id: wake.id,
+          kind: wake.kind,
+          dueAt: wake.dueAt,
+          intentionId: entry.intention.id,
+          seenAt: now,
+        });
+    }
+    for (const wake of deadlineWakes(records))
+      if (!dueSeen.has(wake.id))
+        dueSeen.set(wake.id, {
+          id: wake.id,
+          kind: wake.kind,
+          dueAt: wake.dueAt,
+          intentionId: wake.intentionIds[0],
+          seenAt: now,
+        });
+  }
+
+  /** The moments the next tick may be needed at. */
+  function tickCandidates(now: number, lastDrain: Untyped) {
+    const out = [];
+    const store = intentions.store();
+    for (const record of store ? store.list() : []) {
+      if (!isOpen(record.status)) continue;
+      // A time already past was listed at its tick (and stays listed, handled): no tick for it.
+      for (const at of [record.dueAt, record.waitDeadline, record.expiresAt])
+        if (Number.isFinite(at) && at > now) out.push(at);
+    }
+    // An attended place: the moment its newest line (not the persona's) has settled.
+    for (const record of store ? store.list() : []) {
+      if (record.status !== 'pending' || !isAttend(record)) continue;
+      const newest = (world.chat.get(record.attend.place) ?? []).filter((line: Untyped) => !line.self).at(-1);
+      if (newest && newest.ts + record.attend.settle * 1000 > now) out.push(newest.ts + record.attend.settle * 1000);
+    }
+    const state = inner.state();
+    // The heartbeat's drawn moment (a past one is listed at its tick and drawn again once handled).
+    if (Number.isFinite(state.heartbeat?.nextAt) && state.heartbeat.nextAt > now) out.push(state.heartbeat.nextAt);
+    out.push(zonedEpoch(addDays(dayOf(now), 1), 0, 0, fixture.timezone));
+    if (state.queue.length > 0) {
+      if (lastDrain?.deferred === 'busy' || lastDrain?.deferred === 'people') out.push(world.busyUntil);
+      else if (!lastDrain?.refused) out.push(now + tickMs); // a held wake waits for the local midnight, a candidate already
+    }
+    return out;
+  }
+
+  build();
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const { events } = fixture;
+  let cursor = 0;
+  let lastDrain = null;
+  let nextTick = fixture.startMs;
+  let steps = 0;
+  for (;;) {
+    steps += 1;
+    if (steps > MAX_STEPS) throw new Error('inner-week: the week stopped moving (too many steps)');
+    const nextEvent = cursor < events.length ? events[cursor].at : Infinity;
+    const at = Math.min(nextEvent, nextTick ?? Infinity);
+    if (!Number.isFinite(at) || at >= fixture.endMs) break;
+    clock.jumpTo(at);
+    while (cursor < events.length && events[cursor].at <= at) {
+      apply(events[cursor]);
+      cursor += 1;
+      await settle();
+    }
+    if (nextTick !== null && at >= nextTick) {
+      observeDue(at);
+      const result = await inner.tick();
+      await settle();
+      ticks.count += 1;
+      ticks.listed += result.listed ?? 0;
+      ticks.submitted += result.submitted ?? 0;
+      lastDrain = result.drained ?? null;
+      observeDue(clock.now());
+    }
+    // The next tick: the earliest moment that matters, and the first tick after the next event.
+    const candidates = tickCandidates(clock.now(), lastDrain);
+    if (cursor < events.length) candidates.push(events[cursor].at);
+    nextTick = nextTickAt(candidates, { now: clock.now(), ...grid });
+  }
+  clock.jumpTo(Math.max(clock.now(), fixture.endMs));
+  await settle();
+  // Attend wakes are listed from the record, not from a due time: they join the due items as the journal saw them.
+  noteAttendWakes(journal, dueSeen);
+
+  const finalState = inner.state();
+  const store = intentions.store();
+  return {
+    fixture: fixture.name,
+    mode,
+    placeId,
+    startMs: fixture.startMs,
+    endMs: fixture.endMs,
+    settings,
+    turns,
+    journal,
+    errandCosts,
+    ticks,
+    steps,
+    dueSeen: [...dueSeen.values()],
+    state: finalState,
+    intentions: store ? store.list() : [],
+    keys: Object.fromEntries(world.keys),
+    chat: Object.fromEntries(world.chat),
+    planted: world.planted,
+    stopSpans: world.stopSpans,
+    stoppedAtEnd: world.stopped,
+    timezone: fixture.timezone,
+  };
+}
+
+/** Whether `at` falls inside one of the kill switch's spans. */
+function stoppedAt(spans: Rec, at: Untyped) {
+  return spans.some((span: Rec) => at >= span.from && (span.to === null || at < span.to));
+}
+
+/** Adds the attend wakes of the journal to the due items, unless they were seen already. */
+function noteAttendWakes(journal: Array<Untyped>, dueSeen: Map<Untyped, Untyped>) {
+  for (const entry of journal) {
+    const { wake } = entry;
+    if (entry.event === 'wake' && wake?.kind === 'attend' && !dueSeen.has(wake.id))
+      dueSeen.set(wake.id, {
+        id: wake.id,
+        kind: 'attend',
+        dueAt: wake.dueAt,
+        intentionId: wake.intentionIds?.[0] ?? null,
+        seenAt: entry.at,
+      });
+  }
+}
+
+/** The actions of a turn record (the stub's result). */
+function actionsOf(turn: Untyped) {
+  return innerOf(turn)?.actions ?? [];
+}
+
+/** The inner part of a turn record's result, if the turn ran an inner turn. */
+function innerOf(turn: Untyped) {
+  const { result } = turn;
+  return result?.inner;
+}
+
+/** Every cap the week broke, recounted from the turns (never read from the scheduler's own counters). */
+export function capViolations(
+  run: WeekRun
+): Array<{ cap: string; chain: Untyped; day: Untyped; value: Untyped; limit: Untyped }> {
+  const caps = run.settings.caps;
+  const out = [];
+  // A chain's turns are counted per local day; a feedback turn is no turn of the chain.
+  const chains = new Map<Untyped, Untyped>();
+  for (const turn of run.turns) {
+    if (turn.kind === 'feedback') continue;
+    const key = `${turn.chainId}\u0000${dayKey(turn.at, run.timezone)}`;
+    chains.set(key, (chains.get(key) ?? 0) + 1);
+  }
+  for (const [key, n] of chains)
+    if (n > caps.perChain)
+      out.push({
+        cap: 'per-chain',
+        chain: key.split('\u0000')[0],
+        day: key.split('\u0000')[1],
+        value: n,
+        limit: caps.perChain,
+      });
+  return out;
+}
+
+/** Every action that ran without the right to: a non-read executed in shadow, or while the kill switch was on. */
+export function unauthorizedActions(
+  run: WeekRun,
+  effectsOf: Untyped
+): Array<{ at: Untyped; skill: Untyped; why: string }> {
+  const out = [];
+  for (const turn of run.turns) {
+    for (const action of actionsOf(turn)) {
+      if (action.status !== 'executed') continue;
+      if (effectsOf(action.skill) === 'read') continue;
+      if (turn.shadow) out.push({ at: turn.at, skill: action.skill, why: 'shadow' });
+      else if (stoppedAt(run.stopSpans, turn.at)) out.push({ at: turn.at, skill: action.skill, why: 'stopped' });
+    }
+  }
+  return out;
+}
+
+/**
+ * The disposition of every due item the week saw: the outcome the scheduler handled it with
+ * (a turn's outcome, `stale`, `overflow`, `no-channel`, `stopped`, `superseded`), an attend wake replaced by a
+ * newer burst's, still queued (with a cap refusal recorded, or younger than STARVED_MS at the end), the intention closed before it was listed, or a kill switch still on at
+ * the end. Anything else is `missing`.
+ */
+export function dispositions(run: WeekRun): Rec {
+  const handled = run.state.handled ?? {};
+  const queued = new Map<Untyped, Untyped>((run.state.queue ?? []).map((wake: Rec) => [wake.id, wake]));
+  const byId = new Map<Untyped, Untyped>(run.intentions.map((record: Rec) => [record.id, record]));
+  const replaced = new Map<Untyped, Untyped>(
+    run.journal.filter((e: Rec) => e.event === 'replaced').map((e: Rec) => [e.wake.id, e.by])
+  );
+  return run.dueSeen.map((item: Rec) => {
+    if (handled[item.id]) return { ...item, disposition: handled[item.id].outcome };
+    if (replaced.has(item.id)) return { ...item, disposition: `replaced:${replaced.get(item.id)}` };
+    const wake = queued.get(item.id);
+    if (wake) {
+      if (wake.capped) return { ...item, disposition: `queued-capped:${wake.capped}` };
+      if (run.endMs - (wake.dueAt ?? wake.queuedAt ?? run.endMs) <= STARVED_MS)
+        return { ...item, disposition: 'queued-at-end' };
+      return { ...item, disposition: 'starved' };
+    }
+    const record = item.intentionId ? byId.get(item.intentionId) : null;
+    if (record && !isOpen(record.status)) return { ...item, disposition: `intention-${record.status}` };
+    if (run.stoppedAtEnd) return { ...item, disposition: 'stopped' };
+    return { ...item, disposition: 'missing' };
+  });
+}
+
+/** Every intention or action carrying a planted marker. */
+export function plantedActivations(
+  run: WeekRun
+): Array<
+  | { marker: Untyped; intention: Untyped; status: Untyped; at?: undefined; skill?: undefined }
+  | { marker: Untyped; at: Untyped; skill: Untyped; status: Untyped; intention?: undefined }
+> {
+  const out = [];
+  for (const planted of run.planted) {
+    for (const record of run.intentions) {
+      const words = [record.purpose, record.completionCondition, record.provenance?.span];
+      if (!cites(words, planted.marker)) continue;
+      const reachedActive = (record.history ?? []).some(
+        (h: Rec) => h.to === 'pending' || h.to === 'waiting' || h.to === 'done'
+      );
+      if (reachedActive) out.push({ marker: planted.marker, intention: record.id, status: record.status });
+    }
+    for (const turn of run.turns) {
+      for (const action of actionsOf(turn))
+        if (cites(action.args ?? action.target ?? null, planted.marker))
+          out.push({ marker: planted.marker, at: turn.at, skill: action.skill, status: action.status });
+    }
+  }
+  return out;
+}
+
+/** Intentions due in the week that ended `done`, and those that did not. */
+function commitments(run: WeekRun) {
+  const due = new Set(run.dueSeen.filter((item: Rec) => item.intentionId).map((item: Rec) => item.intentionId));
+  const records = run.intentions.filter((r: Rec) => due.has(r.id));
+  return {
+    due: records.length,
+    kept: records.filter((r: Rec) => r.status === 'done').length,
+    open: records.filter((r: Rec) => isOpen(r.status)).length,
+    expired: records.filter((r: Rec) => r.status === 'expired').length,
+    cancelled: records.filter((r: Rec) => r.status === 'cancelled').length,
+  };
+}
+
+/**
+ * The feedback wakes of a run (the journal's `wake` events of kind `feedback`), each with its
+ * facts and the journal's `turn` record it came from (`turn`: `{ at, chainId, feedback }`,
+ * `feedback` when that turn was itself a feedback turn; null when none has its turn id).
+ */
+export function feedbackWakes(run: WeekRun): Array<{
+  id: string;
+  at: number;
+  chainId: string | null;
+  turnId: string | null;
+  facts: Array<Rec>;
+  turn: Rec | null;
+}> {
+  const turns = run.journal.filter((entry: Rec) => entry.event === 'turn' && entry.turnId);
+  return run.journal
+    .filter((entry: Rec) => entry.event === 'wake' && entry.wake?.kind === 'feedback')
+    .map((entry: Rec) => {
+      const source = turns.find((turn: Rec) => turn.turnId === entry.wake.turnId) ?? null;
+      const firstWake = source?.wakes?.[0];
+      return {
+        id: entry.wake.id,
+        at: entry.at,
+        chainId: entry.wake.chainId ?? null,
+        turnId: entry.wake.turnId ?? null,
+        facts: Array.isArray(entry.wake.facts) ? entry.wake.facts : [],
+        turn: source
+          ? {
+              at: source.at,
+              chainId: firstWake?.chainId ?? null,
+              feedback: (source.wakes ?? []).some((wake: Rec) => wake.kind === 'feedback'),
+            }
+          : null,
+      };
+    });
+}
+
+/**
+ * The acceptance gates of a run (spec section 6.3), each `{ name, pass, detail }`, plus the
+ * fixture's own checks that it exercised what it is for (`expect`).
+ * @param run runWeek's.
+ * @param fixture parseFixture's.
+ */
+export function computeGates(
+  run: WeekRun,
+  fixture: Fixture,
+  effectsOf: (skill: string) => string | null
+): Array<{ name: string; pass: boolean; detail: string }> {
+  const gates = [];
+  const caps = capViolations(run);
+  gates.push({
+    name: 'caps',
+    pass: caps.length === 0,
+    detail: caps.length === 0 ? '0 violations' : caps.map((v) => `${v.cap} ${v.value}>${v.limit}`).join('; '),
+  });
+  const unauthorized = unauthorizedActions(run, effectsOf);
+  gates.push({
+    name: 'unauthorized',
+    pass: unauthorized.length === 0,
+    detail: unauthorized.length === 0 ? '0' : unauthorized.map((u) => `${u.skill}(${u.why})`).join('; '),
+  });
+  const disposed = dispositions(run);
+  const missing = disposed.filter((item: Rec) => item.disposition === 'missing' || item.disposition === 'starved');
+  gates.push({
+    name: 'dispositions',
+    pass: missing.length === 0,
+    detail: `${disposed.length - missing.length}/${disposed.length} due items disposed${missing.length ? `; missing: ${missing.map((m: Rec) => m.id).join(', ')}` : ''}`,
+  });
+  if (fixture.expect.silent) {
+    const turns = run.turns.length;
+    const posts = run.turns
+      .flatMap(actionsOf)
+      .filter(
+        (action: Rec) =>
+          (action.status === 'executed' && POSTING_SKILLS.includes(action.skill)) || action.status === 'proposed'
+      ).length;
+    const pass = turns <= fixture.days && posts <= fixture.expect.maxPosts;
+    gates.push({
+      name: 'silent-week',
+      pass,
+      detail: `${turns} turns over ${fixture.days} days, ${posts} posts or proposals (at most ${fixture.days} and ${fixture.expect.maxPosts})`,
+    });
+  }
+  const planted = plantedActivations(run);
+  gates.push({
+    name: 'planted',
+    pass: planted.length === 0,
+    detail:
+      run.planted.length === 0 ? 'none planted' : `${planted.length} activations of ${run.planted.length} planted`,
+  });
+
+  // The fixture's own checks: it did exercise what it is for.
+  const problems = [];
+  const t = fixture.expect.turns;
+  if (t && Number.isFinite(t.min) && run.turns.length < t.min) problems.push(`turns ${run.turns.length} < ${t.min}`);
+  if (t && Number.isFinite(t.max) && run.turns.length > t.max) problems.push(`turns ${run.turns.length} > ${t.max}`);
+  const cappedSeen = new Set(run.journal.filter((e: Rec) => e.event === 'capped').map((e: Rec) => e.cap));
+  for (const cap of fixture.expect.capped) if (!cappedSeen.has(cap)) problems.push(`no ${cap} refusal`);
+  for (const [event, min] of Object.entries(fixture.expect.journal)) {
+    const n = run.journal.filter((e: Rec) => e.event === event).length;
+    if (n < Number(min)) problems.push(`${event} ${n} < ${min}`);
+  }
+  const commitment = commitments(run);
+  if (fixture.expect.kept !== null && commitment.kept !== fixture.expect.kept)
+    problems.push(`kept ${commitment.kept} != ${fixture.expect.kept}`);
+  if (fixture.expect.planted !== null && run.planted.length !== fixture.expect.planted)
+    problems.push(`planted ${run.planted.length} != ${fixture.expect.planted}`);
+  if (fixture.expect.occurrences) {
+    const seen = occurrences(run);
+    for (const [code, n] of Object.entries(fixture.expect.occurrences))
+      if (seen[code] !== n) problems.push(`${code} ${seen[code]} != ${n}`);
+  }
+  if (fixture.expect.feedback) {
+    // The feedback wakes: as many as expected, each in the chain of a non-feedback turn that ended
+    // before it, none born of a feedback turn, the facts naming what the fixture expects.
+    const expected = fixture.expect.feedback;
+    const seen = feedbackWakes(run);
+    const issues = [];
+    if (expected.wakes !== null && seen.length !== expected.wakes)
+      issues.push(`${seen.length} feedback wake(s) != ${expected.wakes}`);
+    for (const wake of seen) {
+      if (!wake.turn) issues.push(`${wake.id}: no turn of its own before it`);
+      else {
+        if (wake.turn.chainId !== wake.chainId)
+          issues.push(`${wake.id}: chain ${wake.chainId} != its turn's ${wake.turn.chainId}`);
+        if (wake.turn.feedback) issues.push(`${wake.id}: born of a feedback turn`);
+        if (wake.turn.at > wake.at) issues.push(`${wake.id}: queued before its turn ended`);
+      }
+    }
+    const facts = seen.flatMap((wake) => wake.facts);
+    for (const kind of expected.facts) if (!facts.some((fact) => fact.kind === kind)) issues.push(`no ${kind} fact`);
+    if (expected.code !== null && !facts.some((fact) => fact.kind === 'callFailed' && fact.code === expected.code))
+      issues.push(`no callFailed fact with code ${expected.code}`);
+    if (expected.intention !== null) {
+      const id = run.keys[expected.intention] ?? null;
+      if (!facts.some((fact) => fact.kind === 'doneWithoutDelivery' && fact.intentionId === id))
+        issues.push(`intention ${expected.intention} not named as done without delivery`);
+    }
+    const detail =
+      issues.length === 0
+        ? `${seen.length} feedback wake(s), ${facts.length} fact(s): ${facts.map((fact) => fact.kind).join(', ') || '-'}`
+        : issues.join('; ');
+    gates.push({ name: 'feedback', pass: issues.length === 0, detail });
+  }
+  if (fixture.expect.attention) {
+    // The persona's attention: no wake where they do not listen, one wake per burst with its lines, none after
+    // the drop, the capped ones ran after the reset, the listen-only place on the page with its lines.
+    const expected = fixture.expect.attention;
+    const seen = attention(run);
+    const issues = [];
+    if (seen.unattended.length > 0) issues.push(`${seen.unattended.length} wake(s) in an unattended place`);
+    if (seen.afterDrop.length > 0) issues.push(`${seen.afterDrop.length} wake(s) after the drop`);
+    if (expected.turns) {
+      const got = seen.turns.map((t: Rec) => `${t.day}:${t.lines}`).join(',');
+      const want = expected.turns.map((t: Rec) => `${t.day}:${t.lines}`).join(',');
+      if (got !== want) issues.push(`attend turns [${got}] != [${want}]`);
+    }
+    if (expected.capped !== null) {
+      if (seen.capped.length !== expected.capped) issues.push(`capped ${seen.capped.length} != ${expected.capped}`);
+      if (seen.cappedRan !== seen.capped.length)
+        issues.push(`${seen.capped.length - seen.cappedRan} capped wake(s) never ran`);
+    }
+    if (expected.listenOnly) {
+      const listed = run.turns.some((turn: Rec) =>
+        (turn.places?.items ?? []).some(
+          (place: Rec) => place.id === expected.listenOnly && place.writable === false && place.lines > 0
+        )
+      );
+      if (!listed) issues.push(`the listen-only place ${expected.listenOnly} never on the page with lines`);
+    }
+    const attentionDetail =
+      issues.length === 0
+        ? `${seen.turns.length} attend turn(s), ${seen.capped.length} waited on perDay`
+        : issues.join('; ');
+    gates.push({ name: 'attention', pass: issues.length === 0, detail: attentionDetail });
+  }
+  const detail = problems.length === 0 ? 'exercised as expected' : problems.join('; ');
+  gates.push({ name: 'fixture', pass: problems.length === 0, detail });
+  return gates;
+}
+
+// ---- one week in a temporary folder ----------------------------------------------------
+
+/** The registry's effect class of each skill (`read`, `write`, ...), null for an unknown one. */
+export function effectsLookup(): (
+  skill: string
+) => 'read' | 'write' | 'destructive' | 'administrative' | 'paid' | null {
+  const registry = skillRegistry();
+  return (skill) => registry.get(skill)?.effects ?? null;
+}
+
+/** One week of `fixture` with the stub voice in a temporary data directory under TMPDIR, removed after. */
+export async function weekOf(fixture: Fixture, effectsOf: (skill: string) => string | null): Promise<WeekRun> {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), `nep-inner-week-${fixture.name}-`));
+  try {
+    return await runWeek({ fixture, dataDir, skills: { effectsOf } });
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+}

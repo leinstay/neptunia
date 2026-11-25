@@ -1,0 +1,303 @@
+// interfaces/cli/editor-actions.ts: search, jumps, undo, stash and the external editor over the draft of interfaces/cli/composer.ts.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { draftFromParts, draftFromText, assembleDraft } from '../../../interfaces/cli/composer.ts';
+import type { Draft } from '../../../interfaces/cli/composer.ts';
+import {
+  applyEdit,
+  editExternally,
+  editorStart,
+  jumpToPrompt,
+  popStash,
+  redo,
+  searchHistory,
+  searchTranscript,
+  stashDraft,
+  undo,
+} from '../../../interfaces/cli/editor-actions.ts';
+import { tempDir } from '../../fixtures/tmp.ts';
+import { KEY, chatEnv, pause, press, shows, withChat } from '../../fixtures/chat-rig.ts';
+import type { Rig } from '../../fixtures/chat-rig.ts';
+
+const textOf = (draft: Draft): string => {
+  const assembled = assembleDraft(draft);
+  return assembled.ok ? assembled.text : '';
+};
+
+const HISTORY = ['deploy the core', 'look at logs', 'deploy the bot', 'other'];
+
+test('reverse search finds the newest match first and walks to older ones', () => {
+  // Bug: search starts from the oldest line, or repeats one match forever.
+  assert.deepEqual(searchHistory(HISTORY, 'deploy', 0), { index: 0, text: 'deploy the core' });
+  assert.deepEqual(searchHistory(HISTORY, 'deploy', 1), { index: 2, text: 'deploy the bot' });
+  assert.equal(searchHistory(HISTORY, 'deploy', 3), null);
+});
+
+test('reverse search ignores case and finds nothing on an empty query', () => {
+  // Bug: an empty query recalls a line and Enter sends it by accident.
+  assert.equal(searchHistory(HISTORY, 'LOGS', 0)?.index, 1);
+  assert.equal(searchHistory(HISTORY, '', 0), null);
+  assert.equal(searchHistory([], 'x', 0), null);
+});
+
+test('transcript search reports each match by entry id and offset, oldest first', () => {
+  // Bug: matches are row numbers that a resize or a new entry invalidates.
+  const entries = [
+    { id: 'a', who: 'owner' as const, text: 'needle and needle' },
+    { id: 'b', who: 'her' as const, text: 'nothing' },
+    { id: 'c', who: 'her' as const, text: 'a NEEDLE' },
+  ];
+  assert.deepEqual(searchTranscript(entries, 'needle'), [
+    { entryId: 'a', offset: 0 },
+    { entryId: 'a', offset: 11 },
+    { entryId: 'c', offset: 2 },
+  ]);
+  assert.deepEqual(searchTranscript(entries, ''), []);
+});
+
+test('a prompt jump lands only on the owner lines, in both directions, and stops at the ends', () => {
+  // Bug: the jump lands on the persona's answers, or wraps around to the other end of the chat.
+  const entries = [
+    { id: 'p1', who: 'owner' as const, text: 'one' },
+    { id: 'r1', who: 'her' as const, text: 'two' },
+    { id: 'p2', who: 'owner' as const, text: 'three' },
+    { id: 'r2', who: 'system' as const, text: 'four' },
+  ];
+  assert.equal(jumpToPrompt(entries, 'r2', -1), 'p2');
+  assert.equal(jumpToPrompt(entries, 'p2', -1), 'p1');
+  assert.equal(jumpToPrompt(entries, 'p1', -1), null);
+  assert.equal(jumpToPrompt(entries, 'p1', 1), 'p2');
+  assert.equal(jumpToPrompt(entries, 'p2', 1), null);
+  assert.equal(jumpToPrompt([], 'p1', 1), null);
+});
+
+test('undo and redo walk the edits, and a new edit drops the redo branch', () => {
+  // Bug: undo after an edit restores a future that does not apply.
+  let state = editorStart(draftFromText('d', 'a', 1));
+  state = applyEdit(state, draftFromText('d', 'ab', 2));
+  state = applyEdit(state, draftFromText('d', 'abc', 3));
+  state = undo(state);
+  assert.equal(textOf(state.draft), 'ab');
+  state = redo(state);
+  assert.equal(textOf(state.draft), 'abc');
+  state = undo(undo(state));
+  assert.equal(textOf(state.draft), 'a');
+  assert.equal(textOf(undo(state).draft), 'a', 'nothing older stays put');
+  state = applyEdit(state, draftFromText('d', 'x', 1));
+  assert.equal(textOf(redo(state).draft), 'x');
+});
+
+test('the undo stack has a bound and an unchanged edit adds no step', () => {
+  // Bug: a long session holds every keystroke's draft, paste payloads included, or undo seems to do nothing.
+  let state = editorStart(draftFromText('d', '', 0), { limit: 3 });
+  for (const text of ['1', '2', '3', '4', '5']) state = applyEdit(state, draftFromText('d', text, 1));
+  for (let step = 0; step < 10; step += 1) state = undo(state);
+  assert.equal(textOf(state.draft), '2');
+  const same = editorStart(draftFromText('d', 'same', 4));
+  assert.equal(textOf(undo(applyEdit(same, draftFromText('d', 'same', 4))).draft), 'same');
+  assert.equal(same.past.length, 0);
+});
+
+test('a stash holds a draft with its parts, in order, and popping nothing changes nothing', () => {
+  // Bug: a stash keeps only text, and a stashed paste or image is lost.
+  const parts = [
+    { kind: 'text' as const, id: 't', text: 'caption ' },
+    { kind: 'paste' as const, id: 'p', payload: 'exact\npayload', lines: 2 },
+  ];
+  let state = editorStart(draftFromParts('d', parts));
+  state = stashDraft(state, 'fresh');
+  assert.equal(textOf(state.draft), '');
+  assert.equal(state.draft.id, 'fresh');
+  state = applyEdit(state, draftFromText('fresh', 'other', 5));
+  state = stashDraft(state, 'fresh2');
+  state = popStash(state);
+  assert.equal(textOf(state.draft), 'other');
+  state = popStash(state);
+  assert.equal(textOf(state.draft), 'caption exact\npayload');
+  assert.equal(textOf(popStash(state).draft), 'caption exact\npayload');
+});
+
+const editorRig = (edit: (file: string) => { code: number }) => {
+  const dir = tempDir('nep-editor-');
+  const calls: Array<ReadonlyArray<string>> = [];
+  const modes: Array<number> = [];
+  return {
+    dir,
+    calls,
+    modes,
+    deps: {
+      command: ['ed itor', '--wait'],
+      tempDir: dir,
+      run: (argv: ReadonlyArray<string>) => {
+        calls.push(argv);
+        const file = String(argv.at(-1));
+        modes.push(fs.statSync(file).mode & 0o777);
+        return Promise.resolve(edit(file));
+      },
+    },
+  };
+};
+
+test('the editor gets literal argv and a private file, and its multiline Unicode text comes back exactly', async () => {
+  // Bug: the command runs through a shell, the draft is world-readable, or the editor's final newline lands in the turn.
+  const rig = editorRig((file) => {
+    fs.appendFileSync(file, '\nγραμμή  あ\n\ntail');
+    return { code: 0 };
+  });
+  const result = await editExternally(draftFromText('d', 'first\nsecond', 5), rig.deps);
+  assert.equal(result.status, 'edited');
+  assert.equal(textOf(result.draft), 'first\nsecond\nγραμμή  あ\n\ntail');
+  const call = rig.calls[0];
+  assert.deepEqual(call?.slice(0, 2), ['ed itor', '--wait']);
+  assert.equal(call?.length, 3);
+  assert.deepEqual(rig.modes, [0o600]);
+  assert.deepEqual(fs.readdirSync(rig.dir), [], 'the temporary draft is gone');
+});
+
+test('attachments stay parts of the draft through the editor', async () => {
+  // Bug: the image of a draft is dropped because a text editor cannot hold it.
+  const attachment = { id: 'a1', name: 'a.png', contentType: 'image/png', reference: 'ref', size: 8 };
+  const rig = editorRig((file) => {
+    fs.writeFileSync(file, 'rewritten');
+    return { code: 0 };
+  });
+  const draft = draftFromParts('d', [
+    { kind: 'text', id: 't', text: 'caption' },
+    { kind: 'attachment', id: 'a1', attachment },
+  ]);
+  const result = await editExternally(draft, rig.deps);
+  const assembled = assembleDraft(result.draft);
+  assert.equal(assembled.ok, true);
+  if (assembled.ok) {
+    assert.equal(assembled.text, 'rewritten');
+    assert.deepEqual(assembled.attachments, [attachment]);
+  }
+});
+
+test('an editor failure and a cancel return the exact draft and clean up', async () => {
+  // Bug: a crashed editor empties the draft, or leaves the text in a temporary file.
+  const draft = draftFromText('d', 'precious', 8);
+  const failing = editorRig((file) => {
+    fs.writeFileSync(file, 'half-written');
+    return { code: 1 };
+  });
+  const failed = await editExternally(draft, failing.deps);
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.draft, draft);
+  assert.deepEqual(fs.readdirSync(failing.dir), []);
+  const emptied = editorRig((file) => {
+    fs.writeFileSync(file, '');
+    return { code: 0 };
+  });
+  const cancelled = await editExternally(draft, emptied.deps);
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.draft, draft);
+});
+
+test('an editor that cannot start is a failure with the draft kept', async () => {
+  // Bug: a missing $EDITOR throws out of the input handler and ends the chat.
+  const rig = editorRig(() => ({ code: 0 }));
+  const draft = draftFromText('d', 'precious', 8);
+  const result = await editExternally(draft, { ...rig.deps, run: () => Promise.reject(new Error('ENOENT')) });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.draft, draft);
+  assert.deepEqual(fs.readdirSync(rig.dir), []);
+});
+
+const text = (rig: Rig): string => rig.screen().join('\n');
+
+test('reverse search, cancelled, restores the exact draft and sends nothing', async () => {
+  // Bug: Escape from the search clears what the user was typing, or the query goes to the core.
+  const { env, sent, saved } = chatEnv({ history: ['needle in the history', 'other'] });
+  await withChat(env, async (rig) => {
+    await press(rig, 'unfinished  draft', shows(rig, '> unfinished  draft'));
+    await press(rig, KEY.ctrlR, shows(rig, 'history search:'));
+    await press(rig, 'needle', shows(rig, 'needle in the history'));
+    assert.match(rig.screen().join('\n'), /needle in the history/);
+    await press(
+      rig,
+      KEY.escape,
+      () => /> unfinished {2}draft/.test(text(rig)) && !text(rig).includes('history search')
+    );
+    assert.match(rig.screen().join('\n'), /> unfinished {2}draft/);
+    assert.equal(rig.screen().join('\n').includes('needle in the history'), false);
+  });
+  assert.deepEqual(sent, []);
+  assert.deepEqual(saved, []);
+});
+
+test('reverse search, accepted, loads the match into the draft and leaves sending to the next Enter', async () => {
+  // Bug: Enter on a match runs an old command straight away.
+  const { env, sent } = chatEnv({ history: ['needle in the history', 'other'] });
+  await withChat(env, async (rig) => {
+    await press(rig, KEY.ctrlR, shows(rig, 'history search:'));
+    await press(rig, 'needle', shows(rig, 'needle in the history'));
+    await press(
+      rig,
+      KEY.enter,
+      () => /> needle in the history/.test(text(rig)) && !text(rig).includes('history search')
+    );
+    assert.deepEqual(sent, []);
+    assert.match(rig.screen().join('\n'), /> needle in the history/);
+    await press(rig, KEY.enter, () => sent.length === 1);
+  });
+  assert.deepEqual(sent, ['needle in the history']);
+});
+
+test('undo and redo step through typed edits of the input', async () => {
+  // Bug: Ctrl+Z is ignored, or inserts a control character into the draft.
+  const { env, sent } = chatEnv();
+  await withChat(env, async (rig) => {
+    await press(rig, 'first', shows(rig, '> first'));
+    await press(rig, ' second', shows(rig, 'first second'));
+    await press(rig, KEY.ctrlZ, () => !text(rig).includes('second'));
+    assert.equal(rig.screen().join('\n').includes('second'), false);
+    await press(rig, KEY.ctrlY, shows(rig, 'first second'));
+    assert.match(rig.screen().join('\n'), /first second/);
+    await press(rig, KEY.enter, () => sent.length === 1);
+  });
+  assert.deepEqual(sent, ['first second']);
+});
+
+test('a stashed draft leaves the input and comes back on the second stash key on an empty input', async () => {
+  // Bug: the stash loses the draft, or stashing an empty input overwrites the one held.
+  const { env, sent } = chatEnv();
+  await withChat(env, async (rig) => {
+    await press(rig, 'held draft', shows(rig, '> held draft'));
+    await press(rig, KEY.ctrlS, () => !text(rig).includes('held draft'));
+    assert.equal(rig.screen().join('\n').includes('held draft'), false);
+    await press(rig, 'quick', shows(rig, '> quick'));
+    await press(rig, KEY.enter, () => sent.length === 1);
+    await press(rig, KEY.ctrlS, shows(rig, '> held draft'));
+    assert.match(rig.screen().join('\n'), /> held draft/);
+    await press(rig, KEY.enter, () => sent.length === 2);
+  });
+  assert.deepEqual(sent, ['quick', 'held draft']);
+});
+
+test('the external editor returns its text into the draft, and a failure leaves the draft', async () => {
+  // Bug: the chat sends the edited text at once, or a failing editor costs the draft.
+  let outcome: 'edit' | 'fail' = 'edit';
+  const asked: Array<string> = [];
+  const { env, sent } = chatEnv({
+    editDraft: (text) => {
+      asked.push(text);
+      return Promise.resolve(
+        outcome === 'edit' ? { status: 'edited', text: 'from γ editor' } : { status: 'failed', text }
+      );
+    },
+  });
+  await withChat(env, async (rig) => {
+    await press(rig, 'original', shows(rig, '> original'));
+    await press(rig, KEY.ctrlG, shows(rig, '> from γ editor'));
+    assert.deepEqual(asked, ['original']);
+    assert.deepEqual(sent, []);
+    assert.match(rig.screen().join('\n'), /> from γ editor/);
+    outcome = 'fail';
+    await press(rig, KEY.ctrlG, () => asked.length === 2);
+    // A failing editor leaves the screen as it was, so only a fixed wait lets a lost draft show.
+    await pause();
+    assert.match(rig.screen().join('\n'), /> from γ editor/);
+  });
+});

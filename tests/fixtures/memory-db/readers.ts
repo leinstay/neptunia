@@ -1,0 +1,176 @@
+// The fixture of the database reader tests (stage W1): the synthetic data directory of datadir.ts, a second guild,
+// and, in the first guild only, a few more units so every read path has something to return (a second record day with
+// every line kind, a private journal and archive, a vector month of a private layer, an archived intention), written
+// into a database through its own writers (seed.ts; the vectors through src/memory/vectors.ts on the service), then
+// opened read only. Synthetic text only; the ids are made up.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { dbOf } from '../../../src/memory/db/types.ts';
+import type { Log, MemoryHandle } from '../../../src/memory/db/types.ts';
+import { dmPlaceId } from '../../../src/memory/db/ids.ts';
+import { legacyServerPlaceId } from './legacy-paths.ts';
+import { openMemoryDb } from '../../../src/memory/db/open.ts';
+import { createVectors } from '../../../src/memory/vectors.ts';
+import { openTestMemory } from './service.ts';
+import { seedUnits } from './seed.ts';
+import { CHANNEL, GUILD, MEMBER, buildDataDir, buildSecondGuild, envelope, fileFixtureErrand, guildDir, seen, writeJson, writeLines } from './datadir.ts';
+
+export { CHANNEL, GUILD, MEMBER };
+
+/** The place a synthetic guild's memory is held under. */
+export const placeOfGuild = (guild: string): string => legacyServerPlaceId('discord', guild);
+
+/**
+ * The place a read of `guild` asks, and the rest of its query: a private layer is the member's DM place, so a query that
+ * names one reads that place.
+ */
+export function readAt<Query extends { privateAccountId?: string | null }>(
+  guild: string,
+  query: Query
+): { placeId: string; rest: Omit<Query, 'privateAccountId'> } {
+  const { privateAccountId, ...rest } = query;
+  return { placeId: privateAccountId ? dmPlaceId('discord', privateAccountId) : placeOfGuild(guild), rest };
+}
+export { GUILD_2 } from './datadir.ts';
+/** A third member, named by a few lines. */
+export const HIDDEN = '100000000000000003';
+export const OTHER = '100000000000000002';
+export const CHANNEL_B = '200000000000000005';
+
+const silent = { info() {}, debug() {}, warn() {}, error() {} };
+
+/** The extra files, written before the database is filled. */
+function addExtra(data: string): void {
+  const g = guildDir(data);
+  writeLines(path.join(g, 'record', '2026-10', '2026-10-21.jsonl'), [
+    seen('400000000000000011', 1, 'Χαίρετε, a second day', { occurredAt: '2026-10-21T08:00:00.000Z', recordedAt: '2026-10-21T08:00:01.000Z' }),
+    seen('400000000000000012', 1, 'in the other room', { occurredAt: '2026-10-21T08:05:00.000Z', recordedAt: '2026-10-21T08:05:01.000Z', scope: { channel: CHANNEL_B }, by: OTHER, participants: [OTHER] }),
+    seen('400000000000000013', 1, 'a word of the hidden one', { occurredAt: '2026-10-21T08:06:00.000Z', recordedAt: '2026-10-21T08:06:01.000Z', by: HIDDEN, participants: [HIDDEN] }),
+    {
+      v: 1, id: 'r-said-1', kind: 'said', messageId: '400000000000000014', revision: 1, occurredAt: '2026-10-21T08:07:00.000Z',
+      recordedAt: '2026-10-21T08:07:01.000Z', placeId: GUILD, scope: { channel: CHANNEL }, replyTo: '400000000000000011', text: 'Ναι, of course',
+      media: [], mentions: [], turnId: 'turn-2', opId: 'op-2', participants: [MEMBER], sourceMessageIds: ['400000000000000014'], origin: 'live',
+    },
+    {
+      v: 1, id: 'r-del-1', kind: 'deleted', messageId: '400000000000000012', occurredAt: '2026-10-21T08:09:00.000Z', recordedAt: '2026-10-21T08:09:01.000Z',
+      placeId: GUILD, scope: { channel: CHANNEL_B }, participants: [OTHER], sourceMessageIds: ['400000000000000012'], origin: 'live',
+    },
+    seen('400000000000000011', 2, 'Χαίρετε, a second day (edited)', { occurredAt: '2026-10-21T08:00:00.000Z', recordedAt: '2026-10-21T08:10:01.000Z' }),
+  ]);
+  writeLines(path.join(g, 'journal', '2026-10-21.jsonl'), [
+    envelope('turn.start', { id: 'j2-start', turnId: 'turn-2', attemptId: 1, mode: 'reply', occurredAt: '2026-10-21T08:06:30.000Z', recordedAt: '2026-10-21T08:06:30.000Z' }),
+    envelope('action', { id: 'j2-a1', turnId: 'turn-2', opId: 'op-2', name: 'post', by: 'persona', phase: 'started', intent: { replyTo: '400000000000000011', text: 'Ναι' }, occurredAt: '2026-10-21T08:06:40.000Z', recordedAt: '2026-10-21T08:06:40.000Z' }),
+    envelope('action', { id: 'j2-a2', turnId: 'turn-2', opId: 'op-2', name: 'post', by: 'persona', phase: 'succeeded', result: { messageId: '400000000000000014' }, occurredAt: '2026-10-21T08:07:00.000Z', recordedAt: '2026-10-21T08:07:00.000Z' }),
+    envelope('action', { id: 'j2-a3', turnId: 'turn-2', opId: 'op-3', name: 'react', by: 'persona', phase: 'started', occurredAt: '2026-10-21T08:07:10.000Z', recordedAt: '2026-10-21T08:07:10.000Z' }),
+    envelope('turn', {
+      id: 'j2-turn', turnId: 'turn-2', attemptId: 1, mode: 'reply', outcome: 'spoke', reason: null, think: 'à demain',
+      posted: [{ messageId: '400000000000000014', replyTo: '400000000000000011', opId: 'op-2' }], occurredAt: '2026-10-21T08:07:20.000Z', recordedAt: '2026-10-21T08:07:20.000Z',
+    }),
+    envelope('system', { id: 'j2-system', event: 'stop', by: 'owner', occurredAt: '2026-10-21T20:00:00.000Z', recordedAt: '2026-10-21T20:00:00.000Z', scope: { guild: true } }),
+    envelope('action', { id: 'j2-hidden', turnId: 'turn-2', opId: 'op-4', name: 'post', by: 'persona', phase: 'started', participants: [HIDDEN], occurredAt: '2026-10-21T08:08:00.000Z', recordedAt: '2026-10-21T08:08:00.000Z' }),
+  ]);
+  writeLines(path.join(g, 'private', MEMBER, 'journal', '2026-10-20.jsonl'), [
+    envelope('action', { id: 'jp-a1', turnId: 'turn-p', opId: 'op-p', name: 'post', by: 'persona', phase: 'started', scope: { user: MEMBER, private: true }, input: { skill: 'msg' } }),
+    envelope('action', { id: 'jp-a2', turnId: 'turn-p', opId: 'op-p', name: 'post', by: 'persona', phase: 'failed', result: { code: 'x' }, scope: { user: MEMBER, private: true } }),
+  ]);
+  writeLines(path.join(g, 'private', MEMBER, 'archive', '2026-10.jsonl'), [{
+    v: 1, id: 'arp-1', kind: 'archive', event: 'expired', itemKind: 'detail', itemId: 'gone-item', revisionId: 'rv-arp-1',
+    scope: { user: MEMBER, private: true }, participants: [MEMBER], observedAt: { date: '2026-10-03', precision: 'day' }, lastSeen: null,
+    text: { text: 'a private café note' }, weight: 0.4, origin: 'live', by: 'archive', occurredAt: '2026-10-03T00:00:00.000Z',
+    recordedAt: '2026-10-01T00:00:00.000Z', placeId: GUILD,
+  }]);
+  writeJson(path.join(g, 'intentions.json'), {
+    intentions: [
+      {
+        id: 'i2', purpose: 'ask how the café went', status: 'pending', createdAt: 1792000000000, updatedAt: 1792000001000, dueAt: 1792100000000,
+        expiresAt: 1793000000000, provenance: { kind: 'self', turnId: 't-2', placeId: CHANNEL, scope: 'group', participants: [MEMBER] }, history: [],
+      },
+      {
+        id: 'i3', purpose: 'a private reminder', status: 'pending', createdAt: 1792000002000, updatedAt: 1792000003000, dueAt: null,
+        expiresAt: 1793000000000, provenance: { kind: 'self', turnId: 't-3', placeId: null, scope: 'dm', participants: [MEMBER] }, history: [],
+      },
+    ],
+  });
+  writeLines(path.join(g, 'intentions-archive.jsonl'), [{
+    id: 'i0', purpose: 'an old plan', status: 'done', createdAt: 1791000000000, updatedAt: 1791000001000, dueAt: null,
+    provenance: { kind: 'self', turnId: 't-0', placeId: CHANNEL, scope: 'group' }, history: [],
+  }]);
+}
+
+/** Vector months written by the engine itself: a private layer's, and a second guild month. */
+async function addVectors(data: string, memoryDb: Parameters<typeof createVectors>[0]['memoryDb']): Promise<void> {
+  const vectors = createVectors({ dataDir: data, log: silent, memoryDb });
+  const row = (id: string, occurredAt: string, vector: Array<number>, extra: Record<string, unknown> = {}) => ({ meta: { kind: 'record', id, revision: 1, occurredAt, placeId: CHANNEL, by: MEMBER, participants: [MEMBER], sourceIds: [id], ...extra }, vector });
+  await vectors.append(dmPlaceId('discord', MEMBER), [row('400000000000000005', '2026-10-20T09:00:00.000Z', [0.5, -0.2, 0.1, 0.9])], { model: 'test/embedder' });
+  await vectors.append(placeOfGuild(GUILD), [
+    row('400000000000000021', '2026-09-10T09:00:00.000Z', [0.1, 0.2, 0.3, 0.4]),
+    row('400000000000000022', '2026-09-11T09:00:00.000Z', [-0.4, 0.3, 0.2, 0.1]),
+    row('400000000000000023', '2026-09-12T09:00:00.000Z', [0.9, 0.1, -0.3, 0.2], { by: HIDDEN, participants: [HIDDEN] }),
+  ], { model: 'test/embedder' });
+}
+
+/**
+ * The data directory and its database: `data`, `dbFile`, `handle` (read-only), `memoryDb` (a service-shaped object
+ * over `handle`), `closedDb` (nothing open), `log` (warns collected in `warns`), `done()`. `archived`: the fixture's
+ * errand is filed on the board too.
+ */
+export type ReaderEnv = {
+  root: string;
+  data: string;
+  dbFile: string;
+  handle: MemoryHandle;
+  warns: Array<Record<string, unknown>>;
+  log: Log;
+  memoryDb: { readHandle: () => MemoryHandle | null; database: () => object | null };
+  closedDb: { readHandle: () => null; database: () => null };
+  done: () => void;
+};
+
+export async function readerEnv({ archived = false }: { archived?: boolean } = {}): Promise<ReaderEnv> {
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-readers-'));
+  const data = path.join(root, 'data');
+  fs.mkdirSync(data);
+  buildDataDir(data);
+  const second = buildSecondGuild(data);
+  // Intentions, tasks and the diary are the persona's: one copy of each, the first guild's.
+  for (const name of ['intentions.json', 'intentions-archive.jsonl', 'tasks.json', 'tasks.jsonl', 'diary.json'])
+    fs.rmSync(path.join(second, name), { force: true });
+  addExtra(data);
+  const dbFile = path.join(data, 'memory.db');
+  if (archived) {
+    // The unit writer leaves the errand units alone, so the fixture's errand is filed on the board here.
+    const seeding = openMemoryDb(dbFile);
+    try {
+      seedUnits(seeding, data);
+      fileFixtureErrand(dbOf(seeding));
+    } finally {
+      seeding.close();
+    }
+  }
+  const writer = await openTestMemory({ dataDir: data, seed: !archived });
+  try {
+    await addVectors(data, writer.memoryDb);
+  } finally {
+    await writer.close();
+  }
+  const handle = openMemoryDb(dbFile, { readOnly: true });
+  const warns: Array<Record<string, unknown>> = [];
+  const log = { info() {}, debug() {}, error() {}, warn: (message: string, fields?: object) => warns.push({ message, ...fields }) };
+  return {
+    root, data, dbFile, handle, warns, log,
+    memoryDb: { readHandle: () => handle, database: () => handle.db },
+    closedDb: { readHandle: () => null, database: () => null },
+    done: () => { try { handle.close(); } catch { /* closed */ } fs.rmSync(root, { recursive: true, force: true }); },
+  };
+}
+
+/** Every value of an async iterable. */
+export async function all<T>(iterable: AsyncIterable<T>): Promise<Array<T>> {
+  const out: Array<T> = [];
+  for await (const value of iterable) out.push(value);
+  return out;
+}
+
+/** An fs (promises) whose every call fails: proof that a read never touches the files. */
+export const noFs = new Proxy({}, { get: () => () => { throw Object.assign(new Error('the files were read'), { code: 'FILE_READ' }); } });

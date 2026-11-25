@@ -1,0 +1,87 @@
+// src/memory/db/unit-keys.ts: the neutral constructors of a storage collection. A collection belongs to an account or a
+// place, and its key holds that id as given: no interface read from the air, no root, no parsing.
+// Contract:
+//   accountCollection(kind, accountId, options?): UnitKey     subject { type: 'account', id }
+//   placeCollection(kind, placeId, options?): UnitKey         subject { type: 'place', id }
+// `options` is { partition?, selector? }. An empty id throws code `BAD_COLLECTION_ID`.
+// Appendix entries: src/memory/db/unit-keys.ts, src/memory/db/upsert.ts.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { unitValue } from '../../../../src/memory/db/readers/common.ts';
+import { openMemoryDb } from '../../../../src/memory/db/open.ts';
+import * as keys from '../../../../src/memory/db/unit-keys.ts';
+import { accountCollection, placeCollection, collectionId } from '../../../../src/memory/db/unit-keys.ts';
+import { dbOf } from '../../../../src/memory/db/types.ts';
+import { applyUnitUpdate } from '../../../fixtures/memory-db/unit-writes.ts';
+import { seedOpaqueWorld } from '../../../fixtures/memory-db/opaque-people.ts';
+
+test('each constructor names its subject with the id as given and no root scope', () => {
+  // Bug: a constructor reads the ambient interface or wraps the id in `<iface>:root:`.
+  assert.deepEqual(accountCollection('private', 'account:a11'), {
+    kind: 'private',
+    subject: { type: 'account', id: 'account:a11' },
+  });
+  assert.deepEqual(placeCollection('lore', 'place:room-1'), {
+    kind: 'lore',
+    subject: { type: 'place', id: 'place:room-1' },
+  });
+});
+
+test('a partition and a selector identify a collection inside its subject', () => {
+  // Bug: two months of one place's vectors or two errands share one collection.
+  const may = placeCollection('vectors', 'place:room-1', { partition: '2026-05' });
+  const june = placeCollection('vectors', 'place:room-1', { partition: '2026-06' });
+  assert.equal(may.partition, '2026-05');
+  assert.notEqual(collectionId(may), collectionId(june));
+  const selected = placeCollection('versions', 'place:room-1', { selector: { versionKind: 'lore', itemId: 'x' } });
+  assert.deepEqual(selected.selector, { versionKind: 'lore', itemId: 'x' });
+});
+
+test('the same id gives the same storage id, and different kinds of subject never collide', () => {
+  // Bug: an account and a place with one id share a row in the catalog.
+  assert.equal(collectionId(placeCollection('lore', 'x:1')), collectionId(placeCollection('lore', 'x:1')));
+  const ids = new Set([
+    collectionId(accountCollection('private', 'x:1')),
+    collectionId(placeCollection('private', 'x:1')),
+  ]);
+  assert.equal(ids.size, 2);
+});
+
+test('an empty id is refused with a code', () => {
+  // Bug: `''` makes one shared collection for everyone whose id failed to resolve (`one:root:` today).
+  for (const build of [accountCollection, placeCollection]) {
+    assert.throws(
+      () => build('lore', ''),
+      (error: { code?: string }) => error.code === 'BAD_COLLECTION_ID'
+    );
+  }
+});
+
+test('no constructor that takes a root remains', () => {
+  // Bug: a caller keeps building the root partition next to the neutral one, and two collections drift apart.
+  assert.equal('rootKey' in keys, false);
+});
+
+test('a place collection and an account collection write and read back through the writer', () => {
+  // Bug: `applyUnitUpdate` maps a unit by its root scope, so a key without one is refused as unmapped.
+  const handle = openMemoryDb(':memory:');
+  try {
+    const db = dbOf(handle);
+    seedOpaqueWorld(db);
+    const lore = placeCollection('lore', 'place:room-1');
+    applyUnitUpdate(handle, {
+      op: 'value',
+      key: lore,
+      iface: 'discord',
+      value: { entries: [{ id: 'l1', text: 'a synthetic fact', keys: [] }] },
+    });
+    const read = unitValue(db, lore);
+    assert.equal(read.found, true);
+    const key = accountCollection('user', 'account:a21');
+    applyUnitUpdate(handle, { op: 'value', key, iface: 'telegram', value: { names: ['Synthetic'] } });
+    const person = unitValue(db, key);
+    assert.deepEqual(person.found ? Reflect.get(Object(person.value), 'names') : null, ['Synthetic']);
+  } finally {
+    handle.close();
+  }
+});

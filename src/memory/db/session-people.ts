@@ -1,0 +1,133 @@
+// The people of a memory session's batch (session.ts): the accounts and participants that wrote its lines, the people
+// the request shows in `<people>` and each one's profile as of the batch's cutoff. The persona's own account names
+// their lines and is never one of the people they read about (identity-links.ts).
+// Pure reads on the connection it is given.
+
+import type { Db, Row } from './types.ts';
+
+const parseJson = (text: unknown): unknown => {
+  if (typeof text !== 'string' || !text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
+
+/** An account a batch touches: its person, its native id and its first name. */
+export type BatchAccount = { personId: unknown; native: string; name: string };
+/** A person a batch touches: the id, the native id and the name, with the count of lines. */
+export type BatchPerson = { id: string; native: string; name: string; count: number };
+
+/**
+ * The accounts that wrote a batch's lines. The persona's own account keeps its name for the line and has no person they
+ * read about, even on an edit of their line, which is stored `seen`.
+ */
+function batchAccountsOf(db: Db, batch: ReadonlyArray<Row>): Map<string, BatchAccount> {
+  const accounts = new Map<string, BatchAccount>();
+  for (const id of new Set(batch.map((line) => line.author_account as string).filter(Boolean))) {
+    const row = db.prepare('SELECT id, person_id, native_id, names, kind FROM accounts WHERE id = ?').get(id);
+    if (!row) continue;
+    const names = parseJson(row.names);
+    accounts.set(id, {
+      personId: row.kind === 'self' ? null : row.person_id,
+      native: typeof row.native_id === 'string' ? row.native_id : '',
+      name:
+        Array.isArray(names) && typeof names[0] === 'string' && names[0] ? names[0] : ((row.native_id ?? id) as string),
+    });
+  }
+  return accounts;
+}
+
+/** The names and ids of the accounts, participants and people a batch touches. */
+export function peopleOf(
+  db: Db,
+  batch: ReadonlyArray<Row>,
+  selfName: unknown
+): {
+  accounts: Map<string, BatchAccount>;
+  participants: Map<string, { name: string }>;
+  people: Array<BatchPerson>;
+  selfName: unknown;
+} {
+  const accounts = batchAccountsOf(db, batch);
+  const participants = new Map<string, { name: string }>();
+  for (const id of new Set(batch.map((line) => line.author_participant as string).filter(Boolean))) {
+    const row = db.prepare('SELECT id, display FROM participants WHERE id = ?').get(id);
+    if (row) participants.set(id, { name: (row.display as string) || '?' });
+  }
+  const byPerson = new Map<unknown, BatchPerson>();
+  for (const line of batch) {
+    if (line.kind === 'said') continue;
+    const account = accounts.get(line.author_account as string);
+    if (!account?.personId) continue;
+    const entry: BatchPerson = byPerson.get(account.personId) ?? {
+      id: account.personId as string,
+      native: account.native,
+      name: account.name,
+      count: 0,
+    };
+    entry.count += 1;
+    byPerson.set(account.personId, entry);
+  }
+  return {
+    accounts,
+    participants,
+    people: [...byPerson.values()].sort((a, b) => b.count - a.count || a.id.localeCompare(b.id)),
+    selfName,
+  };
+}
+
+/** The claim / episode ids a profile may not show as of `cutoff` (created or last seen after it). */
+function lateIds(db: Db, ids: ReadonlyArray<string>, cutoff: unknown): Set<unknown> {
+  if (ids.length === 0) return new Set();
+  const marks = ids.map(() => '?').join(', ');
+  const late = new Set<unknown>();
+  for (const row of db
+    .prepare(`SELECT id FROM claims WHERE id IN (${marks}) AND (created_at > ? OR last_seen_at > ?)`)
+    .all(...ids, cutoff, cutoff))
+    late.add(row.id);
+  for (const row of db.prepare(`SELECT id FROM episodes WHERE id IN (${marks}) AND created_at > ?`).all(...ids, cutoff))
+    late.add(row.id);
+  return late;
+}
+
+/** A profile as of `cutoff`: the items whose claim or episode appeared or was seen again after it are left out. */
+export function profileAsOf(db: Db, profile: Row, cutoff: unknown): Row {
+  const ids: Array<string> = [];
+  for (const value of Object.values(profile)) {
+    if (!Array.isArray(value)) continue;
+    for (const item of value as Array<Row | null>)
+      if (typeof item?.itemId === 'string' && item.itemId) ids.push(item.itemId);
+  }
+  const late = lateIds(db, [...new Set(ids)], cutoff);
+  if (late.size === 0) return profile;
+  const out: Row = { ...profile };
+  for (const [key, value] of Object.entries(profile)) {
+    if (Array.isArray(value))
+      out[key] = (value as Array<Row | null>).filter(
+        (item) => !(typeof item?.itemId === 'string' && late.has(item.itemId))
+      );
+  }
+  return out;
+}
+
+/** An account of a person a batch touches, by its interface and platform id. */
+export type MetAccount = { iface: string; native: string };
+
+/**
+ * The accounts of people that wrote a batch's lines, by interface and platform id: the persona's own account, a bot's
+ * and an account of no person aside. The core opens a direct chat ahead for these (src/interface/dm-ahead.ts).
+ */
+export function metOf(db: Db, batch: ReadonlyArray<Row>): Array<MetAccount> {
+  const met: Array<MetAccount> = [];
+  for (const id of new Set(batch.map((line) => line.author_account as string).filter(Boolean))) {
+    const row = db
+      .prepare('SELECT iface, COALESCE(native_key, native_id) AS native, kind, person_id FROM accounts WHERE id = ?')
+      .get(id);
+    if (!row || row.person_id == null || (row.kind !== null && row.kind !== 'user')) continue;
+    if (typeof row.iface === 'string' && typeof row.native === 'string')
+      met.push({ iface: row.iface, native: row.native });
+  }
+  return met;
+}

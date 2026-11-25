@@ -1,0 +1,486 @@
+{
+  "interfaces": {
+    "drainMs": 10000
+  },
+  "bot": {
+    "timezone": "UTC",
+    "ownerPerson": "",
+    "mnemonic": "en",
+    "access": {}
+  },
+  "models": {
+    "byPurpose": {},
+    "abilities": {
+      "anthropic/claude-opus-4.6": ["text", "imagesIn"],
+      "google/gemini-3.8-flash": ["text", "imagesIn", "videoIn"],
+      "openai/text-embedding-3-large": ["embeddings"],
+      "elevenlabs/eleven-v4": ["audioOut"],
+      "openai/gpt-image-2.5-flare": ["imagesOut"]
+    },
+    "agents": {
+      "via": {},
+      "model": {},
+      "effort": {},
+      "provider": {},
+      "mode": {},
+      "opencodeKey": null
+    },
+    "routes": {}
+  },
+  "llm": {
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "maxOutputTokens": 2000,
+    "maxRequestTokens": 100000,
+    "timeoutMs": 300000,
+    "probeTimeoutMs": 30000,
+    "analyzerTimeoutMs": 30000,
+    "retries": 2,
+    "maxRequestsPerDay": 5000,
+    "provider": null,
+    "providerByModel": {},
+    "routeRetryMinutes": 30,
+    "routeEffort": { "core": "disabled", "memory": "medium" },
+    "cache": {
+      "ttl": "1h",
+      "roles": ["core"],
+      "models": ["anthropic/"]
+    },
+    "hedge": {
+      "roles": ["analyzer"],
+      "afterMs": 2500,
+      "timeoutMs": 8000,
+      "longTimeoutMs": 20000
+    },
+    "subscription": {
+      "thinking": false,
+      "holdMs": 60000
+    }
+  },
+  "memoryDb": {
+    "file": "memory.db",
+    "closeTimeoutMs": 10000,
+    "observeTimeoutMs": 5000,
+    "ingestKeepDays": 7,
+    "retrieval": {
+      "seeds": 12,
+      "hops": 2,
+      "nodes": 40,
+      "edges": 120,
+      "assertions": 16,
+      "evidence": 24,
+      "tokens": 1500,
+      "deadlineMs": 1000,
+      "embedDocuments": true,
+      "embedObjects": true,
+      "embedBatch": 50,
+      "episodes": 3
+    },
+    "inspection": {
+      "pageRows": 100,
+      "snapshotIdleSeconds": 60,
+      "snapshotMaxSeconds": 300,
+      "maxSnapshots": 4
+    },
+    "session": {
+      "mode": "off",
+      "maxMessages": 200,
+      "minMessages": 5,
+      "minLines": 0,
+      "batchLines": 30,
+      "maxWaitHours": 24,
+      "sweepsPerScopePerDay": 24,
+      "mediaPassPerDay": 24,
+      "everyMinutes": 60,
+      "reviewsPerDay": 6,
+      "since": null,
+      "maxPeople": 12,
+      "claimsPerPerson": 30,
+      "selfMax": 40,
+      "episodesMax": 20,
+      "maxOutputTokens": 8000,
+      "maxPageTokens": 60000,
+      "timeoutMs": 300000,
+      "descriptionMaxOutputTokens": 1500,
+      "mediaPass": false,
+      "retryLimit": 3
+    }
+  },
+  "embed": {
+    "dimensions": 1024
+  },
+  "context": {
+    "channelMessages": 100,
+    "chatHeadStep": 0,
+    "previousThinks": 1,
+    "chatSteps": [100, 60, 30, 10],
+    "reactions": {
+      "fetchTimeoutMs": 2000
+    },
+    "turnLeaseMs": 300000,
+    "away": {
+      "minMinutes": 5
+    },
+    "myDay": {
+      "lines": 12
+    },
+    "calls": {
+      "lines": 12
+    },
+    "lessons": {
+      "budgetTokens": 1200
+    },
+    "attitudes": {
+      "shown": 6
+    },
+    "names": {
+      "emoji": false
+    },
+    "memory": {
+      "openPrivate": false,
+      "windowMessages": 100,
+      "serviceMessages": 100,
+      "maxHops": 2,
+      "maxNodesRead": 2000,
+      "budgetTokens": 10000,
+      "budgetShare": 0.1,
+      "shares": {
+        "people": 0.5,
+        "places": 0.3,
+        "lore": 0.15,
+        "found": 0.05
+      },
+      "counterpartTokens": 1500,
+      "candidatesMax": 3,
+      "commonWordEntries": 3,
+      "attitudeMoves": 2,
+      "interests": 5,
+      "episodes": 3,
+      "episodesWhole": 8,
+      "fanOut": {
+        "accounts": 10,
+        "memberships": 20,
+        "rooms": 10,
+        "members": 8,
+        "replies": 5,
+        "about": 30
+      }
+    },
+    "find": {
+      "candidates": 5,
+      "lines": 100,
+      "deadlineMs": 1000
+    },
+    "meanwhile": {
+      "messages": 8,
+      "around": 2
+    },
+    "recall": {
+      "extractChars": 1200,
+      "maxItems": 6
+    },
+    "caps": {
+      "aboutChat": 2500,
+      "intentions": 600
+    },
+    "pull": {
+      "sameAudience": true
+    },
+    "vision": {
+      "fetchTimeoutMs": 10000
+    }
+  },
+  "address": {
+    "attentionMinutes": 15,
+    "maxTurnsPerAuthor": 50
+  },
+  "mention": {
+    "neverIgnore": [],
+    "pendingMinutes": 10,
+    "maxPending": 6,
+    "followUpMaxOutputTokens": 2000
+  },
+  "missed": {
+    "expireMinutes": 5,
+    "maxOutputTokens": 2000
+  },
+  "typing": {
+    "reactionDelayMs": [800, 4000],
+    "msPerChar": [35, 75],
+    "minMs": 900,
+    "maxMs": 12000,
+    "betweenMessagesMs": [700, 3500]
+  },
+  "pace": {
+    "prepareMs": 6000,
+    "prepareSearchMs": 18000,
+    "prepareMediaMs": 20000,
+    "dropAfterMs": 120000,
+    "replyHedgeMs": 30000,
+    "settleMs": 3000,
+    "settleMaxMs": 8000
+  },
+  "format": {
+    "stripDashes": true
+  },
+  "humanizer": {
+    "enabled": false
+  },
+  "split": {
+    "maxOutputTokens": 300
+  },
+  "memory": {
+    "probeMinutes": 30
+  },
+  "media": {
+    "pick": {
+      "maxOutputTokens": 60,
+      "graceMs": 6000,
+      "candidates": 20,
+      "emojiCandidates": 20,
+      "emojiPerReplies": 5,
+      "emojiCooldownMinutes": 60
+    },
+    "maxOutputTokens": 2000,
+    "recacheBefore": null,
+    "video": {
+      "provider": {
+        "order": ["google-ai-studio"],
+        "allow_fallbacks": false
+      },
+      "maxOutputTokens": 800,
+      "maxRequestTokens": 60000,
+      "timeoutMs": 90000,
+      "toolTimeoutMs": 120000,
+      "sites": [
+        "youtube.com",
+        "youtu.be",
+        "tiktok.com",
+        "vk.com",
+        "vkvideo.ru",
+        "x.com",
+        "twitter.com",
+        "reddit.com",
+        "twitch.tv"
+      ],
+      "ytdlpPath": "yt-dlp",
+      "ffmpegPath": "ffmpeg",
+      "proxyRetryMinutes": 10,
+      "errorRetryMinutes": 60,
+      "rewatch": {
+        "maxOutputTokens": 600
+      }
+    }
+  },
+  "web": {
+    "acceptLanguage": "en,ru;q=0.8",
+    "links": {
+      "readCacheHours": 6,
+      "fetchTimeoutMs": 10000
+    },
+    "quickSearch": {
+      "enabled": true,
+      "engine": null,
+      "rawOutputTokens": 256,
+      "maxOutputTokens": 4000,
+      "cacheHours": 24,
+      "timeoutMs": 10000
+    }
+  },
+  "proxy": {
+    "enabled": false,
+    "userAgent": "",
+    "health": {
+      "everySeconds": 60,
+      "failures": 3,
+      "recoveries": 2,
+      "timeoutMs": 8000
+    }
+  },
+  "recall": {
+    "timeoutMs": 15000,
+    "prefetch": {
+      "deadlineMs": 15000,
+      "maxTokens": 1500,
+      "contextTokens": 500,
+      "trivial": [
+        "hi",
+        "hello",
+        "hey",
+        "yo",
+        "ok",
+        "okay",
+        "k",
+        "thanks",
+        "thank you",
+        "thx",
+        "ty",
+        "yes",
+        "no",
+        "yep",
+        "nope",
+        "lol",
+        "haha",
+        "good night",
+        "good morning",
+        "bye"
+      ],
+      "deictic": ["that", "this", "it", "he", "she", "they", "him", "her", "them", "there", "those", "these"]
+    }
+  },
+  "image": {
+    "timeoutMs": 120000,
+    "retries": 1,
+    "provider": null,
+    "openai": {
+      "quality": "medium",
+      "moderation": "low"
+    },
+    "google": {
+      "resolution": "1K"
+    }
+  },
+  "speech": {
+    "voice": "jessica",
+    "maxChars": 1500,
+    "usdPerMillionChars": 40,
+    "timeoutMs": 60000,
+    "prepareMaxOutputTokens": 1500
+  },
+  "tools": {
+    "safeMode": false,
+    "resultMaxChars": 8000,
+    "destructiveCooldownMinutes": 10,
+    "callTimeoutMs": 120000,
+    "loop": {
+      "maxSteps": 100,
+      "timeBudgetMs": 150000,
+      "maxCallsPerStep": 8,
+      "stepReserveTokens": 6000,
+      "remindAfterSteps": 2
+    }
+  },
+  "skills": {
+    "run": {
+      "timeoutMs": 60000,
+      "maxOutputBytes": 1000000
+    }
+  },
+  "diary": {
+    "enabled": true,
+    "schedule": null,
+    "windows": [
+      {
+        "from": 7,
+        "to": 11,
+        "posts": [0, 0]
+      },
+      {
+        "from": 12,
+        "to": 16,
+        "posts": [0, 1]
+      },
+      {
+        "from": 18,
+        "to": 1,
+        "posts": [0, 2]
+      },
+      {
+        "from": 1,
+        "to": 5,
+        "posts": [0, 1]
+      }
+    ],
+    "kinds": {
+      "story": 3,
+      "selfPicture": 3,
+      "picture": 2,
+      "meme": 1,
+      "thought": 2,
+      "people": 2,
+      "news": 2,
+      "facts": 1,
+      "photoset": 1,
+      "randomSet": 1
+    },
+    "quietDayChance": 0.3,
+    "voiceChance": 0.1,
+    "writerEntries": 30,
+    "loop": {
+      "maxSteps": 50,
+      "timeBudgetMs": 1000000
+    }
+  },
+  "mirrors": {
+    "claimLeaseMs": 600000,
+    "sendTimeoutMs": 120000
+  },
+  "dm": {
+    "enabled": false
+  },
+  "private": {
+    "likeServer": true,
+    "minAffinity": 5
+  },
+  "errands": {
+    "opencodePath": "/opt/opencode/bin/opencode",
+    "toolResultChars": 6000,
+    "keepFilesHours": 24,
+    "maxOpen": 3,
+    "resultMaxChars": 3000,
+    "resultRetrySeconds": 30
+  },
+  "agents": {},
+  "intentions": {
+    "expiresDays": 14,
+    "recurringExpiresDays": 30,
+    "maxOpen": 20
+  },
+  "wakes": {
+    "mode": "shadow",
+    "tickSeconds": 60,
+    "caps": {
+      "perChain": 3
+    },
+    "loop": {
+      "maxSteps": 50,
+      "timeBudgetMs": 1000000,
+      "maxCallsPerStep": 4,
+      "callTimeoutMs": 60000
+    },
+    "retry": {
+      "delaysMinutes": [1, 5, 15, 60],
+      "maxHours": 6
+    },
+    "factsKeepDays": 7
+  },
+  "heartbeat": {
+    "enabled": true,
+    "schedule": "every 3h",
+    "jitterMinutes": 60,
+    "tools": "*",
+    "maxActs": null,
+    "maxTasks": null,
+    "inputTokens": null,
+    "firstLineDays": 30
+  },
+  "spatial": {
+    "notes": {}
+  },
+  "appendStore": {
+    "retryMax": 1000
+  },
+  "archive": {
+    "drainMs": 30000
+  },
+  "diagnostics": {
+    "loopStallMs": 1000
+  },
+  "cli": {
+    "paste": {
+      "collapseLines": 10,
+      "collapseChars": 2000
+    },
+    "mouse": true,
+    "bindings": []
+  }
+}

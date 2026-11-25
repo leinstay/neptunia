@@ -1,0 +1,445 @@
+// Operations: `message.create|edit|delete|react`: the persona's own messages and reactions.
+// `message.create` is the persona's alone (`context.actor` 'persona', their skills, src/tools/): their own text, the call's body,
+// is posted through their interface (src/interface/port.ts, `env.port`), replying to a message when one is named. Anyone
+// else is refused: a person asks the persona to write somewhere, and they do or do not. Their text
+// (a post or an edit) arrives rendered as a `<msg>` of theirs (src/tools/executors.ts#executeCall). Edit,
+// delete and react go through the interface too. The rules live here, for every caller: a post,
+// an edit, a deletion or a reaction in the chat the command runs in, or in any text
+// channel of the served place where the bot holds the platform permissions it needs
+// (src/tools/operations/shared.ts#postingChat; a person may ask for a turn of the persona in any channel); edit and
+// delete reach only the persona's own messages (the port refuses anyone else's). A message is named by its
+// id or its link; for an edit or a deletion also by `last`, their own most recent message in that
+// channel. An id with no channel is the message in the one chat memory holds it in, or in the chat
+// the command runs in when memory holds it in none or in several (`heldChat`). A port answer that
+// may have taken effect is `failed` with `data.unknown` true:
+// never retried. A post may carry one file an errand of the persona's brought back (`file`, a handle
+// `file:<task id>/<name>`, src/errands/store.ts): read from the agent's out directory, refused
+// when unknown here (`unknown-file`: a private chat's file goes only back to that chat), larger
+// than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`). It may also
+// carry one GIF of the persona's library (`gif`, a handle), posted after the text or alone, counted like a
+// reply's `<gif>` (`unknown-gif`, refused before anything is posted).
+// Instead of either, it may repost a picture of one of the persona's OWN earlier messages (`media`, a message id or
+// link, `item` picking one of several attachments): the message is fetched, its attachment downloaded and
+// uploaded as a real file (never a link). Refused: another's message (`not-own-message`), an unknown or
+// deleted one (`unknown-message`, `message-deleted`), no such attachment (`no-media`), over the interface's
+// byte cap (`attachment-too-large`), a failed download (`file-unreadable`), or together with `file`/`gif`.
+
+import { skillOutputFile } from '../../skills/run.ts';
+import fsp from 'node:fs/promises';
+import { bindPublicationPort, publicationRefusal } from '../publication.ts';
+import { messageRefOf, portAnswer, postingChat, postingRef } from './shared.ts';
+import { heldPort } from '../send-hold.ts';
+import { defineOp, perEnv, invalid, denied } from './registry.ts';
+import { freshAttachmentUrl, gifPostUrl } from '../../media/gif-post.ts';
+import { CODE } from '../codes.ts';
+import { idText, objOf, textOf } from '../types.ts';
+import type { Obj, OpContext, Untyped } from '../types.ts';
+import type { Adapter, ChatRef } from '../../protocol/adapter.ts';
+import type { Content } from '../../protocol/actions.ts';
+import { ifaceOfChat } from '../../interface/cli-chat.ts';
+import type { Reads } from '../../interface/reads.ts';
+import type { Env } from './env.ts';
+import { chatsOfMessage } from '../../memory/db/message-families.ts';
+import type { MemoryDbService } from '../../memory/db/service.ts';
+
+/**
+ * The one chat of `iface` memory holds a message with `messageId` in (src/memory/db/message-families.ts#chatsOfMessage);
+ * null when memory holds it in none, in several, or there is no memory to ask.
+ */
+function heldChat(env: Env, iface: string, messageId: string): string | null {
+  const db = (env.memoryDb as MemoryDbService | null | undefined)?.database() ?? null;
+  if (!db || !messageId) return null;
+  const chats = chatsOfMessage(db, iface, messageId);
+  return chats.length === 1 ? (chats[0] ?? null) : null;
+}
+
+/** The chat `chatId` names, checked for what `need` asks there (src/tools/operations/shared.ts#postingChat). */
+function checkedChat(
+  env: Env,
+  p: Adapter,
+  context: OpContext,
+  chatId: string | null,
+  need: Parameters<typeof postingChat>[0]['need']
+): Promise<string> {
+  return postingChat({
+    reads: env.reads,
+    store: env.store,
+    iface: p.iface,
+    chatId,
+    context,
+    need,
+  });
+}
+
+/**
+ * The chat `placeId` names (a chat of the persona's interface or a place id of any interface), checked
+ * for what a post (a reply when `reply`) needs there.
+ */
+function postTarget(
+  env: Env,
+  p: Adapter,
+  context: OpContext,
+  placeId: string | null,
+  reply: boolean
+): Promise<ChatRef> {
+  const need = reply ? 'reply' : 'send';
+  return postingRef({ reads: env.reads, store: env.store, iface: p.iface, chatId: placeId, context, need });
+}
+
+/**
+ * `real` whose sends carry the persona's turn key of this call (`context.idempotencyKey`, src/behavior/turn.ts), so a repeat
+ * of the call posts nothing new: the first send under the key itself, a later one of the same call (a GIF after their
+ * text) under `<key>:<n>`. `real` itself when the call has no key.
+ */
+function keyedPort(real: Adapter, context: OpContext): Adapter {
+  const key = typeof context.idempotencyKey === 'string' ? context.idempotencyKey : '';
+  if (key === '') return real;
+  const keyed = Object.create(real) as Adapter;
+  let sends = 0;
+  keyed.send = (to, content, options = {}) => {
+    const idempotencyKey = sends === 0 ? key : `${key}:${sends}`;
+    sends += 1;
+    return real.send(to, content, { ...options, idempotencyKey });
+  };
+  return keyed;
+}
+
+/** The port of the persona's post: `real` bound to the turn's boundary, held for a wake turn's end (src/tools/send-hold.ts), keyed. */
+function postPort(real: Adapter, context: OpContext): Adapter {
+  return keyedPort(heldPort(bindPublicationPort(real, context.publicationBoundary), context), context);
+}
+
+/** How far back `last` looks for the persona's own message: the most messages one history read returns on the platform (100). */
+const LAST_LOOKBACK = 100;
+
+/** True when a message reference is `last`: the persona's own most recent message (any case). */
+function isLast(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().toLowerCase() === 'last';
+}
+
+/** A file a post carries, read for upload. */
+type Upload = { name: string; data: Uint8Array; contentType?: string };
+
+/** What the bot needs to be allowed in the chat an operation acts in (src/tools/operations/shared.ts#CHANNEL_NEEDS). */
+type Need = Parameters<typeof postingChat>[0]['need'];
+
+/** The message an operation acts on and the chat it is in. */
+type Target = {
+  placeId: string;
+  messageId: string;
+  ref: { iface: string; chatId: string; messageId: string };
+};
+
+/** The core's reads of the interface, or an Error naming what is missing. */
+function needReads(reads: Reads | null): Reads {
+  if (!reads) throw Object.assign(new Error("the persona's interface is not available"), { code: CODE.NOT_CONFIGURED });
+  return reads;
+}
+
+/**
+ * The attachment of a post's `file` handle bound for `placeId`, or null without one: the
+ * errand's file (src/errands/service.ts#fileOf), its size checked against the interface's
+ * `maxFileBytes` before it is read.
+ */
+async function errandFile(
+  env: Env,
+  args: Obj,
+  context: OpContext,
+  placeId: string,
+  p: Adapter
+): Promise<Upload | null> {
+  const handle = textOf(args.file).trim();
+  if (!handle) return null;
+  const skillFile = env.dataDir ? skillOutputFile(env.dataDir, handle) : null;
+  const file = skillFile
+    ? skillFile
+    : typeof env.errands?.fileOf === 'function'
+      ? env.errands.fileOf({ placeId: env.resolvedPlaceId(context), handle, dmChatId: placeId })
+      : null;
+  if (file?.expired) throw invalid(`files of ${handle} have expired`, CODE.FILE_EXPIRED);
+  if (!file) throw invalid(`no file ${handle}`, CODE.UNKNOWN_FILE);
+  const limit = p.capabilities?.()?.maxFileBytes ?? Infinity;
+  const stat = await fsp.stat(file.path as string).catch(() => null);
+  if (!stat?.isFile()) throw Object.assign(new Error(`cannot read ${handle}`), { code: CODE.FILE_UNREADABLE });
+  if (Number.isFinite(limit) && stat.size > limit)
+    throw Object.assign(new Error(`${handle} is ${stat.size} bytes, over the ${limit} this interface takes`), {
+      code: CODE.ATTACHMENT_TOO_LARGE,
+    });
+  const data = await fsp.readFile(file.path as string).catch(() => null);
+  if (!data) throw Object.assign(new Error(`cannot read ${handle}`), { code: CODE.FILE_UNREADABLE });
+  return { name: file.name, data, ...(file.contentType ? { contentType: file.contentType } : {}) };
+}
+
+/**
+ * The library entry of a post's `gif` handle, or null without a handle: unknown
+ * here (or `features.gifs` off) is `invalid` with `unknown-gif`, checked before anything is posted.
+ */
+function gifEntry(env: Env, args: Obj): Untyped {
+  const handle = textOf(args.gif).trim();
+  if (!handle) return null;
+  const entry = typeof env.store?.findGif !== 'function' ? null : env.store.findGif(handle);
+  if (!entry) throw invalid(`no GIF ${handle} in the library`, CODE.UNKNOWN_GIF);
+  return entry;
+}
+
+const handlers = perEnv((env) => {
+  const { store, assertNotPaused } = env;
+  const { reads } = env;
+  const port = env.port as Adapter | null | undefined;
+  const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
+  const clock = typeof env.now === 'function' ? env.now : Date.now;
+
+  /**
+   * The attachment of a post's `media` (a picture of one of the persona's own messages, `args.item` picking
+   * one of several; 1 is the first), downloaded for upload, or null without `media`. The message is
+   * fetched again, so its attachment URL is fresh. Refusals are listed in this module's header;
+   * nothing is posted before they are told.
+   */
+  async function mediaFile(args: Obj, context: OpContext, p: Adapter): Promise<Upload | null> {
+    const raw = textOf(args.media).trim();
+    if (!raw) return null;
+    if (textOf(args.file).trim() || textOf(args.gif).trim())
+      throw invalid('one attachment per post', CODE.INVALID_ARGS);
+    const ref = await messageRefOf(raw, reads);
+    const sourceId = await checkedChat(env, p, context, ref.placeId, 'read');
+    const found = await needReads(reads).fetchMessages({ iface: p.iface, chatId: sourceId }, [ref.messageId]);
+    const message = found?.messages[0] ?? null;
+    if (message?.missing === true) throw invalid(`message ${ref.messageId} was deleted`, CODE.MESSAGE_DELETED);
+    if (!message?.event) throw invalid(`no message ${ref.messageId} in ${sourceId}`, CODE.UNKNOWN_MESSAGE);
+    const sent = message.event.message;
+    if (sent.author?.self !== true) throw invalid("that message is not the persona's own", CODE.NOT_OWN_MESSAGE);
+    const attachments: Array<Untyped> = [...(message.attachments ?? [])];
+    const given = args.item === undefined || args.item === null || args.item === '' ? 1 : Number(args.item);
+    if (attachments.length === 0) throw invalid('that message holds no attachment', CODE.NO_MEDIA);
+    if (!Number.isInteger(given) || given < 1 || given > attachments.length)
+      throw invalid('item is out of range', CODE.NO_MEDIA);
+    const item = attachments[given - 1];
+    if (!item?.url) throw invalid('that attachment has no address', CODE.NO_MEDIA);
+    const limit = p.capabilities?.()?.maxFileBytes ?? Infinity;
+    const tooLarge = (size: number): boolean => Number.isFinite(limit) && size > limit;
+    const large = (size: number): Error =>
+      Object.assign(new Error(`the picture is ${size} bytes, over the ${limit} this interface takes`), {
+        code: CODE.ATTACHMENT_TOO_LARGE,
+      });
+    if (tooLarge(Number(item.size))) throw large(Number(item.size));
+    const unreadable = () => Object.assign(new Error('cannot download the picture'), { code: CODE.FILE_UNREADABLE });
+    let data: Buffer | null = null;
+    try {
+      const response = await fetchImpl(item.url, { method: 'GET', signal: AbortSignal.timeout(30_000) });
+      if (!response?.ok) throw unreadable();
+      const declared = Number(response.headers?.get?.('content-length'));
+      if (tooLarge(declared)) throw large(declared);
+      data = Buffer.from(await response.arrayBuffer());
+    } catch (err) {
+      throw objOf(err).code === CODE.ATTACHMENT_TOO_LARGE ? err : unreadable();
+    }
+    if (tooLarge(data.byteLength)) throw large(data.byteLength);
+    return {
+      name: String(item.name || 'picture'),
+      data,
+      ...(item.contentType ? { contentType: String(item.contentType).split(';')[0] } : {}),
+    };
+  }
+
+  /**
+   * The persona's own text posted as theirs: the channel checked, the reply target in it. A `gif`
+   * (their library's handle) follows the text, or goes alone when the text is empty, as a `<gif>`
+   * of a reply turn does (src/media/gif-post.ts): the entry's URL as the text of a message of
+   * theirs, stamped on its entry.
+   */
+  async function post(args: Obj, context: OpContext, p: Adapter) {
+    const text = textOf(args.text).trim();
+    // A file-only or GIF-only post: an errand's file or a GIF of the persona's with no text.
+    if (!text && !textOf(args.file).trim() && !textOf(args.gif).trim() && !textOf(args.media).trim())
+      throw invalid('text is required');
+    const reply = args.replyTo ? await messageRefOf(args.replyTo, reads) : null;
+    const given = args.placeId ? idText(args.placeId) : null;
+    if (given && reply?.placeId && given !== reply.placeId)
+      throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
+    const to = await postTarget(env, p, context, given ?? reply?.placeId ?? null, reply !== null);
+    const { chatId } = to;
+    const entry = gifEntry(env, args);
+    const attachment = (await errandFile(env, args, context, chatId, p)) ?? (await mediaFile(args, context, p));
+    const content: Content = {
+      text,
+      ...(attachment ? { attachments: [attachment] } : {}),
+      ...(reply ? { replyTo: { ...to, messageId: reply.messageId } } : {}),
+    };
+    let result: Untyped = null;
+    if (text || attachment) {
+      result = await p.send(to, content);
+      if (result?.status !== 'ok' || !entry)
+        return portAnswer('message.create', result, `sent in ${chatId} (message ${result?.ref?.messageId ?? '?'})`);
+    }
+    const sent = await postGif(p, to, entry, text || attachment ? null : content);
+    if (sent?.status !== 'ok')
+      return text || attachment
+        ? {
+            status: 'partial',
+            code: CODE.GIF_FAILED,
+            summary: 'message.create: the text went out, the GIF did not',
+            data: {
+              gifUnknown: sent?.status === 'unknown',
+              portStatus: sent?.status ?? null,
+              ref: result?.ref ?? null,
+            },
+          }
+        : portAnswer('message.create', sent, '');
+    const ref = result?.ref ?? sent.ref;
+    return {
+      text: `sent in ${chatId} (message ${ref?.messageId ?? '?'})${text || attachment ? ' and a GIF' : ''}`,
+      ref: ref ?? null,
+      at: (result ?? sent).at,
+    };
+  }
+
+  /**
+   * One library GIF as a message of the persona's: its stored URL, a fresh one first when it is an
+   * attachment. Counted once sent and stamped on its entry. A GIF-only post carries the reply
+   * (`lead`); one after a text carries none.
+   */
+  async function postGif(p: Adapter, to: ChatRef, entry: Untyped, lead: Content | null): Promise<Untyped> {
+    const fresh =
+      entry.kind === 'attachment'
+        ? await freshAttachmentUrl({
+            reads: needReads(reads),
+            channel: to,
+            entry,
+          })
+        : null;
+    const content = lead
+      ? { ...lead, text: gifPostUrl(entry as { url: string }, fresh) }
+      : { text: gifPostUrl(entry as { url: string }, fresh) };
+    const sent = await p.send(to, content);
+    if (sent?.status === 'ok') {
+      if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(to.chatId, entry.key, clock());
+    }
+    return sent;
+  }
+
+  /** `message.create`: the persona's own text, posted; refused to anyone else. */
+  async function cmdCreate(args: Obj, context: OpContext) {
+    assertNotPaused();
+    if (context?.actor !== 'persona')
+      throw denied("message.create posts only the persona's own words", CODE.OWNER_ONLY);
+    return post(args, context, postPort(requirePort(), context));
+  }
+
+  /** The port, or an Error naming what is missing. */
+  function requirePort(): Adapter {
+    if (!port || typeof port.edit !== 'function')
+      throw Object.assign(new Error("the persona's interface is not available"), { code: CODE.NOT_CONFIGURED });
+    return port;
+  }
+
+  /**
+   * The message `args.messageId` names, in the chat it may be acted on in -- the bot
+   * holding there the permissions `need` names (src/tools/operations/shared.ts#CHANNEL_NEEDS): `{ placeId, ref }`.
+   * A bare id with no `place` is looked for in the chat memory holds it in (`heldChat`), else the chat the call runs in.
+   */
+  async function target(
+    args: Obj,
+    context: OpContext,
+    need: Need,
+    { last = false }: { last?: boolean } = {}
+  ): Promise<Target> {
+    const p = requirePort();
+    if (last && isLast(args.messageId)) return lastTarget(args, context, need);
+    const message = await messageRefOf(args.messageId, reads);
+    const given = args.placeId ? idText(args.placeId) : null;
+    if (given && message.placeId && given !== message.placeId)
+      throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
+    const named = given ?? message.placeId ?? heldChat(env, p.iface, message.messageId);
+    const placeId = await checkedChat(env, p, context, named, need);
+    return {
+      placeId,
+      messageId: message.messageId,
+      // A line of the command line's chat is the command line's, whichever interface the turn is served by.
+      ref: { iface: ifaceOfChat(placeId, p.iface), chatId: placeId, messageId: message.messageId },
+    };
+  }
+
+  /**
+   * `last`'s target: the persona's own most recent message among the last LAST_LOOKBACK of the
+   * chat (`args.placeId`, else the one the command runs in), read through the interface;
+   * none of theirs there is `invalid` with `no-own-message`.
+   */
+  async function lastTarget(args: Obj, context: OpContext, need: Need): Promise<Target> {
+    const p = requirePort();
+    const placeId = await checkedChat(env, p, context, args.placeId ? idText(args.placeId) : null, need);
+    const page = await needReads(reads).history({ iface: p.iface, chatId: placeId }, { limit: LAST_LOOKBACK });
+    let newest: NonNullable<typeof page>['events'][number] | null = null;
+    for (const event of page?.events ?? []) {
+      const { message } = event;
+      if (message?.author?.self !== true) continue;
+      if (!newest || (message.at ?? 0) >= (newest.message?.at ?? 0)) newest = event;
+    }
+    if (!newest)
+      throw invalid(`no message of the persona among the last ${LAST_LOOKBACK} in ${placeId}`, CODE.NO_OWN_MESSAGE);
+    const messageId = idText(newest.message?.id);
+    return { placeId, messageId, ref: { iface: p.iface, chatId: placeId, messageId } };
+  }
+
+  /** `message.edit`: one of the persona's own messages gets `text`. */
+  async function cmdEdit(args: Obj, context: OpContext) {
+    assertNotPaused();
+    const p = requirePort();
+    const text = textOf(args.text).trim();
+    if (!text) throw invalid('text is required');
+    const { placeId, messageId, ref } = await target(args, context, 'edit', { last: true });
+    if (publicationRefusal(context.publicationBoundary, ref)) throw denied('publication-boundary', 'not-allowed');
+    return portAnswer('message.edit', await p.edit(ref, { text }), `edited message ${messageId} in ${placeId}`);
+  }
+
+  /** `message.delete`: one of the persona's own messages, deleted. */
+  async function cmdDelete(args: Obj, context: OpContext) {
+    assertNotPaused();
+    const p = requirePort();
+    const { placeId, messageId, ref } = await target(args, context, 'read', { last: true });
+    return portAnswer('message.delete', await p.delete(ref), `deleted message ${messageId} in ${placeId}`);
+  }
+
+  /** `message.react.add` and `message.react.remove`: the persona's reaction `emoji` on a message, put or taken back. */
+  async function cmdReact(add: boolean, args: Obj, context: OpContext): Promise<Obj> {
+    assertNotPaused();
+    const p = requirePort();
+    const emoji = textOf(args.emoji).trim();
+    if (!emoji) throw invalid('an emoji is required');
+    const { placeId, messageId, ref } = await target(args, context, add ? 'react' : 'read');
+    const result = add ? await p.react(ref, emoji) : await p.unreact(ref, emoji);
+    return portAnswer(
+      add ? 'message.react.add' : 'message.react.remove',
+      result,
+      `${add ? 'reacted to' : 'took back the reaction on'} message ${messageId} in ${placeId}`
+    );
+  }
+
+  return { cmdCreate, cmdEdit, cmdDelete, cmdReact };
+});
+
+defineOp({
+  name: 'message.create',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdCreate(args, ctx),
+});
+
+defineOp({
+  name: 'message.edit',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdEdit(args, ctx),
+});
+defineOp({
+  name: 'message.delete',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdDelete(args, ctx),
+});
+defineOp({
+  name: 'message.react.add',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdReact(true, args, ctx),
+});
+defineOp({
+  name: 'message.react.remove',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdReact(false, args, ctx),
+});

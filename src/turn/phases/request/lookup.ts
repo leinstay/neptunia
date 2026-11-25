@@ -1,0 +1,95 @@
+// The sixth step of a turn's request: the link reads. The persona's own tools search during their reply, so no search
+// classifier runs before it. The request phase (src/turn/phases/request.ts) runs it after the second-look step; the
+// wait and the request read the stages it started.
+
+import { log } from '../../../log.ts';
+import { linkHosts, journalled } from '../../journal.ts';
+import { readableLinkCandidates } from '../../media.ts';
+import type { PhaseContext } from '../context.ts';
+import type { Prepared } from '../request.ts';
+import type { Tracked } from './stages.ts';
+
+/** What the lookup step made: the link reads' stage and the cache-only read of the same links. */
+export type Looked = {
+  linksStage: Tracked<Map<string, unknown> | undefined> | null;
+  cachedLinkReads: () => Map<string, unknown> | undefined;
+};
+
+/** The new links read per turn. Production value, config cut of 2026-10-31. */
+const LINKS_PER_TURN = 2;
+
+/** The read texts of a link stage's answer (src/web/lookup.ts#readLinks). */
+function readsOf(value: unknown): Map<string, unknown> {
+  const reads = (value as { reads?: unknown } | null | undefined)?.reads;
+  return reads instanceof Map ? (reads as Map<string, unknown>) : new Map<string, unknown>();
+}
+
+/** What the lookup step reads of the attempt. */
+type LookupNeeds = Pick<
+  Prepared,
+  | 'channel'
+  | 'placeId'
+  | 'prepStep'
+  | 'config'
+  | 'asked'
+  | 'answersTask'
+  | 'rawHistory'
+  | 'webLookupOn'
+  | 'webSearchOn'
+  | 'serverOn'
+  | 'track'
+>;
+
+export function startLookup(ctx: PhaseContext, turn: LookupNeeds): Looked {
+  const { lookup } = ctx;
+  const { channel, placeId, prepStep, config, asked, answersTask, rawHistory } = turn;
+  const { webLookupOn, webSearchOn, serverOn, track } = turn;
+  // The links: the newest readable links of the history, at most LINKS_PER_TURN NEW reads (cached excerpts are free).
+  let linksStage: Looked['linksStage'] = null;
+  const videoConfig = config.media?.video;
+  // Cache only: no fetch, no model request, no daily slot (src/web/lookup.ts#cachedReads).
+  const cachedLinkReads = () => {
+    if (!linksStage || typeof lookup?.cachedReads !== 'function') return undefined;
+    try {
+      return lookup.cachedReads(placeId, readableLinkCandidates(rawHistory, videoConfig?.sites));
+    } catch (err) {
+      log.warn('lookup: links failed', { channel: channel.id, error: err });
+      return undefined;
+    }
+  };
+  if (webLookupOn && typeof lookup?.readLinks === 'function') {
+    const readLinks = lookup.readLinks.bind(lookup);
+    linksStage = track('links', async () => {
+      try {
+        const candidates = readableLinkCandidates(rawHistory, videoConfig?.sites);
+        // The journal: the link reads as one operation of the engine, hosts only.
+        const readOp =
+          candidates.length > 0 ? prepStep('links', 'read-link', { input: { hosts: linkHosts(candidates) } }) : null;
+        const read = await journalled(
+          readOp,
+          () => readLinks(placeId, candidates, { maxNew: LINKS_PER_TURN }),
+          (value) => {
+            const reads = readsOf(value);
+            const chars = [...reads.values()].reduce<number>(
+              (sum, text) => sum + (typeof text === 'string' ? text.length : 0),
+              0
+            );
+            return {
+              result: { hosts: linkHosts(candidates.filter((link) => reads.has(link.id))), chars },
+              offered: reads.size > 0,
+            };
+          }
+        );
+        // readLinks answers `{ reads }`, the texts by link id.
+        return (read as { reads?: Map<string, unknown> }).reads;
+      } catch (err) {
+        log.warn('lookup: links failed', { channel: channel.id, error: err });
+        return undefined;
+      }
+    });
+  }
+  // The persona's own tools search during their reply: a turn someone asked for runs no search classifier first.
+  if (asked && !answersTask && (webSearchOn || serverOn))
+    log.info('lookup: skipped', { channel: channel.id, reason: 'core-tools' });
+  return { linksStage, cachedLinkReads };
+}

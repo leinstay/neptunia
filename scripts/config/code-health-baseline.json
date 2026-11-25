@@ -1,0 +1,515 @@
+{
+  "chains": {
+    "tests/fixtures/diary-history.ts": {
+      "deep": 1,
+      "repeated": 2
+    },
+    "tests/fixtures/events-rig.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/memory-db/roundtrip.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/memory-db/service.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/fixtures/memory-db/session-rig.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/fixtures/prompt-rig.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/fixtures/recording-core.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/turn-harness.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/fixtures/turn-kit.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/turn-split.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/turn-world.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/two-fakes.ts": {
+      "deep": 1,
+      "repeated": 0
+    }
+  },
+  "functions": {
+    "interfaces/discord/collect.ts": {
+      "audienceOf": {
+        "complexity": 22
+      }
+    },
+    "scripts/lib/inner-week-fixture.ts": {
+      "parseFixture": {
+        "complexity": 56,
+        "function-length": 308
+      },
+      "parseFixture><anonymous>#5": {
+        "complexity": 34
+      },
+      "parseFixture>intentionOf": {
+        "complexity": 32
+      }
+    },
+    "scripts/lib/inner-week.ts": {
+      "computeGates": {
+        "complexity": 53
+      },
+      "createStubVoice>plan": {
+        "complexity": 22
+      },
+      "runWeek": {
+        "function-length": 537
+      },
+      "runWeek>act": {
+        "complexity": 38
+      },
+      "runWeek>runTurn": {
+        "complexity": 23
+      }
+    },
+    "scripts/lib/labels-catalogue.ts": {
+      "catalogueProblems": {
+        "complexity": 26
+      }
+    },
+    "scripts/lib/replay-args.ts": {
+      "parseArgs": {
+        "complexity": 115
+      }
+    },
+    "scripts/lib/replay-diary.ts": {
+      "runDiaryDay": {
+        "complexity": 28
+      }
+    },
+    "scripts/lib/replay-inner.ts": {
+      "runInner": {
+        "complexity": 41
+      }
+    },
+    "scripts/lib/replay-main.ts": {
+      "runMain": {
+        "complexity": 48
+      }
+    },
+    "scripts/lib/replay-scenarios.ts": {
+      "parseScenarios><anonymous>": {
+        "complexity": 39
+      },
+      "parseSteps><anonymous>": {
+        "complexity": 23
+      }
+    },
+    "scripts/lib/replay-skills.ts": {
+      "runSkills": {
+        "complexity": 22
+      }
+    },
+    "src/agent-runner/protocol.ts": {
+      "validateRun": {
+        "complexity": 30
+      }
+    },
+    "src/behavior/around.ts": {
+      "liveFields": {
+        "complexity": 24
+      }
+    },
+    "src/behavior/deleted-lines.ts": {
+      "deletedLinesOf": {
+        "complexity": 34
+      }
+    },
+    "src/behavior/inner/facts.ts": {
+      "feedbackFacts": {
+        "complexity": 36
+      }
+    },
+    "src/behavior/inner/places.ts": {
+      "refreshPlaces": {
+        "complexity": 22
+      }
+    },
+    "src/behavior/missed.ts": {
+      "createMissed": {
+        "function-length": 638
+      },
+      "createMissed>onTurnEnd": {
+        "complexity": 22
+      },
+      "reconcileFromRecords": {
+        "complexity": 32
+      }
+    },
+    "src/behavior/prefetch.ts": {
+      "prefetchLanes": {
+        "complexity": 24
+      }
+    },
+    "src/behavior/recall-run.ts": {
+      "createRecall>prefetch": {
+        "complexity": 25
+      },
+      "createRecall>storedMemory": {
+        "complexity": 25
+      }
+    },
+    "src/behavior/recall.ts": {
+      "archivedItem": {
+        "complexity": 25
+      },
+      "fallbackLookupPlan": {
+        "complexity": 24
+      },
+      "matchMemory": {
+        "complexity": 31
+      },
+      "memorySearchPlan": {
+        "complexity": 21
+      },
+      "parseRange": {
+        "complexity": 33
+      }
+    },
+    "src/behavior/wake.ts": {
+      "feedbackFactText": {
+        "complexity": 31
+      }
+    },
+    "src/errands/client.ts": {
+      "createErrandClient": {
+        "function-length": 320
+      }
+    },
+    "src/errands/store.ts": {
+      "createErrandStore": {
+        "function-length": 468
+      }
+    },
+    "src/format.ts": {
+      "formatTranscript": {
+        "complexity": 64
+      }
+    },
+    "src/intentions/blocks.ts": {
+      "activeLine": {
+        "complexity": 23
+      }
+    },
+    "src/intentions/model.ts": {
+      "checkInvariants": {
+        "complexity": 22
+      },
+      "createIntention": {
+        "complexity": 38
+      }
+    },
+    "src/intentions/service.ts": {
+      "createIntentionService": {
+        "function-length": 530
+      },
+      "createIntentionService>set": {
+        "complexity": 24
+      },
+      "createIntentionService>update": {
+        "complexity": 23
+      },
+      "createIntentionService>update><anonymous>#3": {
+        "complexity": 46
+      }
+    },
+    "src/llm/embed.ts": {
+      "createEmbedder>embed": {
+        "complexity": 32
+      }
+    },
+    "src/llm/images.ts": {
+      "createImageGen>generate": {
+        "complexity": 30
+      }
+    },
+    "src/llm/openrouter.ts": {
+      "createLlm": {
+        "function-length": 608
+      },
+      "createLlm>complete": {
+        "complexity": 41
+      }
+    },
+    "src/memory/append-store.ts": {
+      "createAppendStore": {
+        "function-length": 342
+      }
+    },
+    "src/memory/archive.ts": {
+      "createArchive>iterate": {
+        "complexity": 23
+      }
+    },
+    "src/memory/db/describe.ts": {
+      "gatherReview": {
+        "complexity": 27
+      },
+      "reviewDescription": {
+        "complexity": 24
+      }
+    },
+    "src/memory/db/diary-media.ts": {
+      "createDiaryMedia>handleRow": {
+        "complexity": 30
+      }
+    },
+    "src/memory/db/focus.ts": {
+      "decideFocus": {
+        "complexity": 46
+      },
+      "recountDaily><anonymous>": {
+        "complexity": 23
+      }
+    },
+    "src/memory/db/observe-event.ts": {
+      "observationOf": {
+        "complexity": 26
+      }
+    },
+    "src/memory/db/observe.ts": {
+      "checkEnvelope": {
+        "complexity": 75
+      },
+      "placeOf": {
+        "complexity": 35
+      },
+      "writeObservation": {
+        "complexity": 27
+      }
+    },
+    "src/memory/db/rows.ts": {
+      "deriveRow": {
+        "complexity": 38
+      }
+    },
+    "src/memory/db/service.ts": {
+      "createMemoryDb>sessionJob": {
+        "complexity": 30
+      }
+    },
+    "src/memory/db/session-write.ts": {
+      "applyClaim": {
+        "complexity": 21
+      },
+      "applyMemoryWrite><anonymous>": {
+        "complexity": 41
+      }
+    },
+    "src/memory/db/session.ts": {
+      "runBatch": {
+        "complexity": 22
+      },
+      "validateAnswer": {
+        "complexity": 46
+      }
+    },
+    "src/memory/describe.ts": {
+      "buildDescriber>fetchVideoMedia": {
+        "complexity": 21
+      },
+      "buildDescriber>watchVideo": {
+        "complexity": 24
+      }
+    },
+    "src/memory/embedder.ts": {
+      "createEmbedder": {
+        "function-length": 479
+      }
+    },
+    "src/memory/journal.ts": {
+      "callMarksOf": {
+        "complexity": 41
+      },
+      "createJournal": {
+        "function-length": 465
+      },
+      "journalLine": {
+        "complexity": 22
+      },
+      "offPeriods": {
+        "complexity": 22
+      },
+      "turnOfMessage": {
+        "complexity": 25
+      }
+    },
+    "src/memory/lore.ts": {
+      "upsertLore": {
+        "complexity": 23
+      }
+    },
+    "src/memory/vectors.ts": {
+      "createVectors>search": {
+        "complexity": 35
+      }
+    },
+    "src/tools/conversation-read.ts": {
+      "chatText": {
+        "complexity": 27
+      },
+      "readSelection": {
+        "complexity": 26
+      },
+      "recordMessages": {
+        "complexity": 25
+      },
+      "runConversationRead": {
+        "complexity": 35
+      }
+    },
+    "src/tools/executors.ts": {
+      "executeCall": {
+        "complexity": 55
+      },
+      "resolveCall": {
+        "complexity": 61
+      }
+    },
+    "src/tools/gateway.ts": {
+      "checkSkill": {
+        "complexity": 29
+      }
+    },
+    "src/tools/operations/draw.ts": {
+      "<anonymous>>cmdDraw": {
+        "complexity": 34
+      }
+    },
+    "src/tools/operations/errand.ts": {
+      "<anonymous>>cmdRead": {
+        "complexity": 24
+      }
+    },
+    "src/tools/operations/memory.ts": {
+      "<anonymous>": {
+        "function-length": 404
+      },
+      "<anonymous>>cmdMemoryShow": {
+        "complexity": 22
+      }
+    },
+    "src/tools/operations/message.ts": {
+      "<anonymous>>mediaFile": {
+        "complexity": 26
+      },
+      "<anonymous>>post": {
+        "complexity": 33
+      }
+    },
+    "src/tools/operations/shared.ts": {
+      "buildProfileSummary": {
+        "complexity": 22
+      }
+    },
+    "src/tools/operations/status.ts": {
+      "innerLines": {
+        "complexity": 23
+      }
+    },
+    "src/tools/operations/usage.ts": {
+      "keyLine": {
+        "complexity": 23
+      }
+    },
+    "src/tools/operations/voice.ts": {
+      "<anonymous>>cmdVoice": {
+        "complexity": 26
+      }
+    },
+    "src/tools/registry.ts": {
+      "loadSkills": {
+        "complexity": 25
+      }
+    },
+    "src/tools/schema.ts": {
+      "schemaError": {
+        "complexity": 38
+      }
+    },
+    "src/tools/tool-calls.ts": {
+      "toolResultText": {
+        "complexity": 23
+      }
+    },
+    "src/tools/tools.ts": {
+      "memorySearchText": {
+        "complexity": 33
+      },
+      "runMediaLook": {
+        "complexity": 36
+      },
+      "runMemorySearch": {
+        "complexity": 31
+      }
+    },
+    "src/web/fetch-page.ts": {
+      "createPageFetcher>fetchText": {
+        "complexity": 30
+      }
+    },
+    "src/web/lookup.ts": {
+      "createLookup": {
+        "function-length": 488
+      }
+    },
+    "src/web/readable.ts": {
+      "attributes": {
+        "complexity": 23
+      }
+    }
+  },
+  "structure": {
+    "imports": {
+      "interfaces/discord/audience-warm.ts": [
+        "src/log.ts"
+      ],
+      "interfaces/discord/collect.ts": [
+        "src/behavior/emoji.ts",
+        "src/log.ts",
+        "src/memory/mentions.ts"
+      ],
+      "interfaces/discord/port.ts": [
+        "src/interface/port.ts",
+        "src/tools/codes.ts"
+      ],
+      "interfaces/discord/pull-fetch.ts": [
+        "src/behavior/elsewhere.ts",
+        "src/behavior/pull.ts"
+      ]
+    },
+    "tests": [
+      "src/memory/db/graph-manifest.ts",
+      "src/memory/index.ts",
+      "src/protocol/index.ts",
+      "src/speech/synth.ts",
+      "src/tools/operations/catalog.ts",
+      "src/tools/operations/learning.ts",
+      "src/tools/operations/places.ts",
+      "src/tools/operations/registry.ts",
+      "src/tools/operations/rights.ts"
+    ]
+  }
+}

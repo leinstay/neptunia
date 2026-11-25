@@ -1,0 +1,706 @@
+// The world of a turn test over the fake interface: one fake adapter per test holding the chats, the history
+// and the members the test seeds, the core's reads over it, and the dependencies a turn runner or a handler takes
+// (`port`, `reads`, `selfId`, `memberOf`, `membersOf`, `chatName`). A test describes a chat with
+// `world.channel({ id, name, history })`, whose history is given as discord.js-shaped message stubs (the same stubs the
+// platform's own functions read) and is seeded as the events the Discord interface would report for them. The channel it
+// returns reads back what the persona did there: `sent`, `typingCalls` and `reactCalls`, each from the fake's record of
+// the calls, in the shape the first tests of the turn asserted (`content`, `reply`, `files`).
+//
+// `world()` is the current test's world, created on first use and dropped when the test ends.
+import { afterEach } from 'node:test';
+import { createFakeAdapter } from '../../scripts/lib/fake.ts';
+import { createReads } from '../../src/interface/reads.ts';
+import type { Reads } from '../../src/interface/reads.ts';
+import { withStableNames } from '../../src/behavior/stable-names.ts';
+import type { MediaNamer } from '../../src/behavior/stable-names.ts';
+import type { MediaName } from '../../src/memory/store-media-names.ts';
+import type { ChatInfo, MemberInfo, MessageRef, Permissions } from '../../src/protocol/adapter.ts';
+import { PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
+import { normalizeOptions, toEvent } from '../../interfaces/discord/index.ts';
+
+export type Raw = Record<string, unknown>;
+export type Fake = ReturnType<typeof createFakeAdapter>;
+
+/** The test's Discord-shaped message with the SDK's own words: the tests' stand-ins name their channel `placeId`. */
+export function sdkMessage<T>(message: T): T {
+  const raw = message as Record<string, unknown> | null | undefined;
+  if (!raw || typeof raw !== 'object') return message;
+  const reference = raw.reference as Record<string, unknown> | null | undefined;
+  if (raw.channelId === undefined && raw.placeId !== undefined) raw.channelId = raw.placeId;
+  if (reference && reference.channelId === undefined && reference.placeId !== undefined)
+    reference.channelId = reference.placeId;
+  return message;
+}
+
+/** The native id of a spelled top place, as the core's store answers it; any other id as given. */
+const nativeOfSpelled = (placeId: string): string => /^[^:]+:(?:server|guild):(.+)$/.exec(placeId)?.[1] ?? placeId;
+
+/** The persona's id on the worlds' interface; a test file may name another before it builds a world. */
+let SELF = 'self-id';
+export function useSelf(id: string): void {
+  SELF = id;
+}
+const quiet = { info() {}, warn() {}, error() {} };
+
+/** A channel of a test: its info as the fake holds it, and what the persona did in it. */
+/** A message the persona posted, as the first tests of the turn read it. */
+export type Posted = {
+  content: string | undefined;
+  reply?: { messageReference: string | undefined; failIfNotExists: boolean };
+  files?: Array<{ attachment: unknown; name: string }>;
+};
+
+export type Channel = {
+  id: string;
+  name: string | null;
+  placeId: string | null;
+  info: ChatInfo;
+  /** The messages the persona sent here, as the first tests of the turn read them. */
+  sent: Array<Posted>;
+  /** One entry for each typing indicator the persona showed here. */
+  typingCalls: Array<number>;
+  /** The history reads made of this chat, each as the query it carried. */
+  fetches: Array<unknown>;
+  /** Changes what the persona may do here, from the next read on. */
+  permit(permissions: Partial<Permissions>): void;
+  /** Makes every history read of this chat fail. */
+  failHistory(): void;
+  /** The chat is gone: the interface no longer knows it. */
+  leave(): void;
+  /** Replaces fields of the chat's info (the audience, the viewers, its last message), from the next read on. */
+  update(fields: Partial<ChatInfo>): void;
+  /** Each reaction the persona put here: the message and the emoji. */
+  reactCalls: Array<{ id: string; emoji: string }>;
+};
+
+export type ChannelSpec = {
+  id?: string;
+  name?: string | null;
+  /** The root the channel belongs to (g1 by default); `null` for a private chat. */
+  placeId?: string | null;
+  dm?: boolean;
+  partnerId?: string | null;
+  /** The history, oldest first, as discord.js-shaped message stubs of this channel. */
+  historyMessages?: ReadonlyArray<Raw>;
+  permissions?: Partial<Permissions>;
+  lastMessageAt?: number | null;
+  voice?: boolean;
+  public?: boolean;
+  kind?: ChatInfo['kind'];
+  parentId?: string | null;
+  audience?: ChatInfo['audience'];
+  viewers?: ChatInfo['viewers'];
+  extra?: Partial<ChatInfo>;
+};
+
+export type World = {
+  port: Fake;
+  reads: Reads;
+  /** The stable names the world's reads issued, read by name as the store's `mediaNameOf`. */
+  names: StableNames;
+  selfId: string;
+  channel(spec?: ChannelSpec, options?: { keep?: boolean }): Channel;
+  /** Puts message stubs into a channel's history, and the ones later added to the array too. */
+  follow(placeId: unknown, messages: unknown): void;
+  /** Puts message stubs into a channel's history. */
+  seed(placeId: unknown, messages: unknown): void;
+  member(placeId: string, member: Partial<MemberInfo> & { id: string } & Record<string, unknown>): void;
+  /** A message of a chat is gone (deleted, or never reached the interface). */
+  forget(chatId: unknown, messageId: unknown): void;
+  /** Makes `ids` members of a root the interface knows (named by their ids). */
+  knowMembers(rootId: unknown, ids: unknown): void;
+  /** Makes every read `op` of one chat answer `failed`. */
+  failRead(op: string, chatId: unknown): void;
+  /** The clock that stamps the messages the persona sends. */
+  useClock(now: () => number): void;
+  /** Makes the messages seeded so far, and those seeded later, as the interface reports them under `config`. */
+  renormalize(config: unknown): void;
+  /** Calls `spy` with the arguments of each call of `op`, before the adapter answers it. */
+  tap(op: string, spy: (args: Array<unknown>) => void | Promise<void>): void;
+  /**
+   * Answers each call of `op` with what `answer` returns, when that is not undefined, in place of the adapter. `answer`
+   * gets the adapter's own answer as a second argument, to change it.
+   */
+  intercept(op: string, answer: (args: Array<unknown>, original: () => Promise<unknown>) => unknown): void;
+  /** Makes each send whose text `matches` (every send by default) end `failed` (or `unknown`) with `code`, nothing posted. */
+  failSends(matches?: (text: string | undefined) => boolean, code?: string, status?: 'failed' | 'unknown'): void;
+  /** The reads over another adapter a test brings, which then holds what the world holds. */
+  adopt(other: Fake, options?: { sendsInHistory?: boolean }): Reads;
+  /** What the runner takes from the world. */
+  deps(): {
+    port: Fake;
+    reads: Reads;
+    selfId: () => string;
+    memberOf: (placeId: string, accountId: string) => ({ name: string; bot: boolean } & Record<string, unknown>) | null;
+    membersOf: (placeId: string) => Array<{ id: string; name: string; bot: boolean } & Record<string, unknown>>;
+    chatName: (chatId: string) => string | null;
+  };
+};
+
+/** The interface the worlds' adapters belong to; a test file may name another before it builds one. */
+let worldIface = 'discord';
+export function useIface(name: string): void {
+  worldIface = name;
+}
+
+let current: World | null = null;
+afterEach(() => {
+  current = null;
+});
+
+const ALL: Permissions = { read: true, send: true, attach: true, react: true };
+
+const EVERYONE = {
+  everyone: true,
+  groups: [] as Array<string>,
+  groupAllow: [] as Array<string>,
+  groupDeny: [] as Array<string>,
+  memberAllow: [] as Array<string>,
+  memberDeny: [] as Array<string>,
+  memberGroups: {} as Record<string, Array<string>>,
+};
+
+/** The send of the fake in the shape of a discord.js payload. */
+function payloadOf(given: unknown): Posted {
+  const content = (given ?? {}) as {
+    text?: string;
+    attachments?: Array<{ name: string; data?: unknown; url?: string }>;
+    replyTo?: { messageId?: string };
+  };
+  const payload: Posted = { content: undefined };
+  if (typeof content.text === 'string' && content.text !== '') payload.content = content.text;
+  if (Array.isArray(content.attachments) && content.attachments.length > 0)
+    payload.files = content.attachments.map((file) => ({ attachment: file.data ?? file.url, name: file.name }));
+  payload.reply = content.replyTo
+    ? { messageReference: content.replyTo.messageId, failIfNotExists: false }
+    : undefined;
+  return payload;
+}
+
+/** The chat a spec describes: its root (null for a private chat), its name and the interface's info. */
+function infoOf(id: string, spec: ChannelSpec): { placeId: string | null; name: string | null; info: ChatInfo } {
+  const placeId = spec.dm === true ? null : spec.placeId === undefined ? 'g1' : spec.placeId;
+  const name = spec.dm === true ? null : spec.name === undefined ? 'general' : spec.name;
+  const info: ChatInfo = {
+    id,
+    kind: spec.kind ?? (placeId === null ? 'dm' : 'channel'),
+    rootId: placeId,
+    name,
+    topic: null,
+    chatType: placeId === null ? 'dm' : (spec.kind ?? 'channel'),
+    ...(placeId === null ? { partnerId: spec.partnerId === undefined ? 'u1' : spec.partnerId } : {}),
+    ...(spec.parentId === undefined ? {} : { parentId: spec.parentId }),
+    iface: worldIface,
+    permissions: { ...ALL, ...spec.permissions },
+    owner: null,
+    lastMessageAt: spec.lastMessageAt ?? null,
+    voice: spec.voice === true,
+    public: spec.public ?? true,
+    audience: spec.audience === undefined ? (placeId === null ? null : EVERYONE) : spec.audience,
+    ...(spec.viewers === undefined ? {} : { viewers: spec.viewers }),
+    ...spec.extra,
+  };
+  return { placeId, name, info };
+}
+
+/** The store's issuer of stable names and its read by name, as the legend reads a name's platform name. */
+export type StableNames = MediaNamer & { mediaNameOf(name: string): MediaName | null };
+
+/** A namer as the store issues names: `e1`, `e2`... and `s1`, `s2`... by native id, the same id keeping its name. */
+function fakeNamer(): StableNames {
+  const held = new Map<string, MediaName>();
+  const count = { emoji: 0, sticker: 0 };
+  return {
+    nameMedia(iface, kind, items) {
+      return items.map((item) => {
+        const key = `${iface}|${kind}|${item.nativeId}`;
+        const known = held.get(key);
+        if (known !== undefined) return known;
+        count[kind] += 1;
+        const row: MediaName = { name: `${kind === 'emoji' ? 'e' : 's'}${count[kind]}`, kind, iface, ...item };
+        held.set(key, row);
+        return row;
+      });
+    },
+    mediaNameOf(name) {
+      return [...held.values()].find((row) => row.name === name) ?? null;
+    },
+  };
+}
+
+type Delivery = { chatId: string; content: unknown; parts: ReadonlyArray<MessageRef> };
+
+/** Records every send of `port` as it was delivered: the content asked for and the messages it became (a long text is several). */
+function recordDeliveries(port: Fake, deliveries: Array<Delivery>): void {
+  const adapter = port as unknown as Record<string, (...args: Array<unknown>) => Promise<unknown>>;
+  const send = adapter.send;
+  if (send === undefined) throw new Error('no send');
+  adapter.send = async (...args: Array<unknown>) => {
+    const delivery = (await send.apply(port, args)) as { parts: ReadonlyArray<MessageRef> };
+    deliveries.push({ chatId: (args[0] as { chatId: string }).chatId, content: args[1], parts: delivery.parts });
+    return delivery;
+  };
+}
+
+function create(): World {
+  // The clock the messages the persona sends are stamped by: the one the runner is given, else the real one.
+  let clock: () => number = Date.now;
+  const port = createFakeAdapter({
+    iface: worldIface,
+    selfId: SELF,
+    now: () => clock(),
+    // A message is addressed as the Discord interface addresses one, as the tests of the turn were written against it.
+    capabilities: {
+      messageUrl: {
+        root: 'https://discord.com/channels/{root}/{chat}/{message}',
+        direct: 'https://discord.com/channels/@me/{chat}/{message}',
+      },
+    },
+    messageId: (_chatId, count) => `sent-${count}`,
+  });
+  // The history of a chat is what a test seeds, as the arrays it passes were before: the persona's own sends stay out.
+  port.showSendsInHistory(false);
+  // The core reads through its adapter wrapped in stable names (src/core.ts); the world reads the same way.
+  const namer = fakeNamer();
+  const reads = createReads(withStableNames(port, namer), quiet, nativeOfSpelled);
+  // What was seeded, replayed into another adapter a test brings (`adopt`) and applied to it from then on.
+  const seeded: Array<(one: Fake) => void> = [];
+  const adopted = new Map<Fake, Reads>([[port, reads]]);
+  const each = (seeding: (one: Fake) => void): void => {
+    seeded.push(seeding);
+    for (const one of adopted.keys()) seeding(one);
+  };
+  type Known = { name: string; bot: boolean } & Record<string, unknown>;
+  const members = new Map<string, Map<string, Known>>();
+  const names = new Map<string, string | null>();
+  const failing = new Map<string, Set<string>>();
+  const closers = new Map<string, () => void>();
+  const deliveries: Array<Delivery> = [];
+  type Methods = Record<string, (...args: Array<unknown>) => Promise<unknown>>;
+
+  type Spy = (args: Array<unknown>) => void | Promise<void>;
+  type Interceptor = (args: Array<unknown>, original: () => Promise<unknown>) => unknown;
+  const spies = new Map<string, Array<Spy>>();
+  const interceptors = new Map<string, Array<Interceptor>>();
+  const wrapped = new Set<string>();
+
+  /** Puts the spies and the failures of `op` in front of one adapter's own method. */
+  function wrapPort(one: Fake, op: string): void {
+    const methods = one as unknown as Methods;
+    const original = methods[op];
+    if (original === undefined) throw new Error(`no operation ${op}`);
+    methods[op] = async (...args: Array<unknown>) => {
+      for (const spy of spies.get(op) ?? []) await spy(args);
+      // An interceptor that answers (anything but undefined) answers in place of the adapter.
+      for (const intercept of interceptors.get(op) ?? []) {
+        const answered = await intercept(args, () => original.apply(one, args));
+        if (answered !== undefined) return answered;
+      }
+      const ref = args[0] as { chatId?: string } | undefined;
+      if (ref?.chatId !== undefined && failing.get(op)?.has(ref.chatId) === true) {
+        one.calls.push({ op, args });
+        return { status: 'failed', error: { code: 'fixture-failed', retryable: false, retryAfterMs: null } };
+      }
+      return original.apply(one, args);
+    };
+  }
+
+  /** The same for every adapter of the world, once for `op`, and for those adopted later. */
+  function wrap(op: string): void {
+    if (wrapped.has(op)) return;
+    wrapped.add(op);
+    for (const one of adopted.keys()) wrapPort(one, op);
+  }
+
+  function failRead(op: string, chatId: unknown): void {
+    const held = failing.get(op) ?? new Set<string>();
+    held.add(String(chatId));
+    failing.set(op, held);
+    wrap(op);
+  }
+
+  function tap(op: string, spy: Spy): void {
+    spies.set(op, [...(spies.get(op) ?? []), spy]);
+    wrap(op);
+  }
+
+  function intercept(op: string, answer: Interceptor): void {
+    interceptors.set(op, [...(interceptors.get(op) ?? []), answer]);
+    wrap(op);
+  }
+
+  recordDeliveries(port, deliveries);
+
+  /** What the persona posted in a chat, one entry for each message, as the first tests of the turn read them. */
+  function sentOf(chatId: string, from: number, to: number): Array<Posted> {
+    const posted: Array<Posted> = [];
+    for (const entry of deliveries.slice(from, to).filter((one) => one.chatId === chatId)) {
+      entry.parts.forEach((ref, index) => {
+        const text = port.messages.get(`${ref.chatId}/${ref.messageId}`)?.text ?? '';
+        const whole = payloadOf({ ...(entry.content as object), text });
+        posted.push(index === 0 ? whole : { content: text });
+      });
+    }
+    return posted;
+  }
+
+  /** Seeds `messages` into a chat, and every line a test later pushes or unshifts into the array too. */
+  function follow(placeId: string, messages: ReadonlyArray<Raw>): void {
+    seed(placeId, messages);
+    const live = messages as Array<Raw>;
+    if (!Array.isArray(live)) return;
+    for (const method of ['push', 'unshift'] as const) {
+      const original = live[method].bind(live);
+      live[method] = (...items: Array<Raw>): number => {
+        seed(placeId, items);
+        return original(...items);
+      };
+    }
+  }
+
+  // The messages as the interface reports them follow the live config at the time of a read; here they are made
+  // from the config the runner is built with (`renormalize`).
+  const stubs: Array<[string, Raw]> = [];
+  let options = normalizeOptions({});
+
+  const seedOne = (placeId: string, raw: Raw): void => {
+    const { raw: dropped, rawPrevious, ...event } = toEvent(sdkMessage(raw), SELF, options) as Record<string, unknown>;
+    void [dropped, rawPrevious];
+    const chat = { ...(event.chat as object), id: placeId };
+    // What a read by id lists of its files: each with the type the platform gave it.
+    const files = [...((raw.attachments as Map<string, Raw> | undefined)?.values() ?? [])].map((file) => ({
+      name: typeof file.name === 'string' ? file.name : 'file',
+      url: file.url as string | undefined,
+      contentType: file.contentType as string | undefined,
+      ...(typeof file.size === 'number' ? { size: file.size } : {}),
+    }));
+    each((one) => one.seedEvent({ ...event, iface: one.iface, chat } as never, { attachments: files }));
+  };
+
+  const seed = (placeId: string, messages: ReadonlyArray<Raw>): void => {
+    for (const raw of messages) {
+      stubs.push([placeId, raw]);
+      seedOne(placeId, raw);
+    }
+  };
+
+  function renormalize(config: unknown): void {
+    const next = normalizeOptions(config as Parameters<typeof normalizeOptions>[0]);
+    if (JSON.stringify(next) === JSON.stringify(options)) return;
+    options = next;
+    for (const [placeId, raw] of stubs) seedOne(placeId, raw);
+  }
+
+  function channel(spec: ChannelSpec = {}, options: { keep?: boolean } = {}): Channel {
+    const id = spec.id ?? 'c1';
+    const { placeId, name, info } = infoOf(id, spec);
+    // A chat made again starts over (unless `keep`): no message, no id counted, and the calls before now are
+    // not its own.
+    if (options.keep !== true) {
+      each((one) => one.clearChat(id));
+      for (let at = stubs.length - 1; at >= 0; at -= 1) if (stubs[at]?.[0] === id) stubs.splice(at, 1);
+    }
+    const since = port.calls.length;
+    const first = deliveries.length;
+    // The handle of a chat made again before this one stops at what it saw.
+    let until = Infinity;
+    let untilDeliveries = Infinity;
+    closers.get(id)?.();
+    closers.set(id, () => {
+      until = port.calls.length;
+      untilDeliveries = deliveries.length;
+    });
+    each((one) => one.seedChat({ ...info, iface: one.iface }));
+    names.set(id, name);
+    follow(id, spec.historyMessages ?? []);
+    const reseed = (change: Partial<ChatInfo>): void => {
+      Object.assign(info, change);
+      each((one) => one.seedChat({ ...info, iface: one.iface }));
+    };
+    return {
+      id,
+      name,
+      placeId,
+      info,
+      get sent() {
+        return sentOf(id, first, untilDeliveries);
+      },
+      get typingCalls() {
+        return port.calls
+          .slice(since, until)
+          .filter((call) => call.op === 'typing' && (call.args[0] as { chatId: string }).chatId === id)
+          .map((_, index) => index);
+      },
+      get fetches() {
+        return port.calls
+          .slice(since, until)
+          .filter((call) => call.op === 'history' && (call.args[0] as { chatId: string }).chatId === id)
+          .map((call) => call.args[1]);
+      },
+      permit(permissions) {
+        reseed({ permissions: { ...info.permissions, ...permissions } });
+      },
+      failHistory() {
+        failRead('history', id);
+      },
+      update(fields) {
+        reseed(fields);
+      },
+      leave() {
+        each((one) => one.removeChat(id));
+      },
+      get reactCalls() {
+        return port.calls
+          .slice(since, until)
+          .filter((call) => call.op === 'react' && (call.args[0] as { chatId: string }).chatId === id)
+          .map((call) => ({ id: (call.args[0] as { messageId: string }).messageId, emoji: String(call.args[1]) }));
+      },
+    };
+  }
+
+  return {
+    port,
+    reads,
+    names: namer,
+    selfId: SELF,
+    channel,
+    seed: (placeId, messages) => seed(String(placeId), messages as ReadonlyArray<Raw>),
+    follow: (placeId, messages) => follow(String(placeId), messages as ReadonlyArray<Raw>),
+    failRead,
+    knowMembers(rootId, ids) {
+      for (const id of ids as Array<string>) this.member(String(rootId), { id, name: id });
+    },
+    forget(chatId, messageId) {
+      each((one) => one.messages.delete(`${String(chatId)}/${String(messageId)}`));
+      for (let at = stubs.length - 1; at >= 0; at -= 1) {
+        const [held, raw] = stubs[at] ?? [];
+        if (held === String(chatId) && raw?.id === String(messageId)) stubs.splice(at, 1);
+      }
+    },
+    useClock(now) {
+      clock = now;
+    },
+    renormalize,
+    tap,
+    intercept,
+    failSends(matches = () => true, code = 'http-403', status = 'failed') {
+      intercept('send', (args) => {
+        const content = args[1] as { text?: string } | undefined;
+        if (!matches(content?.text)) return undefined;
+        return {
+          status,
+          ref: null,
+          parts: [],
+          at: null,
+          idempotencyKey: 'fixture',
+          error: { code, retryable: false, retryAfterMs: null },
+        };
+      });
+    },
+    adopt(other, options = {}) {
+      const known = adopted.get(other);
+      if (known !== undefined) return known;
+      other.showSendsInHistory(options.sendsInHistory === true);
+      for (const op of wrapped) wrapPort(other, op);
+      const made = createReads(withStableNames(other, namer), quiet, nativeOfSpelled);
+      for (const seeding of seeded) seeding(other);
+      adopted.set(other, made);
+      return made;
+    },
+    member(rootId, member) {
+      const held = members.get(rootId) ?? new Map<string, Known>();
+      held.set(member.id, { ...member, name: member.name ?? member.id, bot: member.bot === true });
+      members.set(rootId, held);
+      each((one) =>
+        one.seedMember(rootId, {
+          name: member.id,
+          bot: false,
+          groupIds: [],
+          avatar: { hash: null, url: null, largeUrl: null },
+          ...member,
+        })
+      );
+    },
+    deps: () => ({
+      port,
+      reads,
+      selfId: () => SELF,
+      memberOf: (rootId, accountId) => members.get(rootId)?.get(accountId) ?? null,
+      membersOf: (rootId) => [...(members.get(rootId) ?? [])].map(([id, member]) => ({ id, ...member })),
+      chatName: (chatId) => names.get(chatId) ?? null,
+    }),
+  };
+}
+
+/** A new world in place of the current one, for a test that sets up more than one chat scene. */
+export function freshWorld(): World {
+  current = create();
+  return current;
+}
+
+/** The current test's world. */
+export function world(): World {
+  current ??= create();
+  return current;
+}
+
+/**
+ * The options of a turn runner as the earlier tests gave them (a discord.js client, the platform's capabilities, a
+ * default adapter) turned into what the runner takes now: the world's port, reads and the persona's id, with the
+ * name `Bot`. Whatever the test passes of its own wins.
+ */
+export function runnerOptions(options: Record<string, unknown>): Record<string, unknown> {
+  const { discord, createPort, client, ...rest } = options;
+  void [discord, createPort, client];
+  const own = world();
+  own.renormalize((rest.hot as { config?: unknown } | undefined)?.config);
+  if (typeof rest.now === 'function') own.useClock(rest.now as () => number);
+  // No adapter given, or none (a test that left it open): the world's own.
+  if (rest.port === null || rest.port === undefined) delete rest.port;
+  const given = rest.port;
+  const reads = typeof given === 'object' && given !== null ? own.adopt(given as Fake) : own.reads;
+  return { ...own.deps(), reads, getSelfName: () => 'Bot', ...rest };
+}
+
+/** The arguments of `runTurn` with a channel of the world given as `channel`: the chat reference in its place. */
+export function turnParams(params: Record<string, unknown>, iface = worldIface): Record<string, unknown> {
+  const { channel, ...rest } = params;
+  if (channel === undefined || channel === null) return params;
+  return { chat: { iface, chatId: (channel as { id: string }).id }, ...rest };
+}
+
+type Runner = Record<string, unknown> & { runTurn(params: Record<string, unknown>): Promise<unknown> };
+
+/**
+ * `createTurnRunner` over the world: the options turned by `runnerOptions` and `runTurn` taking a channel of the world
+ * (`turnParams`). A test file names it `createTurnRunner` and keeps its calls as they were.
+ */
+export function onWorld(create: (options: Record<string, unknown>) => Runner) {
+  return (options: Record<string, unknown> = {}): Runner => {
+    const turns = create(runnerOptions(options));
+    // The interface the chats are of: the one of the adapter the test brought, else the world's.
+    const given = options.port as Fake | null | undefined;
+    const iface = given?.iface ?? world().port.iface;
+    return { ...turns, runTurn: (params) => turns.runTurn(turnParams(params, iface)) };
+  };
+}
+
+/** A discord.js-shaped channel stub as the tests of the message pipeline build one. */
+type ChannelStub = {
+  id: string;
+  lastMessageId?: string | null;
+  name?: string | null;
+  guild?: { id: string; members?: { me?: unknown } } | null;
+  isThread?: () => boolean;
+  permissionsFor?: (target: unknown) => { has?: (flag: bigint) => boolean } | undefined;
+};
+
+/** What the persona may do in a stub channel: the flags its `permissionsFor` grants them. */
+function permissionsOfStub(stub: ChannelStub): { read: boolean; send: boolean; attach: boolean; react: boolean } {
+  const me = stub.guild?.members?.me ?? {};
+  const has = (flag: bigint): boolean => stub.permissionsFor?.(me)?.has?.(flag) === true;
+  return {
+    read: has(PermissionFlagsBits.ViewChannel) && has(PermissionFlagsBits.ReadMessageHistory),
+    send: has(PermissionFlagsBits.SendMessages),
+    attach: has(PermissionFlagsBits.AttachFiles),
+    react: has(PermissionFlagsBits.AddReactions),
+  };
+}
+
+/**
+ * The same chat as a stub channel of a test, in the current world's interface (its lines kept): a private
+ * chat without a guild, a thread when `isThread()` says so, permissions as the stub grants them.
+ */
+export function syncStub(stub: unknown): Channel {
+  const given = stub as ChannelStub;
+  return world().channel(
+    {
+      id: given.id,
+      placeId: given.guild?.id ?? null,
+      dm: !given.guild,
+      name: given.name ?? null,
+      kind: given.isThread?.() === true ? 'thread' : undefined,
+      permissions: permissionsOfStub(given),
+      lastMessageAt: given.lastMessageId ? Number(SnowflakeUtil.timestampFrom(given.lastMessageId)) : null,
+    },
+    { keep: true }
+  );
+}
+
+/**
+ * The chats of a root held by the world, one for each `[info, messages]` pair (`info`: `id`, `name`,
+ * `category`, `topic`; `messages`: discord.js-shaped stubs, oldest first), every permission granted, by id.
+ */
+export function worldChannels(
+  placeId: string,
+  channels: ReadonlyArray<ReadonlyArray<unknown>>
+): Record<string, Channel> {
+  const out: Record<string, Channel> = {};
+  for (const [given, stubs] of channels as ReadonlyArray<
+    [{ id: string; name: string; category?: string; topic?: string | null }, ReadonlyArray<Raw & { createdTimestamp: number }>]
+  >) {
+    out[given.id] = world().channel({
+      id: given.id,
+      name: given.name,
+      ...(given.category === undefined ? {} : { category: given.category }),
+      placeId,
+      extra: { topic: given.topic ?? null },
+      lastMessageAt: stubs.reduce((newest, raw) => Math.max(newest, raw.createdTimestamp), 0) || null,
+      historyMessages: stubs,
+    });
+  }
+  return out;
+}
+
+/** How many files a send carried. */
+export function attachmentCount(content: unknown): number {
+  const files = (content as { attachments?: ReadonlyArray<unknown> }).attachments;
+  return Array.isArray(files) ? files.length : 0;
+}
+
+/** The chat reference a turn call carried. */
+export function callChat(call: unknown): { iface: string; chatId: string } | null {
+  return (call as { chat?: { iface: string; chatId: string } }).chat ?? null;
+}
+
+/** The info of a stub channel's chat: the handle a test built for it (`held`), else the one the stub maps to. */
+export function infoOfStub(stub: unknown): ChatInfo {
+  return ((stub as { held?: Channel }).held ?? syncStub(stub)).info;
+}
+
+/** The reference of a chat of the world to run a turn on, from a channel (anything with an `id`). */
+export function refTo(channel: unknown): { iface: string; chatId: string } {
+  return { iface: worldIface, chatId: String((channel as { id: unknown }).id) };
+}
+
+/** An event of the pipeline's tests as the world's interface reports it. */
+export function onWorldIface(event: unknown): unknown {
+  return { ...(event as object), iface: worldIface };
+}
+
+/**
+ * A message seeded into a chat: by default one of Alice's that merely exists there. `attachments` is a Map of
+ * discord.js-shaped files, `ts` the time it was written.
+ */
+export function seedExisting(
+  placeId: unknown,
+  id: unknown,
+  { authorId = 'u1', ts = Date.now(), attachments = new Map() }: { authorId?: unknown; ts?: number; attachments?: unknown } = {}
+): void {
+  const chatId = String(placeId);
+  const author = String(authorId);
+  world().seed(chatId, [
+    {
+      id: String(id),
+      placeId: chatId,
+      author: { id: author, bot: false, globalName: author, username: author },
+      member: { displayName: author },
+      cleanContent: 'hi',
+      createdTimestamp: ts,
+      reference: null,
+      mentions: { users: new Map() },
+      attachments,
+      stickers: new Map(),
+    },
+  ]);
+}

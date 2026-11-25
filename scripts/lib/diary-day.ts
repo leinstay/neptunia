@@ -1,0 +1,413 @@
+// The pure parts of scripts/replay.ts's `--diary-day` mode: one diary day run as the live diary
+// would run it, slot by slot, with nothing posted. Here: the seeded random streams (the day plan
+// and the turns draw from separate ones, so a change in what a turn draws never moves the
+// slots), the day plan for a local date (src/behavior/diary.ts#planDay, injected), the spend
+// estimate, the image client wrapper that records every `generate()` call's arguments (the
+// "fake" one answers a fixture PNG through the real client's own request path; the "live" one
+// stops at `--max-pictures`), the short description of an avatar reference, and the report.
+// Exists so the drawing calls of a whole diary day can be recorded before and after a change and
+// diffed. `--diary-kind` runs one entry of a named kind instead, `--samples` times: `diaryKindSample` reads what one
+// sample made.
+
+import { createHash } from 'node:crypto';
+import type { Untyped } from '../../src/tools/types.ts';
+import type { DayPlan } from '../../src/behavior/diary.ts';
+import { callOutcomesOf, sceneOf } from './turn-report.ts';
+import type { KeptLine } from './turn-report.ts';
+import type { DiaryScene } from './turn-report.ts';
+
+/** An object read by key whose values are not typed yet. */
+type Rec = Record<string, Untyped>;
+
+/**
+ * How `--draw` makes the pictures: the fixture PNG (default), the real image client, or the fixture PNG that the
+ * persona is told was not drawn (`none`, `--diary-kind` only), so a text is calibrated without the drawing model.
+ */
+export const DRAW_MODES = Object.freeze(['fake', 'live', 'none']);
+
+/** What the persona is told it sees in a picture of a `--draw none` run, in the place of a description of it. */
+export const NOT_DRAWN = 'The picture was not drawn in this run: there is nothing to see in it.';
+
+/** The look at a picture of a `--draw none` run (src/turn/draw-gif.ts#DescribePicture): NOT_DRAWN, no request. */
+export function notDrawnLook(): Promise<string> {
+  return Promise.resolve(NOT_DRAWN);
+}
+/** The pictures a `--draw live` day makes at most without `--max-pictures`. */
+export const DEFAULT_LIVE_PICTURES = 2;
+/** The largest `--max-pictures`. */
+export const MAX_PICTURES = 50;
+/** The estimate per live picture (the drawing model's price, about). */
+export const USD_PER_PICTURE = 0.025;
+/** The limit key a live picture past `--max-pictures` is refused under (an image cap, as the turn sees it). */
+export const MAX_PICTURES_KEY = 'replay.maxPictures';
+/** A 1x1 transparent PNG: what every fake generation answers. */
+export const FIXTURE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+  'base64'
+);
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Whether `value` is a calendar date `YYYY-MM-DD` (no 2026-02-30). */
+export function isDateKey(value: unknown): boolean {
+  if (typeof value !== 'string' || !DATE_RE.test(value)) return false;
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value;
+}
+
+/** A function returning floats in [0, 1) from a 32-bit seed (mulberry32). */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return (): number => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * A random stream in [0, 1) that depends only on `seed` and `stream` (mulberry32 seeded by the
+ * sha256 of both).
+ * @param stream 'plan' or 'turns'.
+ */
+export function seededRng(seed: string, stream: string): () => number {
+  const digest = createHash('sha256').update(`${seed}\u0000${stream}`).digest();
+  return mulberry32(digest.readUInt32BE(0));
+}
+
+/**
+ * The diary's plan for the local day `date` in `timezone`, as the live diary plans it at the
+ * day's first tick (planDay at local midnight) with no hunger carried in, on the seed's `plan`
+ * stream: the same config, date and seed give the same slots. `start` is the local midnight.
+ * @param input planDay and zonedEpoch from src/behavior/diary.ts and src/time.ts.
+ */
+export function planDiaryDay({
+  diaryCfg,
+  timezone,
+  date,
+  seed,
+  planDay,
+  zonedEpoch,
+}: {
+  diaryCfg: Rec | undefined;
+  timezone: string | undefined;
+  date: string;
+  seed: string;
+  planDay: (cfg: unknown, nowMs: number, timezone: string | undefined, rng: () => number, carry?: object) => DayPlan;
+  zonedEpoch: (date: string, hour: number, minute: number, zone: string) => number;
+}): { day: string; start: number; slots: Array<number>; quiet: boolean; hunger: Array<number>; quietStreak: number } {
+  const zone = timezone || 'UTC';
+  const start = zonedEpoch(date, 0, 0, zone);
+  if (!Number.isFinite(start)) throw new Error(`not a date: ${date}`);
+  const plan = planDay(diaryCfg ?? {}, start, zone, seededRng(seed, 'plan'), {});
+  return {
+    day: plan.day,
+    start,
+    slots: [...plan.slots],
+    quiet: plan.quiet,
+    hunger: [...plan.hunger],
+    quietStreak: plan.quietStreak,
+  };
+}
+
+/**
+ * What a diary day would cost: `requestsPerSlot` model requests per slot at `usdPerRequest`, and
+ * with `draw` 'live' up to `maxPictures` pictures at USD_PER_PICTURE (none on a day without a
+ * slot). For scripts/lib/cli.ts#spendGate.
+ */
+export function diaryDayEstimate({
+  slots,
+  draw,
+  maxPictures,
+  requestsPerSlot,
+  usdPerRequest,
+}: {
+  slots: number;
+  draw: string;
+  maxPictures: number;
+  requestsPerSlot: number;
+  usdPerRequest: number;
+}): { requests: number; pictures: number; estimateUsd: number; detail: string } {
+  const requests = Math.max(0, slots) * requestsPerSlot;
+  const pictures = draw === 'live' && slots > 0 ? maxPictures : 0;
+  const estimateUsd = Math.round((requests * usdPerRequest + pictures * USD_PER_PICTURE) * 10000) / 10000;
+  const detail =
+    `${slots} slot(s), ${requestsPerSlot} request(s) each (a scene and the entry) at ~${usdPerRequest} USD` +
+    (draw === 'live' ? `, up to ${pictures} live picture(s) at ~${USD_PER_PICTURE} USD` : ', pictures faked');
+  return { requests, pictures, estimateUsd, detail };
+}
+
+/**
+ * A reference image as the report shows it: never its bytes. A `data:` URL gives its media type,
+ * its decoded size and the first 16 hex digits of its sha256; any other string its length and
+ * hash; null stays null.
+ */
+export function referenceOf(
+  reference: unknown
+): { mediaType: string | null; bytes: number; sha256: string } | { chars: number; sha256: string } | null {
+  if (typeof reference !== 'string' || reference === '') return null;
+  const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(reference);
+  if (!match)
+    return { chars: reference.length, sha256: createHash('sha256').update(reference).digest('hex').slice(0, 16) };
+  const bytes = match[2] ? Buffer.from(match[3], 'base64') : Buffer.from(decodeURIComponent(match[3]));
+  return {
+    mediaType: match[1] ?? null,
+    bytes: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex').slice(0, 16),
+  };
+}
+
+/**
+ * The fetch the fake image client sends through: every request answered 200 with FIXTURE_PNG and
+ * no cost, so the real client's caps, model check and routing run as live and nothing leaves.
+ */
+export function fixtureImagesFetch(): typeof fetch {
+  const answer = { data: [{ b64_json: FIXTURE_PNG.toString('base64'), media_type: 'image/png' }], usage: { cost: 0 } };
+  // The image client reads `ok`, `status`, `json` and `text` of the response, so the fake carries only those.
+  return (async () => ({
+    ok: true,
+    status: 200,
+    json: async () => structuredClone(answer),
+    text: async () => JSON.stringify(answer),
+  })) as unknown as typeof fetch;
+}
+
+/** The refusal of the tool's own picture cap (`--max-pictures`), carrying `key`, `used` and `cap` as a rail error does. */
+export class PictureCapError extends Error {
+  reason: string;
+
+  constructor(reason: string, message: string) {
+    super(message);
+    this.name = 'PictureCapError';
+    this.reason = reason;
+  }
+}
+
+/** A picture the image client returned: what the report counts of it. */
+export type Picture = { buffer: Buffer; mediaType?: string; cost?: number; seconds?: number };
+
+/** One drawing call of a slot, as `recordingImages` recorded it. */
+type DrawCall = { reference?: unknown; accountId?: string | null; result?: unknown; file?: string; prompt?: string };
+
+/** One slot of a diary day's report. */
+export type DiarySlot = {
+  n: number;
+  at: number | string;
+  local?: string;
+  outcome?: string;
+  reason?: string;
+  kind?: unknown;
+  scenes?: Array<DiaryScene>;
+  answers?: Array<DiaryAnswer>;
+  voiced?: Array<string>;
+  messages?: Array<string>;
+  attachments?: number;
+  draws?: Array<DrawCall>;
+  [field: string]: Untyped;
+};
+
+/** A call's arguments as an object: the JSON text a model sent parsed, `{}` for one that is no JSON object. */
+function argsOf(args: unknown): { text?: unknown } {
+  if (typeof args !== 'string') return args ?? {};
+  try {
+    const parsed: unknown = JSON.parse(args);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    // A call whose arguments the model cut off or mangled: the engine refuses it, and the report shows no text for it.
+    return {};
+  }
+}
+
+/** One answer of the persona in a diary turn: its text and the calls it made, each by name with its arguments, status and code. */
+export type DiaryAnswer = {
+  text: string | null;
+  calls: Array<{ name: unknown; args: unknown; status: string | null; code: string | null }>;
+};
+
+/**
+ * What one diary turn made, from its `result` and the requests it recorded (`calls` of scripts/replay.ts#recordingLlm):
+ * its outcome, its kind, its scenes with their seed lines, the persona's answers with their calls, each call's status
+ * and code read from the operations of the turn's `journal`, and the messages of the entry. The director's requests are
+ * left out of the answers.
+ */
+export function diaryKindSample(
+  result: unknown,
+  calls: ReadonlyArray<Record<string, unknown>>,
+  journal: ReadonlyArray<KeptLine> = []
+): Record<string, unknown> {
+  const outcomes = callOutcomesOf(journal);
+  type Field = Record<string, unknown>;
+  const made = (result ?? {}) as { outcome?: unknown; reason?: unknown; diary?: Field | null };
+  const diary = made.diary ?? null;
+  const entry = (diary?.entry ?? null) as Field | null;
+  const answers: Array<DiaryAnswer> = calls
+    .filter((call) => call.purpose !== 'diary-scene')
+    .map((call) => ({
+      text: typeof call.text === 'string' ? call.text : null,
+      calls: (Array.isArray(call.toolCalls) ? (call.toolCalls as Array<Field>) : []).map((one) => {
+        const outcome = typeof one.id === 'string' ? outcomes.get(one.id) : undefined;
+        return {
+          name: one.name ?? null,
+          args: one.args ?? one.arguments ?? null,
+          status: outcome?.status ?? null,
+          code: outcome?.code ?? null,
+        };
+      }),
+    }));
+  const scenes: Array<DiaryScene> = Array.isArray(diary?.scenes) ? (diary.scenes as Array<unknown>).map(sceneOf) : [];
+  const messages: Array<string> = Array.isArray(entry?.messages)
+    ? (entry.messages as Array<unknown>).filter((one): one is string => typeof one === 'string')
+    : [];
+  // What the persona asked to say aloud: the text of each `voice.say` call.
+  const voiced = answers.flatMap((one) =>
+    one.calls.flatMap((call) => {
+      if (call.name !== 'voice_say' && call.name !== 'voice.say') return [];
+      const given = argsOf(call.args);
+      return typeof given.text === 'string' ? [given.text] : [];
+    })
+  );
+  return {
+    outcome: made.outcome ?? null,
+    ...(made.reason ? { reason: made.reason } : {}),
+    kind: diary?.kind ?? null,
+    scenes,
+    answers,
+    ...(voiced.length > 0 ? { voiced } : {}),
+    messages,
+  };
+}
+
+/**
+ * An image client over `images` (createImageGen's shape) whose `generate()` records every call
+ * first -- `{ prompt, reference: referenceOf(reference), accountId }` -- in `calls`, then, past
+ * `maxPictures` generations (`maxPictures` null: no cap), refuses it with `PictureCapError` (key
+ * MAX_PICTURES_KEY, as a rail error reads to the turn) before anything is sent. Each call's
+ * `result` is filled once it ends: `{ bytes, mediaType, cost, seconds }`, or `{ error, reason }`;
+ * `onPicture(picture, index)` sees every picture that came out (`index` from 1); a string it
+ * returns is kept as the call's `file`.
+ */
+export function recordingImages({
+  images,
+  maxPictures = null,
+  onPicture = null,
+}: {
+  images: Rec;
+  maxPictures?: number | null;
+  onPicture?: ((picture: Picture, index: number) => string | null | void) | null;
+}): {
+  calls: Array<Rec>;
+  quota: (...args: Array<Untyped>) => Untyped;
+  familyOf: (...args: Array<Untyped>) => Untyped;
+  generate: (...args: Array<Untyped>) => Untyped;
+} {
+  const calls: Array<Untyped> = [];
+  let made = 0;
+  return {
+    calls,
+    quota: (...args) => images.quota(...args),
+    familyOf: (...args) => images.familyOf(...args),
+    async generate(args: Rec = {}) {
+      const call: Rec = {
+        prompt: args.prompt,
+        reference: referenceOf(args.reference ?? null),
+        accountId: args.accountId ?? null,
+        result: null,
+      };
+      calls.push(call);
+      if (maxPictures !== null && made >= maxPictures) {
+        const err = Object.assign(new PictureCapError('daily', `replay picture cap reached (${maxPictures})`), {
+          key: MAX_PICTURES_KEY,
+          used: made,
+          cap: maxPictures,
+        });
+        call.result = { error: err.name, reason: err.reason };
+        throw err;
+      }
+      try {
+        const picture: Picture = await images.generate(args);
+        made += 1;
+        call.result = {
+          bytes: picture.buffer?.length ?? 0,
+          mediaType: picture.mediaType ?? null,
+          cost: picture.cost ?? null,
+          seconds: picture.seconds ?? null,
+        };
+        const file = typeof onPicture === 'function' ? onPicture(picture, made) : null;
+        if (typeof file === 'string' && file) call.file = file;
+        return picture;
+      } catch (err: Untyped) {
+        call.result = { error: err?.name ?? 'Error', reason: err?.reason ?? null };
+        throw err;
+      }
+    },
+  };
+}
+
+/** One line of a markdown table cell: pipes escaped, line breaks as spaces. */
+function cell(text: string) {
+  return String(text ?? '')
+    .replace(/\|/g, '\\|')
+    .replace(/\r?\n/g, ' ');
+}
+
+/** The kind, the scenes with their seed lines and the persona's calls of one slot, as lines of the report. */
+function diaryKindLines(slot: DiarySlot): Array<string> {
+  const lines = typeof slot.kind === 'string' ? [`- kind: ${slot.kind}`] : [];
+  for (const [i, one] of (slot.scenes ?? []).entries()) {
+    lines.push(`- scene ${i + 1}: ${one.scene === null ? `none (${one.failure ?? '-'})` : cell(one.scene)}`);
+    lines.push(`  - seed lines: ${cell(one.seeds.join('; '))}`, `  - kept: ${cell(one.used.join('; '))}`);
+  }
+  for (const [i, answer] of (slot.answers ?? []).entries())
+    for (const call of answer.calls) lines.push(`- call in answer ${i + 1}: \`${cell(JSON.stringify(call))}\``);
+  for (const text of slot.voiced ?? []) lines.push(`- voiced: ${cell(text)}`);
+  if (typeof slot.request === 'string') lines.push(`- first request: ${slot.request}`);
+  return lines;
+}
+
+/**
+ * The report's markdown: the day's plan, then per slot its outcome, its plan, the persona's messages and
+ * every drawing call (the whole prompt in a block, the reference's description, the member it
+ * is charged to, what came out).
+ */
+export function renderDiaryDayReport(report: {
+  date: string;
+  timezone: string;
+  seed: string;
+  draw: string;
+  quiet: boolean;
+  slots: Array<DiarySlot>;
+  usage?: Rec;
+  stopped?: string | null;
+}): string {
+  const lines = [`# Diary day ${report.date} (${report.timezone})`, ''];
+  lines.push(
+    `- seed: \`${report.seed}\``,
+    `- draw: ${report.draw}`,
+    `- slots: ${report.slots.length}${report.quiet ? ' (a quiet day)' : ''}`
+  );
+  if (report.usage)
+    lines.push(
+      `- requests: ${report.usage.requests}, cost: ${report.usage.cost} USD, pictures: ${report.usage.pictures ?? 0}`
+    );
+  if (report.stopped) lines.push(`- stopped: ${report.stopped}`);
+  lines.push('');
+  for (const slot of report.slots) {
+    lines.push(`## Slot ${slot.n}: ${slot.local ?? slot.at}`, '');
+    lines.push(`- outcome: ${slot.outcome ?? '-'}${slot.reason ? ` (${slot.reason})` : ''}`);
+    lines.push(...diaryKindLines(slot));
+    for (const [i, text] of (slot.messages ?? []).entries()) lines.push(`- message ${i + 1}: ${cell(text)}`);
+    if (slot.attachments) lines.push(`- files posted: ${slot.attachments}`);
+    for (const [i, draw] of (slot.draws ?? []).entries()) {
+      lines.push('', `### Drawing ${i + 1}`, '');
+      lines.push(`- reference: ${draw.reference ? `\`${JSON.stringify(draw.reference)}\`` : 'none'}`);
+      lines.push(`- accountId: ${draw.accountId ?? 'none'}`);
+      lines.push(`- result: ${draw.result ? `\`${JSON.stringify(draw.result)}\`` : '-'}`);
+      if (draw.file) lines.push(`- file: ${draw.file}`);
+      lines.push('', '```text', String(draw.prompt ?? ''), '```');
+    }
+    lines.push('');
+  }
+  return `${lines.join('\n').trimEnd()}\n`;
+}

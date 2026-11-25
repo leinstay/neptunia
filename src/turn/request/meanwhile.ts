@@ -1,0 +1,340 @@
+// The body of `<meanwhile>`: the persona's last messages in other places, each with a few lines around it, as
+// background they are not asked about (docs/prompt-contract.md). Never a line of the current place. A one-to-one chat's
+// lines only at the command line and in a chat with the same person, or everywhere with `context.memory.openPrivate`;
+// the reads already keep out what the turn's scope may not read. Windows of one place that overlap merge, and each
+// window is headed by its place in words and date. A line names its author by the handle of the person behind the
+// account (`authors.line`), and a mention in its text by the handle too. A line's media follow its text as the chat
+// renders stored media, so a post of a picture alone reads as its description. The request builder
+// (src/turn/request/reader.ts) calls it. Pure apart from the reads.
+
+import { opensPrivate } from '../../memory/open-private.ts';
+import { fill, formatClock, formatDate, mentionsNamed, storedMediaTags } from '../../format.ts';
+import type { FrameReads } from '../../memory/db/frame-reads.ts';
+import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
+import type { Context } from '../../memory/db/scope.ts';
+import type { InterfaceNames } from '../../protocol/serve.ts';
+import { lineItemParts } from '../../memory/db/media-store.ts';
+import type { LineMediaItem } from '../../memory/db/media-store.ts';
+import type { Frame } from './frame.ts';
+import { authorText, escapeStored, placeOwnText, placeRefText } from './text.ts';
+import type { PlaceWords } from './text.ts';
+import type { Labels, NameOf } from './types.ts';
+
+/**
+ * A stored line as `<meanwhile>` reads it; `at` is epoch ms, `sourceId` its source row's id when the reads give it,
+ * `authorName` the first name its author's rows hold (frame-reads.ts#FrameLine), `media` its media items in position
+ * order.
+ */
+export type MeanwhileLine = {
+  id: string;
+  sourceId?: string;
+  placeId: string;
+  at: number;
+  authorId: string | null;
+  authorName?: string | null;
+  /** What the author's handle is cut from: their person, else their account (frame-reads.ts#FrameLine). */
+  authorKey?: string | null;
+  /** The interface of the author's account. */
+  authorIface?: string | null;
+  self: boolean;
+  text: string;
+  media?: ReadonlyArray<LineMediaItem>;
+};
+
+/**
+ * A line of the persona's, with its place in words (the interface's id, the chain innermost first and the interface's own names),
+ * whether that place is a one-to-one chat and that chat's partner person when the reads know it.
+ */
+export type OwnMessage = MeanwhileLine & {
+  iface: string;
+  chain: ReadonlyArray<PlaceChainLink>;
+  names?: InterfaceNames;
+  dm: boolean;
+  partner?: string | null;
+  /** What the handle of a one-to-one chat's partner is cut from. */
+  partnerKey?: string | null;
+};
+
+/**
+ * The reads `<meanwhile>` takes: the persona's newest lines, newest first, and the lines around one line, oldest first.
+ */
+export type MeanwhileReads = {
+  ownMessages(limit: number): ReadonlyArray<OwnMessage>;
+  around(placeId: string, at: number, count: number): ReadonlyArray<MeanwhileLine>;
+};
+
+/**
+ * The reads of `<meanwhile>` under `ctx`, the persona's lines outside `exceptPlace`. The first window asked of a place
+ * reads the windows around every line of theirs there in one read (frame-reads.ts#linesAroundEachOf), so a turn with a
+ * hundred of their lines runs a few statements per place.
+ */
+export function meanwhileReadsOf(reads: FrameReads, ctx: Context, exceptPlace: string | null): MeanwhileReads {
+  let own: ReadonlyArray<OwnMessage> = [];
+  const windows = new Map<string, Map<number, ReadonlyArray<MeanwhileLine>>>();
+  return {
+    ownMessages(limit) {
+      own = reads.ownLines(ctx, exceptPlace, limit);
+      return own;
+    },
+    around(placeId, at, count) {
+      const key = `${placeId}\u0000${count}`;
+      let held = windows.get(key);
+      if (held === undefined) {
+        const ats = [...new Set([at, ...own.filter((line) => line.placeId === placeId).map((line) => line.at)])];
+        const lines = reads.aroundEach(ctx, placeId, ats, count);
+        held = new Map(ats.map((moment, index) => [moment, lines[index] ?? []]));
+        windows.set(key, held);
+      }
+      // A moment of no line of the persona's read with the first window, as the graph reader's seeds may ask.
+      return held.get(at) ?? reads.around(ctx, placeId, at, count);
+    },
+  };
+}
+
+/**
+ * `context.meanwhile`: how many of the persona's lines, and how many lines before and after each. `openPrivate` is
+ * `context.memory.openPrivate`: a one-to-one chat's line is shown in every frame.
+ */
+export type MeanwhileSettings = { messages: number; around: number; openPrivate?: boolean };
+
+/** The shipped values of `context.meanwhile` and `context.memory.serviceMessages`, for a key the live settings lack. */
+const SHIPPED = { messages: 8, around: 2, serviceMessages: 100 };
+
+/** A number of the settings section `section` under `key`, read now; `fallback` for a missing or negative one. */
+function settingOf(section: unknown, key: string, fallback: number): number {
+  const value: unknown = section && typeof section === 'object' ? Reflect.get(section, key) : undefined;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+/**
+ * `context.meanwhile` for the frame, read now: a turn that is nowhere (a service) shows the persona's last
+ * `context.memory.serviceMessages` lines instead of `context.meanwhile.messages`.
+ */
+export function meanwhileSettingsOf(config: unknown, frame: Frame): MeanwhileSettings {
+  const context: unknown = config && typeof config === 'object' ? Reflect.get(config, 'context') : null;
+  const section = (key: string): unknown => (context && typeof context === 'object' ? Reflect.get(context, key) : null);
+  const meanwhile = section('meanwhile');
+  const messages =
+    frame.place === null
+      ? settingOf(section('memory'), 'serviceMessages', SHIPPED.serviceMessages)
+      : settingOf(meanwhile, 'messages', SHIPPED.messages);
+  return { messages, around: settingOf(meanwhile, 'around', SHIPPED.around), openPrivate: opensPrivate(config) };
+}
+
+/** One window of lines in one place, oldest first. */
+export type MeanwhileWindow = {
+  placeId: string;
+  iface: string;
+  chain: ReadonlyArray<PlaceChainLink>;
+  names?: InterfaceNames;
+  dm: boolean;
+  /** What the handle of a one-to-one chat's partner is cut from, null for any other place. */
+  partnerKey?: string | null;
+  lines: Array<MeanwhileLine>;
+};
+
+/**
+ * How a window names people (src/turn/request/reader.ts): the handle of a key (a person or an account), and a `<@id>`
+ * mention by the handle of the person it names.
+ */
+export type MeanwhileRefs = { handleOf: (key: string) => string; mention: (native: string) => string };
+
+/** The interface the owner's command line speaks as (src/interface/link.ts#CLI_IFACE). */
+const CLI_IFACE = 'cli';
+
+/** How many more of the persona's lines are read than shown, so the lines left out here do not empty the block. */
+const READ_AHEAD = 4;
+
+/**
+ * Whether the frame may show a line in the background. A group's line always. A one-to-one chat's line at the command
+ * line, and in a direct chat when it is a chat with the same person over a linked account. A turn that is nowhere shows
+ * none: a service reads the groups only. With `openPrivate` every frame shows every line.
+ */
+function shows(frame: Frame, line: OwnMessage, openPrivate: boolean): boolean {
+  if (!line.dm || openPrivate || frame.interface === CLI_IFACE) return true;
+  const partner = frame.counterpart?.personId ?? null;
+  return frame.scope === 'dm' && partner !== null && line.partner === partner;
+}
+
+/** The time of a window's first line, 0 for an empty one. */
+const firstAt = (window: MeanwhileWindow): number => window.lines.at(0)?.at ?? 0;
+
+/** Windows of one place merged where they overlap in time, oldest first, each line once. */
+function merged(windows: ReadonlyArray<MeanwhileWindow>): Array<MeanwhileWindow> {
+  const sorted = [...windows].sort((a, b) => firstAt(a) - firstAt(b));
+  const out: Array<MeanwhileWindow> = [];
+  for (const window of sorted) {
+    const last = out.at(-1);
+    const lastAt = last?.lines.at(-1)?.at ?? -Infinity;
+    if (last && last.placeId === window.placeId && firstAt(window) <= lastAt) {
+      const ids = new Set(last.lines.map((line) => line.id));
+      last.lines.push(...window.lines.filter((line) => !ids.has(line.id)));
+      last.lines.sort((a, b) => a.at - b.at);
+    } else out.push({ ...window, lines: [...window.lines] });
+  }
+  return out;
+}
+
+/** The windows around the persona's last `settings.messages` lines the frame may show, merged, oldest first. */
+export function meanwhileWindows(
+  reads: MeanwhileReads,
+  frame: Frame,
+  settings: MeanwhileSettings
+): Array<MeanwhileWindow> {
+  const count = Math.max(0, Math.floor(settings.messages));
+  if (count === 0) return [];
+  const here = frame.place?.id ?? null;
+  const own = reads
+    .ownMessages(count * READ_AHEAD)
+    .filter((line) => line.placeId !== here && shows(frame, line, settings.openPrivate === true))
+    .slice(0, count);
+  const around = Math.max(0, Math.floor(settings.around));
+  const windows = own.map((line) => {
+    const lines = around > 0 ? [...reads.around(line.placeId, line.at, around)] : [];
+    return {
+      placeId: line.placeId,
+      iface: line.iface,
+      chain: line.chain,
+      ...(line.names === undefined ? {} : { names: line.names }),
+      dm: line.dm,
+      partnerKey: line.partnerKey ?? null,
+      lines: lines.length > 0 ? lines : [line],
+    };
+  });
+  const byPlace = new Map<string, Array<MeanwhileWindow>>();
+  for (const window of windows) byPlace.set(window.placeId, [...(byPlace.get(window.placeId) ?? []), window]);
+  return [...byPlace.values()].flatMap(merged).sort((a, b) => firstAt(a) - firstAt(b));
+}
+
+/** A line's text and the tags of its media as the chat renders them (`labels.transcript`), a picture alone included. */
+function lineText(line: MeanwhileLine, labels: Labels): string {
+  const tags = line.media?.length ? storedMediaTags(lineItemParts(line.media, line.id), labels) : [];
+  return [line.text, ...tags].filter(Boolean).join(' ');
+}
+
+/**
+ * What a line's author's handle is cut from: the key the reads give, null for the persona's line and an author with
+ * none.
+ */
+const keyOf = (line: MeanwhileLine): string | null => (line.self ? null : (line.authorKey ?? null));
+
+/** The keys of a window whose person wrote in it from two or more accounts: their lines mark the account. */
+function sharedKeys(window: MeanwhileWindow): Set<string> {
+  const accounts = new Map<string, Set<string>>();
+  for (const line of window.lines) {
+    const key = keyOf(line);
+    if (key !== null && line.authorId) accounts.set(key, (accounts.get(key) ?? new Set()).add(line.authorId));
+  }
+  return new Set([...accounts].filter(([, ids]) => ids.size > 1).map(([key]) => key));
+}
+
+/**
+ * The author of a line as a window names them: the handle of the person behind the account (`authors.line`), with the
+ * account's interface and platform id (`authors.lineAccount`) when that person wrote in the window from several
+ * accounts, `authors.unknown` for an author the reads give no key. Without refs, the name the line's stored rows hold,
+ * else `nameOf` of the platform id, else `authors.unknown`.
+ */
+function authorOf(
+  line: MeanwhileLine,
+  labels: Labels,
+  nameOf: NameOf,
+  refs: MeanwhileRefs | null,
+  shared: ReadonlySet<string>
+): string {
+  const key = keyOf(line);
+  if (refs === null) {
+    const name = line.authorName || (line.authorId && nameOf(line.authorId));
+    return escapeStored(name || (labels.authors?.unknown ?? ''));
+  }
+  if (key === null) return escapeStored(authorText(labels, null));
+  const handle = refs.handleOf(key);
+  const marked = labels.authors?.lineAccount;
+  if (shared.has(key) && typeof marked === 'string' && marked)
+    return escapeStored(fill(marked, { handle: `@${handle}`, iface: line.authorIface ?? '', id: line.authorId ?? '' }));
+  return escapeStored(authorText(labels, handle));
+}
+
+/**
+ * A window's place as words: a one-to-one chat names its partner by handle, `authors.unknown` when the reads name none.
+ */
+function windowWords(
+  window: MeanwhileWindow,
+  labels: Labels,
+  refs: MeanwhileRefs | null,
+  keepEmoji: boolean
+): PlaceWords {
+  const partner = !window.dm
+    ? null
+    : window.partnerKey && refs !== null
+      ? `@${refs.handleOf(window.partnerKey)}`
+      : (labels.authors?.unknown ?? '');
+  return {
+    iface: window.iface,
+    chain: window.chain,
+    ...(window.names === undefined ? {} : { names: window.names }),
+    partner,
+    keepEmoji,
+  };
+}
+
+/** The date of `at` in the frame's timezone, as a window writes it in its head and between two days. */
+const dayOf = (at: number, frame: Frame, labels: Labels): string => formatDate(at, frame.timezone, labels.locale);
+
+/**
+ * One window in the labels' words: `meanwhile.place` with `{path}` (the place in words with its handle), `{handle}`, `{name}` (the place's own link) and `{date}`, then each line with its time and
+ * author. A date line (`transcript.date`, as `<chat>` writes it) stands before a line of another day than the line above.
+ */
+export function windowText(
+  window: MeanwhileWindow,
+  frame: Frame,
+  labels: Labels,
+  nameOf: NameOf,
+  handle: string | null = null,
+  refs: MeanwhileRefs | null = null,
+  keepEmoji = false
+): string {
+  const l = labels.meanwhile ?? {};
+  const words = windowWords(window, labels, refs, keepEmoji);
+  const first = window.lines.at(0)?.at ?? frame.now;
+  const own = placeOwnText(labels, words);
+  const head = fill(l.place ?? '{path}, {date}:', {
+    path: placeRefText(labels, handle, words),
+    // A place with no handle stands by its own name, so a head always names its place.
+    handle: handle === null ? own : `#${handle}`,
+    name: own,
+    date: dayOf(first, frame, labels),
+  });
+  const shared = sharedKeys(window);
+  const rows: Array<string> = [];
+  window.lines.forEach((line, at) => {
+    const day = dayOf(line.at, frame, labels);
+    const before = window.lines[at - 1];
+    if (before !== undefined && dayOf(before.at, frame, labels) !== day)
+      rows.push(fill(labels.transcript.date, { date: day }));
+    rows.push(
+      fill(l.line ?? '[{time}] {author}: {text}', {
+        time: formatClock(line.at, frame.timezone, labels.locale),
+        author: line.self ? escapeStored(l.you ?? '') : authorOf(line, labels, nameOf, refs, shared),
+        text: escapeStored(
+          refs === null ? lineText(line, labels) : String(mentionsNamed(lineText(line, labels), refs.mention))
+        ),
+      })
+    );
+  });
+  return [head, ...rows].join('\n');
+}
+
+/** The body of `<meanwhile>` over `windows`, headed as background; '' with no window. */
+export function meanwhileText(
+  windows: ReadonlyArray<MeanwhileWindow>,
+  frame: Frame,
+  labels: Labels,
+  nameOf: NameOf,
+  handleOf: (window: MeanwhileWindow) => string | null = () => null,
+  refs: MeanwhileRefs | null = null,
+  keepEmoji = false
+): string {
+  if (windows.length === 0) return '';
+  const texts = windows.map((window) => windowText(window, frame, labels, nameOf, handleOf(window), refs, keepEmoji));
+  return [labels.meanwhile?.header ?? '', ...texts].filter(Boolean).join('\n\n');
+}

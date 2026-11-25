@@ -1,0 +1,294 @@
+// What the chat draws: the header, the transcript's rows, the slash menu and the input box, with the row counts each of
+// them takes, so interfaces/cli/app.ts can give the transcript exactly what is left. The linear mode drops the borders and the galaxy
+// and keeps the reading order. Nothing here holds state but the galaxy's tick.
+import { createElement as h, useEffect, useState } from 'react';
+import type { ReactElement } from 'react';
+import { Box, Text } from 'ink';
+import { galaxyFrame } from './galaxy.ts';
+import { caretCell, composerViewport, graphemes, sliceCells, wrapCells } from './layout.ts';
+import type { MenuCommand } from './state.ts';
+import { THEME } from './theme.ts';
+import { displaySafe } from './transcript.ts';
+import type { RowBlock, TranscriptRow } from './transcript.ts';
+
+const GALAXY_MS = 200;
+const GALAXY_ROWS = 5;
+/** The galaxy's fixed box: every frame is drawn in it, so the title beside it never moves. */
+const GALAXY_COLUMNS = galaxyFrame(0)[0]?.length ?? 13;
+const GALAXY_GAP_ROWS = 1;
+/** Below these sizes the galaxy leaves its rows to the chat (measured: docs/cli.md, "Measured geometry"). */
+const FULL_HEADER_MIN_ROWS = 16;
+const FULL_HEADER_MIN_COLUMNS = 40;
+/** Below this height the header goes altogether, and the input keeps what is left. */
+const LINE_HEADER_MIN_ROWS = 8;
+/** The tallest the input grows. Past it the draft scrolls inside the box. */
+const COMPOSER_MAX_ROWS = 8;
+const BORDER_ROWS = 2;
+/** Border, padding and the `> ` prompt on both sides of a draft row. */
+const BOX_COLUMNS = 6;
+const PROMPT_COLUMNS = 2;
+const MENU_MAX_ROWS = 8;
+
+export type HeaderMode = 'full' | 'line' | 'none';
+
+export function headerMode(rows: number, columns: number, isLinear: boolean): HeaderMode {
+  if (rows < LINE_HEADER_MIN_ROWS) return 'none';
+  return !isLinear && rows >= FULL_HEADER_MIN_ROWS && columns >= FULL_HEADER_MIN_COLUMNS ? 'full' : 'line';
+}
+
+export function headerRows(mode: HeaderMode): number {
+  if (mode === 'full') return GALAXY_ROWS + GALAXY_GAP_ROWS;
+  return mode === 'line' ? 1 : 0;
+}
+
+export function Header({
+  mode,
+  title,
+  still,
+  status,
+}: {
+  mode: HeaderMode;
+  title: string;
+  still: boolean;
+  status: string;
+}): ReactElement | null {
+  const [tick, setTick] = useState(0);
+  const isMoving = mode === 'full' && !still;
+  useEffect(() => {
+    if (!isMoving) return undefined;
+    const timer = setInterval(() => setTick((value) => value + 1), GALAXY_MS);
+    return () => clearInterval(timer);
+  }, [isMoving]);
+  if (mode === 'none') return null;
+  if (mode === 'line')
+    return h(Text, { wrap: 'truncate' }, h(Text, THEME.title, title), ` · ${status.split('\n')[0] ?? ''}`);
+  return h(
+    Box,
+    { paddingX: 1, gap: 2, marginBottom: GALAXY_GAP_ROWS, flexShrink: 0 },
+    h(
+      Box,
+      { width: GALAXY_COLUMNS, height: GALAXY_ROWS, flexShrink: 0 },
+      h(Text, { ...THEME.mark, wrap: 'truncate' }, galaxyFrame(tick).join('\n'))
+    ),
+    // A status line wider than the terminal is cut here and never squeezes the galaxy.
+    h(
+      Box,
+      { flexDirection: 'column', flexShrink: 1, minWidth: 0 },
+      h(Text, THEME.title, title),
+      ...status.split('\n').map((line) => h(Text, { key: line, wrap: 'truncate' }, line))
+    )
+  );
+}
+
+const BLOCK_STYLE: Readonly<Record<RowBlock, object>> = {
+  plain: THEME.text,
+  code: THEME.code,
+  quote: THEME.quote,
+  heading: THEME.heading,
+};
+
+type Who = 'owner' | 'her' | 'system';
+
+function rowStyle(row: TranscriptRow, who: Who | undefined): object {
+  if (row.kind === 'fold' || who === 'system') return THEME.muted;
+  return who === 'owner' ? THEME.owner : BLOCK_STYLE[row.block];
+}
+
+/**
+ * A row's text with the cells of a mouse selection in the selection style. With nothing selected, its lead is muted and
+ * only the rest takes the row's style, so a number stays grey on the user's red line.
+ */
+function markedText(
+  row: TranscriptRow,
+  mark: { from: number; to: number } | null,
+  style: object
+): Array<ReactElement | string> {
+  const { text } = row;
+  if (mark === null && row.lead !== undefined)
+    return [
+      h(Text, { key: 'lead', ...THEME.muted }, sliceCells(text, 0, row.lead)),
+      h(Text, { key: 'rest', ...style }, sliceCells(text, row.lead, Infinity)),
+    ];
+  if (mark === null) return [text || ' '];
+  const on = sliceCells(text, mark.from, mark.to);
+  return [
+    sliceCells(text, 0, mark.from),
+    h(Text, { key: 'on', ...THEME.selection }, on || ' '),
+    sliceCells(text, mark.to, Infinity),
+  ];
+}
+
+export function TranscriptRows({
+  rows,
+  whoOf,
+  marks = [],
+}: {
+  rows: ReadonlyArray<TranscriptRow>;
+  whoOf: (entryId: string) => Who | undefined;
+  marks?: ReadonlyArray<{ from: number; to: number } | null>;
+}): ReactElement {
+  return h(
+    Box,
+    { flexDirection: 'column', flexGrow: 1, justifyContent: 'flex-end', overflow: 'hidden' },
+    ...rows.map((row, index) => {
+      const style = rowStyle(row, whoOf(row.entryId));
+      const mark = marks[index] ?? null;
+      const isSplit = mark === null && row.lead !== undefined;
+      return h(Text, { key: String(index), ...(isSplit ? {} : style) }, ...markedText(row, mark, style));
+    })
+  );
+}
+
+/** The rows the menu may take when `free` rows are left, at least one, so a small terminal still shows the selected row. */
+export const menuRows = (itemCount: number, free: number): number =>
+  Math.min(itemCount, MENU_MAX_ROWS, Math.max(1, free));
+
+export function Menu({
+  items,
+  selected,
+  height,
+  columns,
+}: {
+  items: ReadonlyArray<MenuCommand>;
+  selected: number;
+  height: number;
+  columns: number;
+}): ReactElement {
+  const first = Math.max(0, selected - height + 1);
+  return h(
+    Box,
+    { flexDirection: 'column', flexShrink: 0 },
+    // A blank row and a white rule part the menu from the last line above it.
+    h(Text, { key: 'blank' }, ' '),
+    h(Text, { key: 'rule', ...THEME.rule, wrap: 'truncate' }, '─'.repeat(Math.max(1, columns))),
+    ...items.slice(first, first + height).map((item, index) => {
+      const isSelected = first + index === selected;
+      return h(
+        Text,
+        { key: item.name, wrap: 'truncate', ...(isSelected ? THEME.selection : {}) },
+        `${isSelected ? '›' : ' '} /${item.name}  `,
+        h(Text, isSelected ? {} : THEME.muted, item.help)
+      );
+    })
+  );
+}
+
+/** One drawn row of the draft as pieces of text, each plain, the caret's grapheme or part of a selection. */
+type DraftRow = ReadonlyArray<{ text: string; style: 'plain' | 'caret' | 'selection' }>;
+export type ComposerLayout = {
+  rows: ReadonlyArray<DraftRow>;
+  hiddenAbove: number;
+  hiddenBelow: number;
+  /** the wrapped row drawn first, and the cells of a row: what turns a click into an offset */
+  first: number;
+  width: number;
+  safe: string;
+  /** the rows it takes on the screen, its borders and its count of hidden rows included */
+  height: number;
+};
+
+/** The cap on the draft's rows when the fixed rows leave `rows`, always at least one. */
+export const composerMaxRows = (rows: number, fixed: number, isLinear: boolean): number =>
+  Math.max(1, Math.min(COMPOSER_MAX_ROWS, rows - fixed - (isLinear ? 0 : BORDER_ROWS) - 1));
+
+/** The pieces of one row with the part of a selection `[from, to)` it holds marked; the caret hides behind a selection. */
+function markedRow(row: { text: string; start: number }, mark: { from: number; to: number }): DraftRow {
+  const from = Math.max(0, Math.min(row.text.length, mark.from - row.start));
+  const to = Math.max(from, Math.min(row.text.length, mark.to - row.start));
+  return [
+    { text: row.text.slice(0, from), style: 'plain' as const },
+    { text: row.text.slice(from, to), style: 'selection' as const },
+    { text: row.text.slice(to), style: 'plain' as const },
+  ].filter((piece) => piece.text !== '');
+}
+
+/**
+ * The draft cut into rows of cells, with the caret's row split around one whole grapheme, or with the cells of a
+ * selection marked in place of the caret.
+ */
+export function composerLayout(
+  shown: string,
+  cursor: number,
+  {
+    columns,
+    maxRows,
+    isLinear,
+    mark = null,
+  }: { columns: number; maxRows: number; isLinear: boolean; mark?: { from: number; to: number } | null }
+): ComposerLayout {
+  const width = Math.max(1, columns - (isLinear ? PROMPT_COLUMNS : BOX_COLUMNS));
+  // One visible character for each control, so the offsets of the draft still hold here.
+  const safe = displaySafe(shown).replaceAll('\t', ' ');
+  const wrapped = wrapCells(safe, width);
+  const caret = caretCell(safe, cursor, width);
+  const rowCount = Math.max(wrapped.length, caret.row + 1);
+  const viewRows = rowCount > maxRows ? Math.max(1, maxRows - 1) : maxRows;
+  const view = composerViewport({ rowCount, caretRow: caret.row, maxRows: viewRows });
+  const rows: Array<DraftRow> = [];
+  for (let index = view.first; index < view.first + view.rows; index += 1) {
+    const row = wrapped[index] ?? { text: '', start: safe.length, end: safe.length };
+    if (mark !== null) {
+      rows.push(markedRow(row, mark));
+      continue;
+    }
+    if (index !== caret.row) {
+      rows.push([{ text: row.text, style: 'plain' }]);
+      continue;
+    }
+    const cut = index < wrapped.length ? Math.max(0, cursor - row.start) : 0;
+    const rest = graphemes(row.text.slice(cut));
+    rows.push([
+      { text: row.text.slice(0, cut), style: 'plain' },
+      { text: rest[0] ?? ' ', style: 'caret' },
+      { text: rest.slice(1).join(''), style: 'plain' },
+    ]);
+  }
+  const isCut = view.hiddenAbove > 0 || view.hiddenBelow > 0;
+  return {
+    rows,
+    hiddenAbove: view.hiddenAbove,
+    hiddenBelow: view.hiddenBelow,
+    first: view.first,
+    width,
+    safe,
+    height: rows.length + (isCut ? 1 : 0) + (isLinear ? 0 : BORDER_ROWS),
+  };
+}
+
+export function ComposerBox({
+  layout,
+  isLinear,
+  isActive,
+}: {
+  layout: ComposerLayout;
+  isLinear: boolean;
+  isActive: boolean;
+}): ReactElement {
+  const hidden = [
+    layout.hiddenAbove > 0 ? `↑ ${layout.hiddenAbove}` : null,
+    layout.hiddenBelow > 0 ? `↓ ${layout.hiddenBelow}` : null,
+  ].filter((one) => one !== null);
+  const body = h(
+    Box,
+    { flexDirection: 'column' },
+    hidden.length > 0 ? h(Text, { ...THEME.muted, wrap: 'truncate' }, `${hidden.join(' · ')} more rows`) : null,
+    ...layout.rows.map((row, index) =>
+      h(
+        Text,
+        { key: String(index) },
+        index === 0 ? '> ' : '  ',
+        ...row.map((piece, at) =>
+          piece.style === 'plain'
+            ? piece.text
+            : h(Text, { key: String(at), ...(piece.style === 'caret' ? THEME.caret : THEME.selection) }, piece.text)
+        )
+      )
+    )
+  );
+  if (isLinear) return body;
+  return h(
+    Box,
+    { borderStyle: 'round', paddingX: 1, flexShrink: 0, ...(isActive ? THEME.activeBorder : THEME.inactiveBorder) },
+    body
+  );
+}

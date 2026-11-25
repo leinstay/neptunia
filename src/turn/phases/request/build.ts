@@ -1,0 +1,1214 @@
+// The last step of a turn's request: the persona's tools for the turn, the request input with every block named, the
+// request built (twice for a heartbeat whose handles follow the request's own lines), the record of the memory rows it
+// carried and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it
+// last.
+
+import { accountOf, personOfMember, placeOfChat } from '../../../memory/addresses.ts';
+import { opensPrivate } from '../../../memory/open-private.ts';
+import { openToolTexts } from '../../../tools/registry.ts';
+import { reactorIdsOf } from '../../../format.ts';
+import { handleOf } from '../../../behavior/handles.ts';
+import type { InterfaceNames } from '../../../protocol/serve.ts';
+import { buildRequest } from '../../../behavior/prompt.ts';
+import { NO_PLACES, diaryChatIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
+import { turnRequestInput } from '../../../behavior/turn-input.ts';
+import { awakeLines, feedbackText } from '../../../behavior/wake.ts';
+import type { WakeBlockInput } from '../../../behavior/wake.ts';
+import { budgetDrops } from '../../../llm/budget.ts';
+import { estimateTokens, estimateTools } from '../../../llm/tokens.ts';
+import { log } from '../../../log.ts';
+import { exposedSkillNames, placeSkillNames } from '../../../tools/discovery.ts';
+import { buildTools } from '../../../tools/tools-json.ts';
+import { objOf } from '../../../tools/types.ts';
+import { defaultSkills, searchHandles } from '../../calls.ts';
+import { portAt, portCustomEmoji, portMediaPick, portOperations } from '../../../interface/capabilities.ts';
+import type { Draft } from '../../draft.ts';
+import { droppedSections } from '../../journal.ts';
+import { pickOtherProfiles } from '../../mentions.ts';
+import { frameOf, framedRequest } from '../../request/frame.ts';
+import { entriesShownOf } from '../../request/diary.ts';
+import type { PastEntry } from '../../../memory/db/diary-past.ts';
+import type { Frame, FrameParty } from '../../request/frame.ts';
+import { whereaboutsOfFrame } from '../../request/spatial.ts';
+import type { PlaceLink } from '../../request/spatial.ts';
+import type { PhaseContext, PhaseParams } from '../context.ts';
+import type { Prepared } from '../request.ts';
+import type { Handles } from '../../handles.ts';
+import { shuffled } from '../../../behavior/random.ts';
+import { drawFragments } from '../../../behavior/seeds.ts';
+import { drawVoiced } from '../../../behavior/diary.ts';
+import { promptsInFolder } from '../../../hot.ts';
+import type { ServiceListsInput } from '../../request/types.ts';
+import { messageSourceId, PERSONA_ID } from '../../../memory/db/ids.ts';
+import type { Mind, Seeds } from '../../../memory/db/mind-read.ts';
+import type { FrameReads, Lesson } from '../../../memory/db/frame-reads.ts';
+import { attitudesShownOf } from '../../request/attitudes.ts';
+import { lessonsBudgetOf, lessonsCut, teachersOf } from '../../request/lessons.ts';
+import type { Context } from '../../../memory/db/scope.ts';
+import { fill } from '../../../format.ts';
+import type { Lookup } from '../../calls.ts';
+import { meanwhileReadsOf, meanwhileSettingsOf, meanwhileWindows } from '../../request/meanwhile.ts';
+import type { MeanwhileLine, MeanwhileReads, MeanwhileWindow, OwnMessage } from '../../request/meanwhile.ts';
+import { seedRefsOf } from '../../seed-ring.ts';
+import type { SurroundingsInput } from '../../request/reader.ts';
+import { innerSettings } from '../../../behavior/inner/settings.ts';
+import type { LineOf } from '../../request/refs.ts';
+import type { SourceRetired } from '../../request/reader.ts';
+import type { AttitudesInput, Message, PlacePathView } from '../../request/types.ts';
+
+/** The request as buildRequest builds it. */
+/** A partner's private layer with what they said in their other linked DMs; null with neither. */
+function privateProfileOf(store: PhaseContext['store'], accountId: string): object | null {
+  const own = store.getPrivate(accountId) ?? null;
+  const linked = Reflect.get(Object(store), 'linkedPrivateOf')
+    ? (Reflect.get(Object(store), 'linkedPrivateOf') as (id: string) => Array<object>)(accountId)
+    : [];
+  if (linked.length === 0) return own;
+  const details = Array.isArray(Reflect.get(own ?? {}, 'details'))
+    ? (Reflect.get(own ?? {}, 'details') as Array<object>)
+    : [];
+  return { ...(own ?? {}), details: [...details, ...linked] };
+}
+
+export type BuiltRequest = ReturnType<typeof buildRequest>;
+
+/** The tool a skill entry of the tools array is read through (src/tools/operations/skill.ts#cmdRead). */
+const READ_TOOL = 'skill.read';
+
+/** `labels.skills.procedure`, read now: the sentence after a skill's line that a call returns a procedure to follow. */
+function procedureSentence(labels: unknown): string {
+  const sentence = objOf(objOf(labels).skills).procedure;
+  return typeof sentence === 'string' ? sentence : '';
+}
+
+/** The wakes that run with no chat of their own (src/behavior/inner/queue.ts#channelless). */
+const OWN_SERVER_WAKES = new Set(['heartbeat']);
+
+/** How a frame's path names a one-to-one chat. It is a path segment for the code, no text the persona reads. */
+const DM_WORD = 'private';
+
+/**
+ * The stored chain of the turn's place, the place first; a place the tree does not hold yet is a chain of itself. A
+ * heartbeat and any turn that is nowhere (its chat the stand-in of `chat: null`, an inner turn or an errand's result
+ * turn with no place) have none.
+ */
+function chainOfTurn(
+  store: PhaseContext['store'],
+  channel: Prepared['channel'],
+  wake: { kind: string | null } | null,
+  directPlace: string | null
+): ReadonlyArray<PlaceLink> {
+  if (channel.rootId === PERSONA_ID || OWN_SERVER_WAKES.has(wake?.kind ?? '')) return [];
+  // A direct chat is keyed by its partner, so the chat alone does not name its stored place: the turn's place does.
+  const placeId = directPlace || placeOfChat(store, channel) || String(channel.id ?? '');
+  if (!placeId) return [];
+  const chainOf: unknown = Reflect.get(Object(store), 'placeChainOf');
+  const stored =
+    typeof chainOf === 'function' ? (chainOf as (id: string) => ReadonlyArray<PlaceLink>).call(store, placeId) : [];
+  // A direct chat with no stored chain is still a direct chat: its place is one link with no name.
+  return stored.length > 0 ? stored : [{ id: placeId, kind: directPlace ? 'dm' : null, name: null }];
+}
+
+/** Somebody the interface names by a native id, as the store holds them. */
+function partyOf(store: PhaseContext['store'], nativeId: string, name: string | null): FrameParty {
+  return { personId: personOfMember(store, nativeId), accountId: accountOf(store, nativeId), nativeId, name };
+}
+
+/** The frame of a turn, from what the turn runner holds. */
+function frameOfTurn(
+  store: PhaseContext['store'],
+  turn: {
+    channel: Prepared['channel'];
+    isDm: boolean;
+    mode: string;
+    triggerKind: string | null;
+    wakeKind: string | null;
+    inner: boolean;
+    trigger: { id: string; authorId: string; authorName?: string | null } | null;
+    now: number;
+    timezone: string;
+    /** The stored place of the turn, given for a direct chat. */
+    placeId?: string;
+  }
+): Frame {
+  const { channel, isDm, trigger } = turn;
+  const authorName = trigger?.authorName ?? null;
+  const partnerId = trigger?.authorId ?? (typeof channel.partnerId === 'string' ? channel.partnerId : null);
+  return frameOf({
+    mode: turn.mode,
+    triggerKind: turn.triggerKind,
+    wakeKind: turn.wakeKind,
+    interface: typeof channel.iface === 'string' ? channel.iface : '',
+    chain: chainOfTurn(
+      store,
+      channel,
+      turn.inner ? { kind: turn.wakeKind } : null,
+      isDm ? (turn.placeId ?? null) : null
+    ),
+    dm: isDm
+      ? {
+          word: DM_WORD,
+          nativeId: partnerId ?? '',
+          partner: partnerId === null ? null : partyOf(store, partnerId, authorName),
+        }
+      : null,
+    trigger: trigger ? { messageId: trigger.id, authorId: trigger.authorId } : null,
+    author: trigger ? partyOf(store, trigger.authorId, authorName) : null,
+    now: turn.now,
+    timezone: turn.timezone,
+  });
+}
+
+/**
+ * The persona's day under the turn's context in the labels' words (`labels.myDay`, `labels.calls`): the bodies of
+ * `<my_day>`, at most `context.myDay.lines` events, and of `<calls>`, at most `context.calls.lines` calls, read now.
+ * The events start at their last diary entry when `sinceLastEntry`, else at the start of the day. Each is null when
+ * empty, and both without a reader or a context and on a failed read (logged).
+ */
+function dayParts(
+  ctx: Pick<PhaseContext, 'day' | 'turnContextOf'>,
+  turn: {
+    draft: Draft;
+    channel: Prepared['channel'];
+    config: Prepared['config'];
+    prompts: Prepared['prompts'];
+    now: number;
+  },
+  sinceLastEntry: boolean
+): { myDay: Array<string> | null; calls: Array<string> | null } {
+  const { draft, channel, config, prompts, now } = turn;
+  const settings = config.context;
+  const memoryContext = ctx.turnContextOf(draft, channel);
+  if (!ctx.day || !memoryContext) return { myDay: null, calls: null };
+  const labels = prompts?.labels;
+  try {
+    const day = ctx.day(memoryContext, now, String(config.bot?.timezone ?? 'UTC'), {
+      events: settings?.myDay?.lines ?? 0,
+      calls: settings?.calls?.lines ?? 0,
+      sinceLastEntry,
+      labels: {
+        myDay: (labels?.myDay as Readonly<Record<string, unknown>> | undefined) ?? null,
+        calls: (labels?.calls as Readonly<Record<string, unknown>> | undefined) ?? null,
+        locale: typeof labels?.locale === 'string' ? labels.locale : undefined,
+      },
+    });
+    return { myDay: day.events.length > 0 ? day.events : null, calls: day.calls.length > 0 ? day.calls : null };
+  } catch (error) {
+    log.warn('turn: my day not read', { channel: channel.id, error });
+    return { myDay: null, calls: null };
+  }
+}
+
+/**
+ * The numbers `request` printed for its chat lines, reply parents and pulled lines (`idByIndex`, `pulledIds`) taken
+ * into the turn's registry, each to its line's source: the persona's own line `said`, anyone else's `seen`, at the
+ * revision the line carries (1 when it carries none). A number the registry holds keeps its first line.
+ */
+function registerHandles(
+  handles: Handles,
+  request: BuiltRequest,
+  lines: ReadonlyArray<{ id?: unknown; self?: unknown; replyParent?: unknown; revision?: unknown } | null | undefined>,
+  { iface, placeId }: { iface: string; placeId: string }
+): void {
+  const byId = new Map(
+    lines.filter((line) => line && typeof line.id === 'string').map((line) => [line!.id as string, line!])
+  );
+  for (const [n, messageId] of request.idByIndex) {
+    const line = byId.get(messageId);
+    const pulledPlace = request.pulledIds.get(messageId);
+    const kind = pulledPlace ? 'pulled' : line?.replyParent === true ? 'parent' : 'chat';
+    const revision = typeof line?.revision === 'number' && line.revision > 0 ? line.revision : 1;
+    handles.take(n, kind, {
+      sourceId: messageSourceId(iface, messageId, revision, line?.self === true ? 'said' : 'seen'),
+      iface,
+      placeId: pulledPlace ?? placeId,
+      messageId,
+      revision,
+    });
+  }
+}
+
+/** What a framed request reads beside the old inputs; each null when the request is not on the frame. */
+type FramedInputs = {
+  mind: Mind | null;
+  lookups: Array<Lookup> | null;
+  meanwhileReads: MeanwhileReads | null;
+  surroundings: SurroundingsInput | null;
+  /**
+   * The persona's lessons the turn's context may read, best first, for `<lessons>` of `<self>`; null when it shows
+   * none.
+   */
+  lessons: ReadonlyArray<Lesson> | null;
+  /** The people the persona feels most strongly about under the turn's context, for `<attitudes>` of `<self>`; null when it shows none. */
+  attitudes: AttitudesInput | null;
+  refLineOf: LineOf | null;
+  isSourceRetired: SourceRetired | null;
+  chatIdOf: ((placeId: string) => string | null) | null;
+  /** A service turn's lists and a heartbeat's fragments; null on any other kind. */
+  serviceLists: ServiceListsInput | null;
+};
+
+/** The most entries `<told>` lists, the oldest left out first. */
+const TOLD_ENTRIES = 150;
+
+/** The service turns whose `<memory>` lists the people and places of the service collector. */
+const LISTED_KINDS: ReadonlySet<string> = new Set(['heartbeat', 'diary']);
+
+const NO_FRAMED: FramedInputs = {
+  mind: null,
+  lookups: null,
+  meanwhileReads: null,
+  surroundings: null,
+  lessons: null,
+  attitudes: null,
+  refLineOf: null,
+  isSourceRetired: null,
+  chatIdOf: null,
+  serviceLists: null,
+};
+
+/**
+ * The persona's lessons under the turn's context, and the people who taught the ones `<lessons>` may show as the graph
+ * reader's candidates, so each of them has an entry of `<people>` when the budget allows. A request that prints no
+ * `<self>`, a budget the config does not set and a failed read (logged) give none. The seeds cut by the text alone,
+ * which is never dearer than the rendered line, so every teacher of a shown lesson is among them.
+ */
+function lessonsOfTurn(
+  ctx: Pick<PhaseContext, 'hot' | 'calibrator'>,
+  reads: FrameReads,
+  frame: Frame,
+  memoryContext: Context
+): { lessons: ReadonlyArray<Lesson> | null; teachers: Seeds['candidates'] } {
+  const none = { lessons: null, teachers: [] };
+  const budget = lessonsBudgetOf(ctx.hot.config as Parameters<typeof lessonsBudgetOf>[0]);
+  if (!reads.lessons || budget === null || !frame.blocks.includes('self')) return none;
+  try {
+    const lessons = reads.lessons(memoryContext);
+    const ratio = Number.isFinite(ctx.calibrator.ratio) ? ctx.calibrator.ratio : 1;
+    const shown = lessonsCut(lessons, budget, (lesson) => Math.floor(estimateTokens(lesson.text) * ratio));
+    return {
+      lessons: lessons.length > 0 ? lessons : null,
+      teachers: teachersOf(shown).map((rowId) => ({ kind: 'person', rowId, sourceIds: [], from: 'query' as const })),
+    };
+  } catch (error) {
+    log.warn('turn: lessons not read', { error });
+    return none;
+  }
+}
+
+/**
+ * The people the persona feels most strongly about under the turn's context, at most `context.attitudes.shown` of them.
+ * A request that prints no `<self>`, a setting the config does not give, a setting of 0 and a failed read (logged) give
+ * none. The turn's own people never change the list, so the block holds the same bytes whoever they answer.
+ */
+function attitudesOfTurn(
+  ctx: Pick<PhaseContext, 'hot'>,
+  reads: FrameReads,
+  frame: Frame,
+  memoryContext: Context
+): AttitudesInput | null {
+  const shown = attitudesShownOf(ctx.hot.config as Parameters<typeof attitudesShownOf>[0]);
+  if (!reads.attitudes || shown === null || shown === 0 || !frame.blocks.includes('self')) return null;
+  try {
+    const read = reads.attitudes(memoryContext, shown);
+    return read.list.length > 0 ? read : null;
+  } catch (error) {
+    log.warn('turn: attitudes not read', { error });
+    return null;
+  }
+}
+
+/**
+ * How a request names people and places (docs/prompt-contract.md, "Mention handles"): what a member's handle is cut
+ * from by a platform id of `iface` (frame-reads.ts#memberKeyOf), the account key the store gives one no row holds yet,
+ * and a stored place by its path with a direct chat's partner (frame-reads.ts#placeViewOf). Without the reads only the
+ * store's account keys.
+ */
+function namesInputOf(
+  reads: FrameReads | null,
+  store: unknown,
+  iface: string
+): {
+  memberKeyOf: ((native: string) => string | null) | null;
+  accountKeyOf: (native: string) => string;
+  placePathOf: ((placeId: string) => PlacePathView | null) | null;
+} {
+  return {
+    memberKeyOf: reads?.memberKey ? (native) => reads.memberKey?.(iface, native) ?? null : null,
+    accountKeyOf: (native) => accountOf(store, native, iface),
+    placePathOf: reads?.placeView
+      ? (placeId) => {
+          const view = reads.placeView?.(placeId) ?? null;
+          return view === null
+            ? null
+            : {
+                iface: view.iface,
+                chain: view.chain,
+                ...(view.names === undefined ? {} : { names: view.names }),
+                dm: view.dm,
+                partnerKey: view.partnerKey ?? null,
+              };
+        }
+      : null,
+  };
+}
+
+/** What an interface declared of itself, in the shape of its hello; undefined when the memory holds no name of it. */
+function declaredNames(reads: Pick<FrameReads, 'interfaceNames'>, iface: string): InterfaceNames | undefined {
+  const { name, nouns, dm } = reads.interfaceNames(iface);
+  return name === null ? undefined : { interface: name, nouns, dm: dm ?? '' };
+}
+
+/** The handle (with `@`) of a one-to-one chat's partner, by the key their lines carry; null in any other chat. */
+function partnerHandleOf(frame: Frame, reads: Pick<FrameReads, 'memberKey'> | null): string | null {
+  const partner = frame.scope === 'dm' ? frame.counterpart : null;
+  if (partner === null) return null;
+  return `@${handleOf(reads?.memberKey?.(frame.interface, partner.nativeId) ?? partner.accountId)}`;
+}
+
+/** The chat id of a stored place from its row, null for a place no row holds an address of; each place read once a request. */
+function chatIdReader(reads: Pick<FrameReads, 'placeRef'>): (placeId: string) => string | null {
+  const known = new Map<string, string | null>();
+  return (placeId) => {
+    if (!known.has(placeId)) {
+      const ref = reads.placeRef?.(placeId) ?? null;
+      known.set(placeId, ref === null ? null : ref.nativeId);
+    }
+    return known.get(placeId) ?? null;
+  };
+}
+
+/**
+ * The person the persona answers, as the memory stores them: the account row of their platform id and its person. Null
+ * when no row links a person, since a graph seed names a person node.
+ */
+function counterpartOf(frame: Frame, reads: Pick<FrameReads, 'account' | 'person'>): Seeds['counterpart'] {
+  const them = frame.counterpart;
+  const native = frame.answers?.authorId ?? null;
+  if (them === null) return null;
+  const account = native === null ? null : reads.account(frame.interface, native);
+  const personId = (account === null ? null : reads.person(account)) ?? them.personId;
+  return personId === null ? null : { personId, accountId: account ?? them.accountId };
+}
+
+/** The window as the graph reader's seeds: each line by its stored source id, the trigger marked, oldest first. */
+function seedsOf(
+  frame: Frame,
+  history: ReadonlyArray<Message>,
+  turn: { trigger: { id: string } | null; prefetch: unknown },
+  reads: Pick<FrameReads, 'account' | 'person' | 'source' | 'sourceInPlace'>
+): Seeds {
+  const { trigger, prefetch } = turn;
+  const iface = frame.interface;
+  const lines = history.filter((line) => line.kind !== 'call' && typeof line.id === 'string');
+  const sourceOf = (line: Message): string => {
+    const revision: unknown = Reflect.get(line, 'revision');
+    // The stored line when the memory holds it (an interface's id is not the key a line is stored under), else the
+    // id a line of this message would have.
+    return (
+      reads.source?.(iface, line.id) ??
+      messageSourceId(iface, line.id, typeof revision === 'number' ? revision : 1, line.self ? 'said' : 'seen')
+    );
+  };
+  const byId = new Map(lines.map((line) => [line.id, sourceOf(line)]));
+  // A platform id as the memory's account row, null when none is stored yet.
+  const accountOf = (native: string): string | null => reads.account(iface, native);
+  const excerpts: unknown = prefetch && typeof prefetch === 'object' ? Reflect.get(prefetch, 'excerpts') : null;
+  // A find is a message id of the place it was found in, which may be on another interface than this turn's (the
+  // command line reads every interface), so it is resolved on its own place's interface first.
+  const hits = (Array.isArray(excerpts) ? excerpts : []).flatMap((excerpt: unknown) => {
+    const ids: unknown = excerpt && typeof excerpt === 'object' ? Reflect.get(excerpt, 'hitIds') : null;
+    const found: unknown = excerpt && typeof excerpt === 'object' ? Reflect.get(excerpt, 'place') : null;
+    const placeId = typeof found === 'string' && found !== '' ? found : null;
+    const named = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string' && id !== '') : [];
+    return named.map(
+      (hit) => (placeId === null ? null : reads.sourceInPlace?.(placeId, hit)) ?? reads.source?.(iface, hit) ?? hit
+    );
+  });
+  // The people who reacted to the persona's lines seed the reader like the authors of lines, so each named at their
+  // reaction has an entry; a reaction whose reactors nobody read names nobody.
+  const reactors = reactorIdsOf(lines as Array<Record<string, unknown>>).flatMap((native, i) => {
+    const account = accountOf(native);
+    return account === null
+      ? []
+      : [
+          {
+            id: `reaction:${i}`,
+            at: new Date(lines.at(-1)?.ts ?? 0).toISOString(),
+            authorAccount: account,
+            placeId: frame.place?.id ?? null,
+            replyTo: null,
+            mentions: [],
+            text: '',
+            trigger: false,
+          },
+        ];
+  });
+  return {
+    messages: [
+      ...reactors,
+      ...lines.map((line) => ({
+        id: sourceOf(line),
+        at: new Date(line.ts).toISOString(),
+        authorAccount: line.self || !line.authorId ? null : accountOf(line.authorId),
+        placeId: frame.place?.id ?? null,
+        replyTo: line.replyToId ? (byId.get(line.replyToId) ?? null) : null,
+        mentions: (line.mentionedAccountIds ?? []).flatMap((native) => accountOf(native) ?? []),
+        text: line.content ?? '',
+        trigger: line.id === trigger?.id,
+      })),
+    ],
+    counterpart: counterpartOf(frame, reads),
+    place: frame.place?.id ?? null,
+    previous: [],
+    candidates: hits.map((id) => ({ kind: 'source', rowId: id, sourceIds: [id], from: 'prefetch' as const })),
+  };
+}
+
+/**
+ * The reads of `<meanwhile>`, each answer kept for the request: the graph reader's seeds and the block are built from
+ * the same windows, and the memory is read for them once.
+ */
+function readOnce(reads: MeanwhileReads): MeanwhileReads {
+  const own = new Map<number, ReadonlyArray<OwnMessage>>();
+  const around = new Map<string, ReadonlyArray<MeanwhileLine>>();
+  return {
+    ownMessages(limit) {
+      const kept = own.get(limit) ?? reads.ownMessages(limit);
+      own.set(limit, kept);
+      return kept;
+    },
+    around(placeId, at, count) {
+      const key = `${placeId}\u0000${at}\u0000${count}`;
+      const kept = around.get(key) ?? reads.around(placeId, at, count);
+      around.set(key, kept);
+      return kept;
+    },
+  };
+}
+
+/**
+ * The stored source ids of the lines a reply shows beyond its chat, for the graph reader's `seen`: every line of the
+ * `<meanwhile>` windows, by its message's source on its place or the source it was read from, and the lines the
+ * persona's lookups in `<recall>` quote. Each id once.
+ */
+function seenOf(
+  windows: ReadonlyArray<MeanwhileWindow>,
+  lookups: ReadonlyArray<Lookup>,
+  reads: Pick<FrameReads, 'sourceInPlace'>
+): Array<string> {
+  const lines = windows.flatMap((window) => window.lines);
+  const ids = [
+    ...lines.map((line) => reads.sourceInPlace?.(line.placeId, line.id) ?? line.sourceId ?? null),
+    ...lookups.flatMap((lookup) => lookup.sourceIds),
+  ];
+  return [...new Set(ids.filter((id): id is string => typeof id === 'string' && id !== ''))];
+}
+
+/** The interface's name and its words for its kinds of place, worded for `<surroundings>`. */
+function interfaceTextOf(names: { name: string | null; nouns: Record<string, string> }, labels: unknown): string {
+  const nounsLabel: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'surroundings') : null;
+  const template: unknown = nounsLabel && typeof nounsLabel === 'object' ? Reflect.get(nounsLabel, 'nouns') : null;
+  const nouns = Object.values(names.nouns);
+  return [
+    names.name ?? '',
+    nouns.length > 0 && typeof template === 'string' ? fill(template, { nouns: nouns.join(', ') }) : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * The fields of the current place its stats give: the topic, who writes there most as stored mentions (the persona's
+ * own account left out) and how active it is as its code. A place with none of them gives no field.
+ */
+function statsFieldsOf(
+  reads: FrameReads,
+  ctx: Context,
+  placeId: string,
+  turn: { now: number; selfId: string | null }
+): Record<string, string> {
+  const stats = reads.placeStats?.(ctx, placeId, turn.now) ?? null;
+  if (stats === null) return {};
+  const writers = stats.writers.filter((native) => native !== turn.selfId).map((native) => `<@${native}>`);
+  return {
+    ...(stats.topic === null ? {} : { topic: stats.topic }),
+    ...(writers.length === 0 ? {} : { writers: writers.join(', ') }),
+    ...(stats.activity === null ? {} : { activity: stats.activity }),
+  };
+}
+
+/**
+ * The inputs of a framed request (a reply or an errand's result): what the graph reader brings to mind, the persona's lookups still
+ * anchored here, their lines elsewhere, the place's stored fields and a reader of lines by identity, all under the
+ * turn's context. Nothing for any other request, and only the lookups without an open memory. A failed read of the mind
+ * is logged and leaves memory empty.
+ */
+function framedInputsOf(
+  ctx: Pick<
+    PhaseContext,
+    'frameReads' | 'lookupRing' | 'seedRing' | 'turnContextOf' | 'hot' | 'intentionRefsFor' | 'calibrator' | 'rng'
+  >,
+  frame: Frame,
+  draft: Draft,
+  channel: Prepared['channel'],
+  turn: {
+    history: ReadonlyArray<Message>;
+    trigger: { id: string } | null;
+    prefetch: unknown;
+    labels: unknown;
+    now: number;
+    selfId: string | null;
+    /** The turn's wake, whose due intentions join the seeds; absent on a turn no wake started. */
+    wake?: WakeBlockInput | null;
+  }
+): FramedInputs {
+  const { history, now } = turn;
+  const due = dueIntentionsOf(turn.wake ?? null);
+  const place = frame.place;
+  if (!framedRequest(frame)) return NO_FRAMED;
+  if (LISTED_KINDS.has(frame.kind)) return serviceListsInputsOf(ctx, frame, draft, channel, now);
+  if (place === null) return serviceInputsOf(ctx, frame, draft, channel, now, due);
+  // The place by the names of its chain from the interface down, kept with a lookup of the persona's (the journal's
+  // form).
+  const names = frame.chain.flatMap((link) => (link.name === null ? [] : [link.name])).reverse();
+  draft.framePlace = { id: String(channel.id), path: [frame.interface, ...names] };
+  const window = history.map((line) => ({ id: String(line.id), replyTo: line.replyToId ?? null }));
+  const lookups = ctx.lookupRing.forPlace(String(channel.id), window, now);
+  const reads = ctx.frameReads;
+  const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
+  if (reads === null || !memoryContext) {
+    // No context reads no fields, but the interface's own names still word the place.
+    const names = reads === null ? undefined : declaredNames(reads, frame.interface);
+    const surroundings = names === undefined ? null : { interfaceText: '', names, root: null, place: null };
+    return { ...NO_FRAMED, lookups, surroundings };
+  }
+  const meanwhileReads = readOnce(meanwhileReadsOf(reads, memoryContext, place.id));
+  const taught = lessonsOfTurn(ctx, reads, frame, memoryContext);
+  let mind: Mind | null = null;
+  try {
+    const windows = frame.blocks.includes('meanwhile')
+      ? meanwhileWindows(meanwhileReads, frame, meanwhileSettingsOf(ctx.hot.config, frame))
+      : [];
+    const turnId = draft.started?.turnId ?? null;
+    const base = withDueIntentions(seedsOf(frame, history, turn, reads), due, place.id, now);
+    const seeds: Seeds = {
+      ...base,
+      candidates: [...base.candidates, ...taught.teachers],
+      previous: turnId === null ? [] : ctx.seedRing.previous(place.id, turnId),
+      seen: seenOf(windows, frame.blocks.includes('recall') ? lookups : [], reads),
+    };
+    mind = reads.mind(memoryContext, seeds, now);
+    const raised = seedRefsOf(mind);
+    if (turnId !== null) ctx.seedRing.note(place.id, turnId, raised);
+    // The turn record keeps them, so a restart refills the ring (src/memory/journal.ts#seedsOfRecords).
+    draft.seeds = { placeId: place.id, refs: raised };
+  } catch (error) {
+    log.warn('turn: memory not read', { channel: channel.id, error });
+  }
+  const refLineOf: LineOf = (key) => {
+    const line = reads.line(memoryContext, key);
+    return line ? { ...line, messageId: line.id } : null;
+  };
+  const isSourceRetired: SourceRetired | null = reads.sourceRetired
+    ? (sourceId) => reads.sourceRetired?.(memoryContext, sourceId) ?? true
+    : null;
+  // The persona's posted words read a line's identity back under the same context (src/turn/sends.ts#renderPost).
+  draft.frameRefs = { lineOf: refLineOf, placeId: place.id, timezone: frame.timezone };
+  return {
+    mind,
+    lookups,
+    meanwhileReads,
+    surroundings: {
+      interfaceText: interfaceTextOf(reads.interfaceNames(frame.interface), turn.labels),
+      names: declaredNames(reads, frame.interface),
+      root: frame.root ? reads.placeFields(memoryContext, frame.root.id) : null,
+      place: { ...reads.placeFields(memoryContext, place.id), ...statsFieldsOf(reads, memoryContext, place.id, turn) },
+      versions: [
+        ...(frame.root ? (reads.placeVersions?.(memoryContext, frame.root.id) ?? []) : []),
+        ...(reads.placeVersions?.(memoryContext, place.id) ?? []),
+      ],
+    },
+    lessons: taught.lessons,
+    attitudes: attitudesOfTurn(ctx, reads, frame, memoryContext),
+    refLineOf,
+    isSourceRetired,
+    chatIdOf: chatIdReader(reads),
+    serviceLists: null,
+  };
+}
+
+/** A line's identity in a stored text (src/turn/request/refs.ts), as the key the reader of lines takes. */
+const IDENTITY = /\bsrc:([\w-]+):((?:[\w.-]+:)*?[\w.-]+):\d+(?!\w|[.:]\w|-(?!src:)\w)/gu;
+
+/**
+ * What the persona's open intentions refer to, as the graph reader's candidates: each line an identity in a purpose
+ * names, with its place and its author's person, and each place an intention begins in. A line the context cannot read
+ * gives none.
+ */
+function intentionCandidatesOf(
+  refs: { texts: ReadonlyArray<string>; places: ReadonlyArray<string> },
+  reads: Pick<FrameReads, 'line' | 'account' | 'person' | 'sourceInPlace' | 'placeRef'>,
+  ctx: Context
+): Seeds['candidates'] {
+  const out: Seeds['candidates'] = [];
+  const add = (kind: string, rowId: string, sourceIds: Array<string> = []): void => {
+    if (!out.some((one) => one.kind === kind && one.rowId === rowId))
+      out.push({ kind, rowId, sourceIds, from: 'query' });
+  };
+  for (const text of refs.texts)
+    for (const [, iface = '', messageId = ''] of text.matchAll(IDENTITY)) {
+      const line = reads.line(ctx, `src:${iface}:${messageId}`);
+      if (line === null || line.deleted) continue;
+      const sourceId = reads.sourceInPlace?.(line.placeId, line.id) ?? null;
+      if (sourceId !== null) add('source', sourceId, [sourceId]);
+      add('place', line.placeId, sourceId === null ? [] : [sourceId]);
+      const account = line.authorId === null ? null : reads.account(iface, line.authorId);
+      const person = account === null ? null : reads.person(account);
+      if (person !== null) add('person', person, sourceId === null ? [] : [sourceId]);
+    }
+  for (const place of refs.places) if ((reads.placeRef?.(place) ?? null) !== null) add('place', place);
+  return out;
+}
+
+/**
+ * The persona's lines of a service's `<meanwhile>` with the lines around them, as the graph reader's seeds, oldest
+ * first, and what their open intentions refer to as candidates. A line's seed id is its stored source: the message's
+ * newest source on its place's interface, else the source row the line was read from. A line with neither is no seed.
+ */
+function serviceSeedsOf(
+  windows: ReadonlyArray<MeanwhileWindow>,
+  reads: Pick<FrameReads, 'account' | 'sourceInPlace' | 'placeRef'>,
+  candidates: Seeds['candidates']
+): Seeds {
+  const lines = windows.flatMap((window) => window.lines).sort((a, b) => a.at - b.at);
+  // Each place's interface from its row, read once per place of the windows.
+  const ifaces = new Map<string, string | null>();
+  const ifaceOf = (placeId: string): string | null => {
+    if (!ifaces.has(placeId)) ifaces.set(placeId, reads.placeRef?.(placeId)?.iface ?? null);
+    return ifaces.get(placeId) ?? null;
+  };
+  return {
+    messages: lines.flatMap((line) => {
+      const iface = ifaceOf(line.placeId);
+      const native = line.authorId;
+      const id = reads.sourceInPlace?.(line.placeId, line.id) ?? line.sourceId ?? null;
+      if (id === null) return [];
+      return {
+        id,
+        at: new Date(line.at).toISOString(),
+        authorAccount: line.self || native === null || iface === null ? null : reads.account(iface, native),
+        placeId: line.placeId,
+        replyTo: null,
+        mentions: [],
+        text: line.text,
+        trigger: false,
+      };
+    }),
+    counterpart: null,
+    place: null,
+    previous: [],
+    candidates,
+  };
+}
+
+/**
+ * The inputs of a turn that is nowhere (a service, an intention without a place): the persona's last lines over the rooms of every
+ * group as `<meanwhile>`, and what they raise as `<memory>`, read as themselves. No surroundings and no lookups of an
+ * earlier turn. A failed read of the mind is logged and leaves memory empty.
+ */
+function serviceInputsOf(
+  ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf' | 'hot' | 'intentionRefsFor' | 'calibrator'>,
+  frame: Frame,
+  draft: Draft,
+  channel: Prepared['channel'],
+  now: number,
+  due: ReadonlyArray<DueIntention>
+): FramedInputs {
+  const reads = ctx.frameReads;
+  const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
+  if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups: [] };
+  const meanwhileReads = readOnce(meanwhileReadsOf(reads, memoryContext, null));
+  const taught = lessonsOfTurn(ctx, reads, frame, memoryContext);
+  let mind: Mind | null = null;
+  try {
+    const windows = meanwhileWindows(meanwhileReads, frame, meanwhileSettingsOf(ctx.hot.config, frame));
+    const candidates = [...intentionCandidatesOf(ctx.intentionRefsFor(), reads, memoryContext), ...taught.teachers];
+    mind = reads.mind(
+      memoryContext,
+      withDueIntentions(serviceSeedsOf(windows, reads, candidates), due, null, now),
+      now
+    );
+  } catch (error) {
+    log.warn('turn: memory not read', { channel: null, error });
+  }
+  const refLineOf: LineOf = (key) => {
+    const line = reads.line(memoryContext, key);
+    return line ? { ...line, messageId: line.id } : null;
+  };
+  return {
+    mind,
+    lookups: [],
+    meanwhileReads,
+    surroundings: null,
+    lessons: taught.lessons,
+    attitudes: attitudesOfTurn(ctx, reads, frame, memoryContext),
+    refLineOf,
+    isSourceRetired: null,
+    chatIdOf: chatIdReader(reads),
+    serviceLists: null,
+  };
+}
+
+/** How many people and how many places the service collector lists at most. */
+const SERVICE_PEOPLE = 30;
+const SERVICE_PLACES = 60;
+
+/**
+ * How many of the listed people carry their character and manner of speech. These two descriptions are the longest
+ * texts of a person, so carrying them for everyone listed would take most of the request.
+ */
+const SERVICE_DESCRIBED = 3;
+
+/** `items` in an order drawn with `rng`, cut to `cap`, and how many the cut left out. */
+function drawnOf<T>(items: ReadonlyArray<T>, cap: number, rng: () => number): { kept: Array<T>; leftOut: number } {
+  const kept = shuffled(items, rng).slice(0, cap);
+  return { kept, leftOut: items.length - kept.length };
+}
+
+/**
+ * The inputs of a service turn, a heartbeat or a diary entry: the people and the places of the service collector as
+ * `<memory>` (service-lists.ts), read under the turn's context, each list in an order drawn with the turn's `rng` and
+ * cut to its cap, `SERVICE_DESCRIBED` of the people drawn to carry their character and manner of speech, and for a
+ * heartbeat its fragments drawn from the files of `prompts/heartbeat/seeds/`. A heartbeat reads as the persona; a diary entry reads
+ * under the audience of its mirrors unless `context.memory.openPrivate` opens it. No `<meanwhile>`, no mind of the graph
+ * reader and no lookups. A failed read of the lists fails the turn, as any broken read does.
+ */
+function serviceListsInputsOf(
+  ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf' | 'hot' | 'rng' | 'calibrator'>,
+  frame: Frame,
+  draft: Draft,
+  channel: Prepared['channel'],
+  now: number
+): FramedInputs {
+  const reads = ctx.frameReads;
+  const { prompts } = ctx.hot;
+  const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
+  if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups: [] };
+  const firstLineDays = innerSettings(ctx.hot.config).heartbeat.firstLineDays;
+  const lists = reads.serviceLists?.(now, memoryContext, firstLineDays) ?? { people: [], places: [] };
+  const people = drawnOf(lists.people, SERVICE_PEOPLE, ctx.rng);
+  const places = drawnOf(lists.places, SERVICE_PLACES, ctx.rng);
+  // Drawn among the people who have either description, so a person with neither takes no place of one who has them.
+  const described = new Set(
+    drawnOf(
+      people.kept.filter((one) => one.character !== null || one.style !== null),
+      SERVICE_DESCRIBED,
+      ctx.rng
+    ).kept
+  );
+  const refLineOf: LineOf = (key) => {
+    const line = reads.line(memoryContext, key);
+    return line ? { ...line, messageId: line.id } : null;
+  };
+  return {
+    ...NO_FRAMED,
+    lookups: [],
+    lessons: lessonsOfTurn(ctx, reads, frame, memoryContext).lessons,
+    attitudes: attitudesOfTurn(ctx, reads, frame, memoryContext),
+    refLineOf,
+    chatIdOf: chatIdReader(reads),
+    serviceLists: {
+      people: people.kept.map((one) => (described.has(one) ? one : { ...one, character: null, style: null })),
+      places: places.kept,
+      leftOut: { people: people.leftOut, places: places.leftOut },
+      fragments:
+        frame.kind === 'heartbeat' ? drawFragments(promptsInFolder(prompts ?? {}, 'heartbeat/seeds'), ctx.rng) : [],
+    },
+  };
+}
+
+/**
+ * Why an inner turn is awake (src/behavior/wake.ts#awakeLines) and, on a turn that is nowhere, the interfaces the
+ * persona runs on by their names (`labels.spatial.interfaces` with `{interfaces}`), an interface with no stored name by
+ * its id.
+ */
+function awakeTextOf(
+  wake: WakeBlockInput | null,
+  frame: Frame,
+  reads: FrameReads | null,
+  labels: Parameters<typeof awakeLines>[1]
+): string | null {
+  const locale: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'locale') : undefined;
+  const lines = awakeLines(wake, labels, typeof locale === 'string' ? { locale } : {});
+  const spatial: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'spatial') : null;
+  const template: unknown = spatial && typeof spatial === 'object' ? Reflect.get(spatial, 'interfaces') : null;
+  const ids = frame.place === null && reads ? (reads.interfaceIds?.() ?? []) : [];
+  if (ids.length > 0 && typeof template === 'string' && template !== '') {
+    const names = ids.map((id) => reads?.interfaceNames(id).name ?? id);
+    lines.push(fill(template, { interfaces: names.join(', ') }));
+  }
+  return lines.join('\n') || null;
+}
+
+/** An intention a wake is due for, as the graph reader's seed needs it. */
+type DueIntention = { id: string; purpose: string; dueAt: number | null };
+
+/** The open intentions of `wake` it is due for, in the order of its items. None without a wake. */
+function dueIntentionsOf(wake: WakeBlockInput | null): Array<DueIntention> {
+  const records = new Map(
+    (wake?.intentions ?? []).flatMap((record: unknown) => {
+      const one = objOf(record);
+      const { id, purpose, dueAt } = one;
+      if (typeof id !== 'string' || typeof purpose !== 'string' || purpose === '') return [];
+      return [[id, { id, purpose, dueAt: typeof dueAt === 'number' && Number.isFinite(dueAt) ? dueAt : null }]];
+    })
+  );
+  return [...new Set(dueIds(wake))].flatMap((id) => records.get(id) ?? []);
+}
+
+/**
+ * `seeds` with one trigger line per due intention: its purpose, with no author, mention or reply, in `placeId`. The
+ * line is at the intention's due time, or at the newest line of the seeds when that is later, so the read's window,
+ * which keeps the newest lines, always holds it. Its words raise names as a line the persona answers does.
+ */
+function withDueIntentions(seeds: Seeds, due: ReadonlyArray<DueIntention>, placeId: string | null, now: number): Seeds {
+  if (due.length === 0) return seeds;
+  const newest = seeds.messages.reduce((latest, message) => (message.at > latest ? message.at : latest), '');
+  const atOf = (dueAt: number | null): string => {
+    const own = new Date(dueAt ?? now).toISOString();
+    return newest > own ? newest : own;
+  };
+  const lines = due.map((one) => ({
+    id: `intention:${one.id}`,
+    at: atOf(one.dueAt),
+    authorAccount: null,
+    placeId,
+    replyTo: null,
+    mentions: [],
+    text: one.purpose,
+    trigger: true,
+  }));
+  return { ...seeds, messages: [...seeds.messages, ...lines] };
+}
+
+/** The intentions a wake is due for: they lead `<intentions>`, each whole. */
+function dueIds(wake: { items?: ReadonlyArray<unknown> } | null | undefined): Array<string> {
+  return (wake?.items ?? []).flatMap((item: unknown) => {
+    const ids: unknown = item && typeof item === 'object' ? Reflect.get(item, 'intentionIds') : null;
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
+  });
+}
+
+/**
+ * The newest diary entries the turn's context may read, as many as `entriesShownOf` says (`diary.writerEntries`),
+ * oldest first, read from memory alone (src/memory/db/diary-past.ts#readDiary), and with `kind` the entries of that
+ * kind among the ones it does not show (`told`). None without a reader or a context.
+ */
+function pastEntriesOf(
+  ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf'>,
+  draft: Draft,
+  channel: Prepared['channel'],
+  config: Prepared['config'],
+  kind: string | null = null
+): { entries: Array<PastEntry>; told: Array<PastEntry> } {
+  const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
+  if (!memoryContext) return { entries: [], told: [] };
+  const shown = entriesShownOf(config);
+  const entries = ctx.frameReads?.diary?.(memoryContext, shown) ?? [];
+  if (kind === null) return { entries, told: [] };
+  // The entries of the turn's own kind that `<diary>` does not show, the newest TOLD_ENTRIES of them, oldest first.
+  const inDiary = new Set(entries.map((entry) => entry.id));
+  const ofKind = ctx.frameReads?.diary?.(memoryContext, shown + TOLD_ENTRIES, kind) ?? [];
+  return { entries, told: ofKind.filter((entry) => !inDiary.has(entry.id)).slice(-TOLD_ENTRIES) };
+}
+
+/** The budget's line of a request: one entry per section (src/llm/budget.ts). */
+function statsOf(request: BuiltRequest): Record<string, { dropped?: number }> {
+  return request.stats as Record<string, { dropped?: number }>;
+}
+
+/** The request built from an input turnRequestInput checked. */
+function requestOf(input: Record<string, unknown>): BuiltRequest {
+  // turnRequestInput refuses a key buildRequest does not read and an input left undefined, so the input is
+  // buildRequest's own; the result carries the member names and the memory reads its header names too.
+  return buildRequest(input as Parameters<typeof buildRequest>[0]);
+}
+
+/** What the build step reads of the attempt. */
+type BuildNeeds = Pick<
+  Prepared,
+  | 'channel'
+  | 'placeId'
+  | 'libraryPlace'
+  | 'isDm'
+  | 'config'
+  | 'memoryOn'
+  | 'selfId'
+  | 'selfName'
+  | 'now'
+  | 'snapshot'
+  | 'serverOn'
+  | 'finalMode'
+  | 'history'
+  | 'descriptions'
+  | 'videos'
+  | 'imageAnswers'
+  | 'reads'
+  | 'prefetchResult'
+  | 'drawOn'
+  | 'diaryPrep'
+  | 'prompts'
+  | 'factsText'
+  | 'tasks'
+  | 'placeMemory'
+  | 'taggedCall'
+  | 'offPeriods'
+  | 'activeSkills'
+>;
+
+// health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
+export async function buildTurnRequest(
+  ctx: PhaseContext,
+  params: PhaseParams,
+  draft: Draft,
+  turn: BuildNeeds
+): Promise<BuiltRequest> {
+  const { store, calibrator, skills, lookup, emoji, memoryReads, turnContextOf } = ctx;
+  const { aroundInputFor, errandsInputFor, intentionsInputFor, earlierThinkFor } = ctx;
+  const { diaryChannelName, stableFreezeOf } = ctx;
+  const { callMarksOf } = ctx;
+  const { trigger = null, triggerKind = null } = params;
+  const { taskResult = null } = params;
+  const { channel, placeId, libraryPlace, isDm, config, memoryOn, selfId, selfName, now, snapshot } = turn;
+  const { serverOn, finalMode, history, descriptions, videos, imageAnswers, reads } = turn;
+  const { prefetchResult, drawOn, diaryPrep, prompts } = turn;
+  const { factsText, tasks, placeMemory, taggedCall, offPeriods, activeSkills } = turn;
+  // The persona's tools, pinned for this turn (a grant removed meanwhile is still caught at each call): the skills
+  // granted to them and the carried-over ones, as native tool definitions, then one entry per active skill they can
+  // use. The array is the same for every turn kind, so every turn shares one cached prefix: a wake refuses a call outside
+  // its own set when the call is made (src/tools/wake-tools.ts#wakeRefusalCode). A diary post has the same
+  // tools; only `draw.create` runs there (runSteps). A tool the interface of the turn's place cannot carry out (a reaction
+  // in the owner's command line) is left out, so a turn of another interface has a prefix of its own.
+  const registry = skills ?? defaultSkills();
+  const placePort = portAt(ctx.iface, ctx.chatOf(channel));
+  const toolNames = placeSkillNames(
+    exposedSkillNames({ config, selfId, registry }),
+    registry,
+    portOperations(placePort)
+  );
+  const wake = draft.inner?.wake;
+  const wakeKind = wake?.kind ?? null;
+  // The wake as its words read it (src/behavior/wake.ts): the drain's WakeInfo.
+  const wakeWords = (wake ?? null) as WakeBlockInput | null;
+  // A skill entry is read through `skill.read`, so the persona's grant of it decides whether their skills are offered
+  // at all.
+  const offered = toolNames.includes(READ_TOOL) ? activeSkills.filter((skill) => skill.missing.length === 0) : [];
+  draft.offeredSkills = new Map(offered.map((skill) => [skill.name, skill.versionId]));
+  draft.tools = buildTools(
+    toolNames.filter((name) => name !== READ_TOOL),
+    {
+      registry,
+      texts: opensPrivate(config) ? openToolTexts(prompts?.tools) : prompts?.tools,
+      skills: offered,
+      procedure: procedureSentence(prompts?.labels),
+    }
+  );
+  const toolsTokens = estimateTools(draft.tools);
+  // Every input named (turnRequestInput throws on one left undefined); null marks an absent one.
+  // The persona's remembered calls as call marks, the place names read live (src/turn/journal-notes.ts#callMarksOf).
+  const callMarks = callMarksOf({ channel, snapshot });
+  const frame = frameOfTurn(store, {
+    channel,
+    isDm,
+    mode: finalMode,
+    triggerKind,
+    wakeKind,
+    inner: Boolean(draft.inner),
+    trigger,
+    now,
+    timezone: String(config.bot?.timezone ?? 'UTC'),
+    placeId,
+  });
+  const facts = {
+    ...{ history, trigger, prefetch: prefetchResult, labels: prompts?.labels, now, selfId: selfId ?? null },
+    wake: wakeWords,
+  };
+  const framed = framedInputsOf(ctx, frame, draft, channel, facts);
+  // A text entry is voiced at `diary.voiceChance` when the turn offers `voice.say`.
+  const voiced =
+    diaryPrep !== null &&
+    drawVoiced({ kind: diaryPrep.kind, offered: toolNames, diaryCfg: config.diary, rng: ctx.rng });
+  // `<errands>` and `<errand_result>`: the persona's errands (none on a diary post); a result shown whole is read once they answer.
+  const errands =
+    finalMode === 'diary'
+      ? null
+      : await errandsInputFor({ placeId, channel, isDm, taskResult, wake, config, labels: prompts?.labels, now });
+  draft.errandShown = errands?.whole ?? null;
+  const requestInput = turnRequestInput({
+    frame,
+    config,
+    prompts,
+    calibrator,
+    mode: finalMode,
+    now,
+    selfName,
+    // `<directory>` never lists the persona's own profile.
+    selfId,
+    history,
+    trigger,
+    triggerKind,
+    taggedCall,
+    placeMemory: placeMemory ?? {},
+    interlocutor: memoryOn && trigger ? (store.getUser(accountOf(store, trigger.authorId)) ?? null) : null,
+    // A private chat: the partner's private layer joins their public profile (only there).
+    dmChat: isDm ? { accountId: trigger?.authorId ?? null } : null,
+    privateProfile: isDm && memoryOn && trigger ? privateProfileOf(store, accountOf(store, trigger.authorId)) : null,
+    otherProfiles: memoryOn ? pickOtherProfiles(store, placeId, history, trigger?.authorId) : [],
+    candidateProfiles: memoryOn ? store.listUserProfiles() : [],
+    // A stored profile's name, else the name an account row holds on any interface: the command line reads them all.
+    nameOf: memoryOn
+      ? (id: string) =>
+          store.getUser(accountOf(store, id))?.names?.[0] ?? ctx.frameReads?.accountName?.(frame.interface, id) ?? null
+      : null,
+    currentChannelId: channel.id,
+    diaryChannelIds: diaryChatIds(store),
+    descriptions: descriptions ?? null,
+    videos: videos ?? null,
+    imageAnswers,
+    reads: reads ?? null,
+    // `<retrieved>`: the automatic memory prefetch of this trigger (null: none ran).
+    prefetch: prefetchResult,
+    searchAvailable: typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
+    // The search of the server's own history: the value the lookup stage used.
+    recallAvailable: serverOn,
+    drawOn,
+    // The custom emoji the interface of the place offers, and what it declares for them in the turn.
+    customEmoji: emoji && portCustomEmoji(placePort) ? (emoji.list() ?? []) : [],
+    mediaPickText: portMediaPick(placePort)?.text ?? null,
+    // The transcript's GIF handles: the shared library.
+    gifs: typeof store.getGifs === 'function' ? (store.getGifs() ?? null) : null,
+    // The cached caption of a custom emoji and description of a library GIF in the transcript.
+    mediaCache:
+      emoji || typeof store.getGifs === 'function' ? (key: string) => store.mediaEntry(libraryPlace, key) : null,
+    // The stable names of the custom emoji and stickers in the lines, for the legend `<media>`.
+    mediaNameOf: store.mediaNameOf,
+    elsewhereDestination: null,
+    tasks: tasks.input,
+    // `<senses>`: where the persona keeps its diary, when one is set.
+    diaryChannel: diaryChannelName(placeId, config, snapshot, null),
+    // A diary entry: its past entries from memory, its kind, its scenes or its stored facts, the topic and the mirrors.
+    diary: diaryPrep
+      ? {
+          posts: diaryPrep.posts,
+          ...pastEntriesOf(ctx, draft, channel, config, diaryPrep.kind),
+          kind: diaryPrep.kind,
+          voiced,
+          scenes: diaryPrep.scenes.map((one) => one.scene),
+          topic: diaryPrep.topic,
+          facts: diaryPrep.facts,
+          publicationPlaces: readMirrors(store, publicationPlaces, NO_PLACES),
+        }
+      : null,
+    offPeriods,
+    // The skills catalogue text is never filled by a turn: the turn's tools are the native definitions below.
+    skillsInventory: null,
+    // The tools of this turn: the in-turn ones for `<senses>`, and what the request's `tools` field costs (the room the
+    // sections share).
+    toolsGranted: toolNames,
+    toolsTokens,
+    // `<people_now>`'s live part: the voice and status snapshot (null: none).
+    around: aroundInputFor({ config, mode: finalMode, isDm, snapshot }),
+    errands,
+    // `<intentions>`: the persona's and the proposed ones (features.intentions; none on a diary post).
+    intentions:
+      finalMode === 'diary'
+        ? ''
+        : intentionsInputFor({
+            ...{ placeId, channel, isDm, config, now },
+            labels: prompts?.labels,
+            due: dueIds(wakeWords),
+          }),
+    // `<feedback>`: what did not go through and the persona has not been told (src/behavior/wake.ts).
+    wake: draft.inner
+      ? feedbackText(wakeWords, prompts?.labels, { locale: prompts?.labels?.locale }) || null
+      : factsText || null,
+    // Why an inner turn is awake, for `<spatial_awareness>`.
+    awake: draft.inner ? awakeTextOf(wakeWords, frame, ctx.frameReads, prompts?.labels) : null,
+    // An inner turn's wake kind: a heartbeat takes `prompts['heartbeat/task']` as its task text.
+    wakeKind,
+    // The persona's one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).
+    previousThink: earlierThinkFor({ channel, isDm, draft, mode: finalMode }),
+    // `<my_day>` and `<calls>`: the persona's day under this turn's context, a diary post's since their last entry.
+    ...dayParts(ctx, { draft, channel, config, prompts, now }, finalMode === 'diary'),
+    // The call marks, put among the lines of `<chat>` by time.
+    callMarks,
+    // The owner's rules, read now (src/memory/store-rules.ts).
+    rules: store.liveRules(),
+    // `<self_facts>` held per cache bucket, so a memory batch rewrites the cache once at most.
+    stableFreeze: stableFreezeOf(placeId),
+    // `<spatial_awareness>`: where the persona is, the whole nesting of the place in the interface's own nouns
+    // (buildRequest names the places of their own time).
+    whereabouts: whereaboutsOfFrame(
+      frame,
+      ctx.frameReads?.interfaceNames(frame.interface).nouns ?? {},
+      partnerHandleOf(frame, ctx.frameReads)
+    ),
+    // A reply and an errand's result on the frame: `<memory>`, `<recall>`, `<meanwhile>`, `<surroundings>`, references.
+    ...framed,
+    // What a person's handle is cut from, and a place by its path: every block names people and places by them.
+    ...namesInputOf(ctx.frameReads, store, frame.interface),
+  });
+  const request = requestOf(requestInput);
+  // The persona's `@handle` in a post, a read's authors and its places take the request's names for the rest of the
+  // turn.
+  draft.requestRefs = request.refs ?? null;
+  // Every number of the request in the turn's one registry, so a reference in the persona's stored words reads back.
+  if (draft.handles)
+    registerHandles(draft.handles, request, history, {
+      iface: typeof channel.iface === 'string' ? channel.iface : '',
+      placeId: String(channel.id),
+    });
+  // The numbers `<recall>` gave the lines of the persona's earlier reads, numbered on past the chat's as a read of the
+  // turn is.
+  if (request.recallRefs && request.recallRefs.length > 0) {
+    draft.handleFloor = Math.max(0, ...request.idByIndex.keys());
+    searchHandles(draft).take(request.recallRefs);
+  }
+  // The memory rows this request carried, for the database's per-turn record (deferred there; it never fails a turn).
+  const allReads = request.memoryReads ?? [];
+  // The people this request shows, so a read of the turn tells only of others (src/turn/in-turn-tools.ts). A
+  // heartbeat's list shows each person by one line, so its first read of their lines tells what memory holds of them.
+  draft.memoryPeople = new Set(
+    LISTED_KINDS.has(frame.kind) ? [] : allReads.filter((read) => read.kind === 'people').map((read) => read.id)
+  );
+  if (memoryReads && draft.started?.turnId && allReads.length > 0) {
+    // One step: the steps of the tool loop add tool results to this request, never memory reads of their own.
+    try {
+      const readContext = turnContextOf(draft, channel) as { id?: string } | null | undefined;
+      memoryReads({
+        turnId: draft.started.turnId,
+        step: 's0',
+        placeId,
+        reads: allReads,
+        ...(readContext?.id ? { contextId: readContext.id } : {}),
+      });
+    } catch {
+      /* a record, never a turn's failure */
+    }
+  }
+  // The journal: what of the window went in, whose lines they were, what the budget dropped.
+  if (draft.started && request.seen) {
+    draft.seen = { ...request.seen, pulled: [] };
+    const keptIds = new Set(draft.seen.messageIds);
+    const authors = history
+      .filter((message) => keptIds.has(message.id) && !message.self)
+      .map((message) => message.authorId);
+    draft.participants = [
+      ...new Set([...authors, trigger?.authorId].filter((id): id is string => typeof id === 'string' && Boolean(id))),
+    ];
+    draft.dropped = droppedSections(statsOf(request));
+    budgetDrops(statsOf(request), draft.limits);
+  }
+  return request;
+}

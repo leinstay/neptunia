@@ -1,0 +1,2 @@
+# Keep files byte-identical across platforms (LF); no EOL conversion
+* -text

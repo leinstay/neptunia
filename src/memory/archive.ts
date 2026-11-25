@@ -1,0 +1,608 @@
+// The archive: every memory item that leaves a hot list, kept for good. Hot memory forgets by
+// design (caps, expiry, the analyzer's removes and replaces); before an item leaves, its last
+// version is written here, so nothing the persona once held is lost to a cap. One line per event
+// in the memory database (src/memory/db/service.ts), in the unit of its month,
+// the place's archive of that month by the entry's `recordedAt`; a DM's items go under its DM place, and what belongs to
+// no place under the persona.
+//
+// An entry carries three ids: `itemId` (the item's stable identity, src/memory/store.ts stamps it
+// on write), `revisionId` (a hash of the item's text, so two versions of one item tell apart) and
+// `id` (the event). `text` holds the item's text fields verbatim but for their links (never stored
+// in memory, src/memory/clamp.ts#stripUrls), `stored` its other stored fields
+// (dates, counts, ids), so an owner restore rebuilds it as it was. `sourceRefs` lists the messages
+// the item came from only when the item names them; it is never guessed.
+//
+// A month's `itemId:revisionId` keys (read from the database once per month, then kept) refuse an
+// entry already archived; a `restored` line is a lifecycle event and is never refused. Entries the
+// archive could not take wait in the operational file `archive/pending.jsonl` (through the append
+// store, src/memory/append-store.ts); `drainPending` writes them and notes each one in
+// `archive/pending-done.jsonl`, then compacts both files. The writers wait while a writer lock is
+// held (`writerGate`).
+//
+// Logs carry counts, never an entry's text.
+
+import * as nodeFs from 'node:fs/promises';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { keyText, placeOrPersona } from './db/unit-keys.ts';
+
+import { isRecord, propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
+import { log as defaultLog } from '../log.ts';
+import { stripUrls } from './clamp.ts';
+import { TEACHER_TOKEN_RE, tokenIds } from './mentions.ts';
+import { isoOf, revisionOf } from './record.ts';
+import { memoryRootOf } from './root.ts';
+
+import { archiveHolders, archiveLines, archiveMonths } from './db/archive-lines.ts';
+import type { AppendStore } from './append-store.ts';
+import type { Log, MemoryDb, Untyped, StoredRecord } from './types.ts';
+
+/** The schema version every entry carries. */
+export const ARCHIVE_VERSION = 1;
+
+/**
+ * The prefix of an item's `itemId` by kind: the stable identity a stored memory item gets on its
+ * first write (`ep-` + a UUID, ...) and keeps, so whatever later leaves the hot files can be told
+ * apart and found again. The field is optional: an item written before it existed loads without
+ * one and gets it on its next write; no reader requires it. Self facts and in-jokes are stored as
+ * plain strings, so they carry no id while stored: the id is minted when one leaves the list.
+ * The keys are the archive's item kinds.
+ */
+export const ITEM_ID_PREFIX: Readonly<Record<string, string>> = Object.freeze({
+  episode: 'ep-',
+  lesson: 'ln-',
+  interest: 'in-',
+  detail: 'dt-',
+  alias: 'al-',
+  realName: 'rn-',
+  selfFact: 'sf-',
+  move: 'mv-',
+  recent: 'rc-',
+  participation: 'pt-',
+  diary: 'dy-',
+  injoke: 'ij-',
+  version: 'vs-',
+});
+
+/** The events an entry may record. */
+export const ARCHIVE_EVENTS = Object.freeze([
+  'evicted',
+  'expired',
+  'replaced',
+  'merged',
+  'set-aside',
+  'restored',
+  'backfill',
+]);
+
+/** The text fields of each kind: what `text` holds verbatim and the revision hashes. */
+const TEXT_FIELDS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
+  episode: ['what', 'quote', 'feeling'],
+  lesson: ['text'],
+  interest: ['topic', 'note'],
+  detail: ['text'],
+  alias: ['name'],
+  realName: ['name'],
+  selfFact: ['text'],
+  move: ['reason'],
+  recent: ['text'],
+  participation: ['messages'],
+  diary: ['gist', 'search'],
+  injoke: ['text'],
+  version: ['text'],
+});
+
+/** The item kinds, in a stable order (the `kind` choices of `/nep memory archive`). */
+export const ARCHIVE_KINDS = Object.freeze(Object.keys(TEXT_FIELDS));
+
+/** The item's own time, newest first among the fields that hold one. */
+const TIME_FIELDS = ['firstSeen', 'ts', 'at', 'startAt', 'addedAt'];
+/** The item's last sighting. */
+const LAST_SEEN_FIELDS = ['lastSeen', 'lastAt', 'addedAt'];
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH_RE = /^\d{4}-\d{2}$/;
+
+/** Distinct non-empty strings of `values` (arrays or single values), in order. */
+function idList(...values: Array<unknown>): Array<string> {
+  const out: Array<string> = [];
+  for (const value of values) {
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (typeof item === 'string' && item && !out.includes(item)) out.push(item);
+    }
+  }
+  return out;
+}
+
+/** A plain-string item (a self fact, an in-joke) as `{ text }`; an object as it is; else `{}`. */
+function itemValue(item: Untyped) {
+  if (typeof item === 'string') return { text: item };
+  return isRecord(item) ? item : {};
+}
+
+/**
+ * The text fields of `item` for `itemKind`, verbatim (strings, and a participation episode's
+ * messages copied whole); a field the item does not hold is left out.
+ * @param itemKind  One of `ARCHIVE_KINDS`.
+ */
+export function archiveText(itemKind: string, item: unknown): object {
+  const value = itemValue(item);
+  const text: Record<string, Untyped> = {};
+  for (const field of TEXT_FIELDS[itemKind] ?? []) {
+    if (typeof value[field] === 'string') text[field] = value[field];
+    else if (Array.isArray(value[field])) text[field] = structuredClone(value[field]);
+  }
+  return text;
+}
+
+/** `archiveText` as an entry stores it: every string field without its links
+ * (src/memory/clamp.ts#stripUrls); a participation episode's messages stay whole. */
+function storedText(itemKind: Untyped, item: Untyped) {
+  const text: StoredRecord = archiveText(itemKind, item);
+  for (const [field, value] of Object.entries(text)) {
+    if (typeof value === 'string') text[field] = stripUrls(value);
+  }
+  return text;
+}
+
+/**
+ * The revision id of `item`'s content: `rv-` and 12 hex digits of the sha256 of its text fields
+ * as an entry stores them (src/memory/record.ts#revisionOf over `archiveText`, links taken out).
+ * Two items with the same text share it, whatever their weights or dates.
+ */
+export function archiveRevision(itemKind: string, item: unknown): string {
+  return revisionOf(JSON.stringify(storedText(itemKind, item)));
+}
+
+/** The item's own time: a stored day (`day`), else the first time field it holds (`time`), else `approx` today. */
+function observedAtOf(value: Untyped, recordedAt: Untyped) {
+  if (typeof value.date === 'string' && DAY_RE.test(value.date)) return { date: value.date, precision: 'day' };
+  for (const field of TIME_FIELDS) {
+    const iso = isoOf(value[field]);
+    if (iso) return { date: iso, precision: 'time' };
+  }
+  return { date: recordedAt.slice(0, 10), precision: 'approx' };
+}
+
+/** The messages an item names itself, as `{ placeId?, messageId, revision? }`; [] when none. */
+function sourceRefsOf(value: Untyped, given: Untyped) {
+  const clean = (ref: Untyped) => {
+    if (!isRecord(ref) || typeof ref.messageId !== 'string' || !ref.messageId) return null;
+    return {
+      ...(typeof ref.placeId === 'string' && ref.placeId ? { placeId: ref.placeId } : {}),
+      messageId: ref.messageId,
+      ...(isIntegerNumber(ref.revision) && ref.revision > 0 ? { revision: ref.revision } : {}),
+    };
+  };
+  const explicit = Array.isArray(given) ? given : Array.isArray(value.sourceRefs) ? value.sourceRefs : null;
+  if (explicit) return explicit.map(clean).filter(Boolean);
+  const placeId = typeof value.placeId === 'string' && value.placeId ? value.placeId : null;
+  const ids = Array.isArray(value.messages)
+    ? value.messages.map((message: Untyped) => (isRecord(message) ? message.id : null))
+    : Array.isArray(value.sourceMessageIds)
+      ? value.sourceMessageIds
+      : [];
+  return idList(ids).map((messageId) => (placeId ? { placeId, messageId } : { messageId }));
+}
+
+/** The members an item concerns: the scope's member, `given`, ids named in its text, its teacher, the authors of its messages. */
+function participantsOf(value: Untyped, text: Untyped, scope: Untyped, given: Untyped) {
+  const named: Array<string> = [];
+  for (const field of Object.values(text)) if (typeof field === 'string') named.push(...tokenIds(field));
+  const teacher = typeof value.from === 'string' ? (value.from.match(TEACHER_TOKEN_RE)?.[1] ?? null) : null;
+  const authors = Array.isArray(value.messages)
+    ? value.messages
+        .filter((message: Untyped) => isRecord(message) && message.self !== true)
+        .map((message: Untyped) => message.authorId)
+    : [];
+  return idList(
+    scope?.user,
+    given,
+    Array.isArray(value.who) ? value.who : [],
+    named,
+    teacher,
+    authors,
+    value.accountId
+  );
+}
+
+/**
+ * One archive entry for `item` (a stored item, or a plain string for a self fact or an in-joke).
+ * Pure apart from `now` and `uuid`. `itemId` is the item's own (a string item, or an object
+ * without one, gets `ITEM_ID_PREFIX[itemKind]` + `uuid()`), `revisionId` hashes its text fields,
+ * `id` is `uuid()`. `text` holds the text fields verbatim but for their links (`storedText`); `stored` the item's other fields
+ * (without `itemId` and `weight`); `observedAt` the item's own time with its precision (`day`,
+ * `time`, or `approx`: today, when the item holds none); `lastSeen` its last sighting or null;
+ * `sourceRefs` the messages it names itself (`sourceRefs` given, else its own `sourceRefs`, its
+ * messages' ids, its `sourceMessageIds`), else []: never guessed. `participants`: the scope's
+ * member, `participants` given, the `<@id>` tokens of its text, its teacher and the other authors
+ * of its messages.
+ *
+ * @throws {TypeError} An unknown `itemKind` or `event`.
+ */
+export function archiveEntry(
+  item: unknown,
+  {
+    itemKind,
+    event,
+    scope = {},
+    origin = 'live',
+    by = 'store',
+    now = Date.now,
+    sourceRefs,
+    neutral = null,
+    uuid = randomUUID,
+    participants = [],
+  }: {
+    itemKind: string;
+    event: string;
+    scope?: Untyped;
+    origin?: 'live' | 'backfill';
+    by?: string;
+    now?: () => number;
+    sourceRefs?: Array<Untyped>;
+    neutral?: string | null;
+    uuid?: () => string;
+    participants?: Array<string>;
+  }
+): object {
+  if (!TEXT_FIELDS[itemKind]) throw new TypeError(`archiveEntry: unknown item kind ${itemKind}`);
+  if (!ARCHIVE_EVENTS.includes(event)) throw new TypeError(`archiveEntry: unknown event ${event}`);
+  const value = itemValue(item);
+  const text = storedText(itemKind, value);
+  const recordedAt = new Date(now()).toISOString();
+  const textFields = new Set(TEXT_FIELDS[itemKind]);
+  const stored: Record<string, Untyped> = {};
+  for (const [key, field] of Object.entries(value)) {
+    if (textFields.has(key) || key === 'itemId' || key === 'weight') continue;
+    stored[key] = structuredClone(field);
+  }
+  const lastSeen = LAST_SEEN_FIELDS.map((field) => isoOf(value[field])).find(Boolean) ?? null;
+  const entryScope = isRecord(scope) ? { ...scope } : {};
+  const id = uuid();
+  return {
+    v: ARCHIVE_VERSION,
+    id,
+    kind: 'archive',
+    event,
+    itemKind,
+    itemId: typeof value.itemId === 'string' && value.itemId ? value.itemId : `${ITEM_ID_PREFIX[itemKind]}${uuid()}`,
+    revisionId: revisionOf(JSON.stringify(text)),
+    scope: entryScope,
+    participants: participantsOf(value, text, entryScope, participants),
+    observedAt: observedAtOf(value, recordedAt),
+    lastSeen,
+    sourceRefs: sourceRefsOf(value, sourceRefs),
+    neutral: typeof neutral === 'string' && neutral ? neutral : null,
+    text,
+    ...(typeof value.weight === 'number' && isFiniteNumber(value.weight) ? { weight: value.weight } : {}),
+    stored,
+    origin: origin === 'backfill' ? 'backfill' : 'live',
+    by: typeof by === 'string' && by ? by : 'store',
+    occurredAt: recordedAt,
+    recordedAt,
+  };
+}
+
+/** The dedupe key of an entry: `itemId:revisionId`; a `restored` event (a lifecycle line) has none. */
+function keyOf(entry: Untyped) {
+  if (!isRecord(entry) || entry.event === 'restored') return null;
+  if (typeof entry.itemId !== 'string' || !entry.itemId || typeof entry.revisionId !== 'string') return null;
+  return `${entry.itemId}:${entry.revisionId}`;
+}
+
+/** The parsed line, or null. */
+function parse(line: Untyped) {
+  try {
+    const value = JSON.parse(line);
+    return isRecord(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export type Archive = {
+  append(placeId: string | null, entries: Array<object>): Promise<{ written: number; duplicates: number }>;
+  iterate(
+    placeId: string | null,
+    query?: { from?: string; to?: string; scope?: object; kinds?: Array<string> }
+  ): AsyncIterable<object>;
+  find(itemId: string): Promise<Array<object>>;
+  queuePending(placeId: string | null, entries: Array<object>): Promise<number>;
+  drainPending(): Promise<{ archived: number; left: number; confirmed: Array<object> }>;
+  stats(): { pending: number };
+};
+
+/**
+ * Create the archive.
+ *
+ *   src/memory/append-store.ts, for the pending queue's files; best its own, so its counts speak for the archive alone.
+ * @param options.dataDir  the `data/` directory
+ * @param [options.fs]  a `node:fs/promises`-shaped API (the pending queue's directories)
+ * @param [options.writerGate]  awaited before every append, queue and
+ *   drain: the journal's `waitUnlocked`, so its writer lock (src/memory/journal.ts#withWriterLock)
+ *   holds the archive's writers too
+ * @param options.memoryDb  the memory database service (src/memory/db/service.ts): `iterate` and
+ *   `find` are answered from it (src/memory/db/archive-lines.ts), a failed read rejects with a code; `append`
+ *   writes the entries it does not refuse as one write per month (`memoryDb.writeArchiveLines`), and a
+ *   failed write rejects as a failed append does (the store then queues the entries in the pending file and the
+ *   drain writes them through `append` again)
+ *   `append` writes under the place it is given (the persona's with null)
+ *   on each entry and refuses an entry whose key the month already holds (`duplicates`). `iterate` streams
+ *   the entries whose `recordedAt` lies in `[from, to]`, of `kinds` and matching every key of `scope` when
+ *   given, month by month (an entry repeated by a retried write is yielded once). `find` returns every entry
+ *   of one item, the private archives included, oldest first. `queuePending` keeps entries in `pending.jsonl`
+ *   and resolves to their count; `drainPending` appends
+ *   every pending entry of every place (a duplicate counts as archived), notes each in
+ *   `pending-done.jsonl`, compacts both files and returns the counts and the `confirmed` entries; it stops a
+ *   file at the first refusal. `stats` reads the pending count kept in memory (set by `queuePending` and
+ *   `drainPending`; 0 before the first). Every method but `iterate`, `find` and `stats` runs one at a time.
+ */
+export function createArchive({
+  appendStore,
+  dataDir,
+  log = defaultLog,
+  now = Date.now,
+  fs = nodeFs,
+  writerGate = null,
+  memoryDb = null,
+}: {
+  appendStore: Pick<AppendStore, 'append' | 'iterate' | 'rewrite'> & Partial<Pick<AppendStore, 'stats'>>;
+  dataDir: string;
+  log?: Pick<Log, 'info' | 'warn'>;
+  now?: () => number;
+  fs?: { readdir: typeof nodeFs.readdir };
+  writerGate?: (() => Promise<void>) | null;
+  memoryDb: MemoryDb | null;
+}): Archive {
+  const root = memoryRootOf(dataDir);
+  const seam = readSeamOf(memoryDb, log, 'archive');
+  const indexes = new Map(); // unit -> Set of keys
+  let pendingCount = 0; // the entries waiting in the pending files
+  let chain: Promise<unknown> = Promise.resolve();
+
+  /** Run `task` after every write already queued. */
+  function serial<TResult>(task: () => Promise<TResult>): Promise<TResult> {
+    const run = chain.then(task);
+    chain = run.catch(() => {});
+    return run;
+  }
+
+  const baseDir = (placeId: string | null): string => path.join(root.placeDir(placeId), 'archive');
+
+  const pendingFile = (base: Untyped) => path.join(base, 'pending.jsonl');
+  const doneFile = (base: Untyped) => path.join(base, 'pending-done.jsonl');
+
+  async function listDir(dir: string, { dirsOnly = false } = {}) {
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      return entries
+        .filter((entry: Untyped) => !dirsOnly || entry.isDirectory())
+        .map((entry: Untyped) => entry.name)
+        .sort();
+    } catch (error) {
+      if (propOf(error, 'code') === 'ENOENT' || propOf(error, 'code') === 'ENOTDIR') return [];
+      throw error;
+    }
+  }
+
+  /** Every holder that may have a pending queue: the persona, then each place folder that exists. */
+  async function bases(): Promise<Array<{ base: string; placeId: string | null }>> {
+    const out: Array<{ base: string; placeId: string | null }> = [{ base: baseDir(null), placeId: null }];
+    for (const name of await listDir(path.join(root.dataDir, 'places'), { dirsOnly: true })) {
+      const placeId = decodeURIComponent(name);
+      out.push({ base: baseDir(placeId), placeId });
+    }
+    return out;
+  }
+
+  async function appendLine(file: string, line: Untyped) {
+    const before = typeof appendStore.stats === 'function' ? appendStore.stats() : null;
+    await appendStore.append(file, line, { sync: true });
+    if (before) {
+      const after = appendStore.stats?.();
+      if (after && (after.failed > before.failed || after.pending > 0)) {
+        throw Object.assign(new Error('archive: the write is not on disk yet'), { code: 'archive-unconfirmed' });
+      }
+    }
+  }
+
+  function monthOf(entry: Untyped) {
+    const iso = isoOf(entry.recordedAt) ?? new Date(now()).toISOString();
+    return iso.slice(0, 7);
+  }
+
+  /** A month's keys, from the database's lines of the month's unit, read once and then kept. */
+  function dbIndex(db: Untyped, placeId: string | null, month: string, monthKey: Untyped) {
+    const cached = indexes.get(monthKey);
+    if (cached) return cached;
+    const keys = new Set();
+    for (const line of seam.run(() => archiveLines(db, placeId, month))) {
+      const key = keyOf(parse(line));
+      if (key) keys.add(key);
+    }
+    indexes.set(monthKey, keys);
+    return keys;
+  }
+
+  /** The month units' lines written through the database's writer. */
+  async function appendNow(placeId: string | null, entries: Untyped) {
+    const db = seam.db();
+    if (typeof memoryDb?.writeArchiveLines !== 'function')
+      throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+    const months = new Map<
+      string,
+      { month: string; keys: Set<unknown>; lines: Array<Record<string, Untyped>>; added: Set<unknown> }
+    >();
+    let duplicates = 0;
+    for (const raw of Array.isArray(entries) ? entries : []) {
+      if (!isRecord(raw)) continue;
+      const entry: Record<string, Untyped> = { ...raw };
+      const month = monthOf(entry);
+      const monthKey = keyText(placeOrPersona('archive', placeId, { partition: month }));
+      let unit = months.get(monthKey);
+      if (!unit)
+        months.set(
+          monthKey,
+          (unit = { month, keys: dbIndex(db, placeId, month, monthKey), lines: [], added: new Set() })
+        );
+      const key = keyOf(entry);
+      if (key && (unit.keys.has(key) || unit.added.has(key))) {
+        duplicates += 1;
+        continue;
+      }
+      unit.lines.push(entry);
+      if (key) unit.added.add(key);
+    }
+    let written = 0;
+    for (const unit of months.values()) {
+      if (unit.lines.length === 0) continue;
+      await memoryDb.writeArchiveLines({ placeId, month: unit.month, lines: unit.lines });
+      for (const key of unit.added) unit.keys.add(key);
+      written += unit.lines.length;
+    }
+    return { written, duplicates };
+  }
+
+  /** Wait while a writer lock is held (outside the chain: a writer queued behind it would wait for itself). */
+  async function gate() {
+    if (typeof writerGate === 'function') await writerGate();
+  }
+
+  async function append(placeId: string | null, entries: Untyped) {
+    await gate();
+    return serial(() => appendNow(placeId, entries));
+  }
+
+  async function* iterate(
+    placeId: string | null,
+    {
+      from = null,
+      to = null,
+      scope = null,
+      kinds = null,
+    }: {
+      from?: string | null;
+      to?: string | null;
+      scope?: Untyped;
+      kinds?: Array<string> | null;
+    } = {}
+  ) {
+    const db = seam.db();
+    const fromMs = from ? Date.parse(from) : -Infinity;
+    const toMs = to ? Date.parse(to) : Infinity;
+    const fromMonth = from ? String(isoOf(from) ?? '').slice(0, 7) : '0000-00';
+    const toMonth = to ? String(isoOf(to) ?? '').slice(0, 7) : '9999-99';
+    const wanted = Array.isArray(kinds) && kinds.length > 0 ? new Set(kinds) : null;
+    const scopeKeys = isRecord(scope) ? Object.entries(scope) : [];
+    for (const month of seam.run(() => archiveMonths(db, placeId))) {
+      if (!MONTH_RE.test(month) || month < fromMonth || month > toMonth) continue;
+      const seen = new Set();
+      for (const line of seam.run(() => archiveLines(db, placeId, month))) {
+        const entry = parse(line);
+        if (!entry || seen.has(entry.id)) continue;
+        seen.add(entry.id);
+        const at = Date.parse(entry.recordedAt);
+        if (isFiniteNumber(at) && (at < fromMs || at > toMs)) continue;
+        if (wanted && !wanted.has(entry.itemKind)) continue;
+        if (scopeKeys.some(([key, value]) => entry.scope?.[key] !== value)) continue;
+        yield entry;
+      }
+    }
+  }
+
+  async function find(itemId: string) {
+    const out = [];
+    const db = seam.db();
+    for (const holder of seam.run(() => archiveHolders(db))) {
+      for await (const entry of iterate(holder)) if (entry.itemId === itemId) out.push(entry);
+    }
+    return out.sort((a, b) => String(a.recordedAt).localeCompare(String(b.recordedAt)));
+  }
+
+  /** The pending entries of one base not yet noted done, in order, and the done ids. */
+  async function readPending(base: Untyped) {
+    const done = new Set();
+    for await (const { line } of appendStore.iterate(doneFile(base))) {
+      const value = parse(line);
+      if (typeof value?.id === 'string') done.add(value.id);
+    }
+    const waiting: Array<Untyped> = [];
+    const ids = new Set();
+    for await (const { line } of appendStore.iterate(pendingFile(base))) {
+      const value = parse(line);
+      const entry = value?.entry;
+      if (!isRecord(entry) || typeof entry.id !== 'string' || done.has(entry.id) || ids.has(entry.id)) continue;
+      ids.add(entry.id);
+      waiting.push(entry);
+    }
+    return { waiting, done };
+  }
+
+  async function countPending() {
+    let pending = 0;
+    for (const { base } of await bases()) pending += (await readPending(base)).waiting.length;
+    pendingCount = pending;
+    return pending;
+  }
+
+  async function queuePending(placeId: string | null, entries: Untyped) {
+    await gate();
+    return serial(async () => {
+      const base = baseDir(placeId);
+      let queued = 0;
+      for (const entry of Array.isArray(entries) ? entries : []) {
+        if (!isRecord(entry) || typeof entry.id !== 'string') continue;
+        await appendLine(pendingFile(base), JSON.stringify({ id: entry.id, entry }));
+        queued += 1;
+        pendingCount += 1;
+      }
+      return queued;
+    });
+  }
+
+  async function drainPending() {
+    await gate();
+    return serial(async () => {
+      let archived = 0;
+      const confirmed: Array<Untyped> = [];
+      for (const { base, placeId } of await bases()) {
+        const { waiting, done } = await readPending(base);
+        if (waiting.length === 0) {
+          if (done.size > 0) await appendStore.rewrite(doneFile(base), () => false);
+          continue;
+        }
+        let taken = 0;
+        for (const entry of waiting) {
+          try {
+            await appendNow(placeId, [entry]);
+            await appendLine(doneFile(base), JSON.stringify({ id: entry.id }));
+          } catch (error) {
+            log.warn('archive: drain stopped', {
+              left: waiting.length - taken,
+              code: propOf(error, 'code') ?? null,
+            });
+            break;
+          }
+          done.add(entry.id);
+          taken += 1;
+          confirmed.push(entry);
+        }
+        archived += taken;
+        if (taken > 0) {
+          // The queue first, then the notes: a crash between leaves notes of entries no longer queued, which is harmless.
+          await appendStore.rewrite(pendingFile(base), (line: Untyped) => !done.has(parse(line)?.entry?.id));
+          if (taken === waiting.length) await appendStore.rewrite(doneFile(base), () => false);
+        }
+      }
+      const left = await countPending();
+      if (archived > 0) log.info('archive: drained', { archived, left });
+      return { archived, left, confirmed };
+    });
+  }
+
+  function stats() {
+    return { pending: pendingCount };
+  }
+
+  return { append, iterate, find, queuePending, drainPending, stats };
+}

@@ -1,0 +1,647 @@
+[
+ {
+  "id": "id",
+  "names": [
+   "names[]"
+  ],
+  "firstSeen": "firstSeen",
+  "lastSeen": "lastSeen",
+  "messageCount": 1,
+  "character": "character",
+  "interests": [
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 1,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen",
+    "itemId": "interests[].itemId",
+    "recordedAt": "interests[].recordedAt"
+   },
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 2,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen",
+    "itemId": "interests[].itemId",
+    "recordedAt": "interests[].recordedAt"
+   },
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 3,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen",
+    "itemId": "interests[].itemId",
+    "recordedAt": "interests[].recordedAt"
+   }
+  ],
+  "style": "style",
+  "details": [
+   {
+    "id": 1,
+    "text": "details[].text",
+    "weight": 1,
+    "firstSeen": "details[].firstSeen",
+    "lastSeen": "details[].lastSeen",
+    "itemId": "details[].itemId",
+    "recordedAt": "details[].recordedAt"
+   },
+   {
+    "id": 2,
+    "text": "details[].text",
+    "weight": 2,
+    "firstSeen": "details[].firstSeen",
+    "lastSeen": "details[].lastSeen",
+    "itemId": "details[].itemId",
+    "recordedAt": "details[].recordedAt"
+   },
+   {
+    "id": 3,
+    "text": "details[].text",
+    "weight": 3,
+    "firstSeen": "details[].firstSeen",
+    "lastSeen": "details[].lastSeen",
+    "itemId": "details[].itemId",
+    "recordedAt": "details[].recordedAt"
+   }
+  ],
+  "detailsSeq": 1,
+  "aliases": [
+   {
+    "name": "aliases[].name",
+    "weight": 1,
+    "firstSeen": "aliases[].firstSeen",
+    "lastSeen": "aliases[].lastSeen",
+    "itemId": "aliases[].itemId"
+   },
+   {
+    "name": "aliases[].name",
+    "weight": 2,
+    "firstSeen": "aliases[].firstSeen",
+    "lastSeen": "aliases[].lastSeen",
+    "itemId": "aliases[].itemId"
+   },
+   {
+    "name": "aliases[].name",
+    "weight": 3,
+    "firstSeen": "aliases[].firstSeen",
+    "lastSeen": "aliases[].lastSeen",
+    "itemId": "aliases[].itemId"
+   }
+  ],
+  "relationship": "relationship",
+  "affinity": {
+   "score": 1,
+   "reason": "affinity.reason",
+   "history": [
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 1,
+     "appliedDelta": 1,
+     "score": 1,
+     "reason": "affinity.history[].reason",
+     "itemId": "affinity.history[].itemId"
+    },
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 2,
+     "appliedDelta": 2,
+     "score": 2,
+     "reason": "affinity.history[].reason",
+     "itemId": "affinity.history[].itemId"
+    },
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 3,
+     "appliedDelta": 3,
+     "score": 3,
+     "reason": "affinity.history[].reason",
+     "itemId": "affinity.history[].itemId"
+    }
+   ],
+   "decayedAt": "affinity.decayedAt"
+  },
+  "episodes": [
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 1,
+    "addedAt": "episodes[].addedAt",
+    "itemId": "episodes[].itemId"
+   },
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 2,
+    "addedAt": "episodes[].addedAt",
+    "itemId": "episodes[].itemId"
+   },
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 3,
+    "addedAt": "episodes[].addedAt",
+    "itemId": "episodes[].itemId"
+   }
+  ],
+  "updatedAt": "updatedAt",
+  "relationshipScore": 1,
+  "relationshipWrittenAt": "relationshipWrittenAt",
+  "addressedAs": {
+   "alpha": {
+    "score": 1,
+    "last": "addressedAs.k.last"
+   }
+  },
+  "avatar": {
+   "hash": "avatar.hash",
+   "text": "avatar.text",
+   "describedAt": "avatar.describedAt",
+   "default": true
+  },
+  "realName": {
+   "name": "realName.name",
+   "from": "realName.from",
+   "to": null,
+   "itemId": "realName.itemId",
+   "recordedAt": "realName.recordedAt"
+  },
+  "portraitAttemptAt": "portraitAttemptAt",
+  "portraitRefreshedAt": "portraitRefreshedAt",
+  "portraitMessageCount": 1,
+  "portraitDueAt": "portraitDueAt",
+  "closed": [
+   {
+    "kind": "closed[].kind",
+    "id": 1,
+    "text": "closed[].text",
+    "weight": 1,
+    "firstSeen": "closed[].firstSeen",
+    "lastSeen": "closed[].lastSeen",
+    "validTo": "closed[].validTo",
+    "supersededBy": "closed[].supersededBy",
+    "itemId": "closed[].itemId"
+   },
+   {
+    "kind": "closed[].kind",
+    "id": 2,
+    "text": "closed[].text",
+    "weight": 2,
+    "firstSeen": "closed[].firstSeen",
+    "lastSeen": "closed[].lastSeen",
+    "validTo": "closed[].validTo",
+    "supersededBy": "closed[].supersededBy",
+    "itemId": "closed[].itemId"
+   },
+   {
+    "kind": "closed[].kind",
+    "id": 3,
+    "text": "closed[].text",
+    "weight": 3,
+    "firstSeen": "closed[].firstSeen",
+    "lastSeen": "closed[].lastSeen",
+    "validTo": "closed[].validTo",
+    "supersededBy": "closed[].supersededBy",
+    "itemId": "closed[].itemId"
+   }
+  ]
+ },
+ {
+  "id": "id",
+  "names": [
+   "names[]"
+  ],
+  "firstSeen": "firstSeen",
+  "lastSeen": "lastSeen",
+  "messageCount": 2,
+  "character": "character",
+  "interests": [
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 1,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen",
+    "itemId": "interests[].itemId",
+    "recordedAt": "interests[].recordedAt"
+   },
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 2,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen",
+    "itemId": "interests[].itemId",
+    "recordedAt": "interests[].recordedAt"
+   },
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 3,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen",
+    "itemId": "interests[].itemId",
+    "recordedAt": "interests[].recordedAt"
+   }
+  ],
+  "style": "style",
+  "details": [
+   {
+    "id": 1,
+    "text": "details[].text",
+    "weight": 1,
+    "firstSeen": "details[].firstSeen",
+    "lastSeen": "details[].lastSeen",
+    "itemId": "details[].itemId",
+    "recordedAt": "details[].recordedAt"
+   },
+   {
+    "id": 2,
+    "text": "details[].text",
+    "weight": 2,
+    "firstSeen": "details[].firstSeen",
+    "lastSeen": "details[].lastSeen",
+    "itemId": "details[].itemId",
+    "recordedAt": "details[].recordedAt"
+   },
+   {
+    "id": 3,
+    "text": "details[].text",
+    "weight": 3,
+    "firstSeen": "details[].firstSeen",
+    "lastSeen": "details[].lastSeen",
+    "itemId": "details[].itemId",
+    "recordedAt": "details[].recordedAt"
+   }
+  ],
+  "detailsSeq": 2,
+  "aliases": [
+   {
+    "name": "aliases[].name",
+    "weight": 1,
+    "firstSeen": "aliases[].firstSeen",
+    "lastSeen": "aliases[].lastSeen",
+    "itemId": "aliases[].itemId"
+   },
+   {
+    "name": "aliases[].name",
+    "weight": 2,
+    "firstSeen": "aliases[].firstSeen",
+    "lastSeen": "aliases[].lastSeen",
+    "itemId": "aliases[].itemId"
+   },
+   {
+    "name": "aliases[].name",
+    "weight": 3,
+    "firstSeen": "aliases[].firstSeen",
+    "lastSeen": "aliases[].lastSeen",
+    "itemId": "aliases[].itemId"
+   }
+  ],
+  "relationship": "relationship",
+  "affinity": {
+   "score": 2,
+   "reason": "affinity.reason",
+   "history": [
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 1,
+     "appliedDelta": 1,
+     "score": 1,
+     "reason": "affinity.history[].reason",
+     "itemId": "affinity.history[].itemId"
+    },
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 2,
+     "appliedDelta": 2,
+     "score": 2,
+     "reason": "affinity.history[].reason",
+     "itemId": "affinity.history[].itemId"
+    },
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 3,
+     "appliedDelta": 3,
+     "score": 3,
+     "reason": "affinity.history[].reason",
+     "itemId": "affinity.history[].itemId"
+    }
+   ],
+   "decayedAt": "affinity.decayedAt"
+  },
+  "episodes": [
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 1,
+    "addedAt": "episodes[].addedAt",
+    "itemId": "episodes[].itemId"
+   },
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 2,
+    "addedAt": "episodes[].addedAt",
+    "itemId": "episodes[].itemId"
+   },
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 3,
+    "addedAt": "episodes[].addedAt",
+    "itemId": "episodes[].itemId"
+   }
+  ],
+  "updatedAt": null,
+  "relationshipScore": 2,
+  "relationshipWrittenAt": "relationshipWrittenAt",
+  "addressedAs": {
+   "alpha": {
+    "score": 2,
+    "last": "addressedAs.k.last"
+   }
+  },
+  "avatar": {
+   "hash": null,
+   "text": "avatar.text",
+   "describedAt": "avatar.describedAt",
+   "default": false
+  },
+  "realName": {
+   "name": "realName.name",
+   "from": "realName.from",
+   "to": null,
+   "itemId": "realName.itemId",
+   "recordedAt": "realName.recordedAt"
+  },
+  "portraitAttemptAt": null,
+  "portraitRefreshedAt": "portraitRefreshedAt",
+  "portraitMessageCount": 2,
+  "portraitDueAt": null,
+  "closed": [
+   {
+    "kind": "closed[].kind",
+    "id": 1,
+    "text": "closed[].text",
+    "weight": 1,
+    "firstSeen": "closed[].firstSeen",
+    "lastSeen": "closed[].lastSeen",
+    "validTo": "closed[].validTo",
+    "supersededBy": "closed[].supersededBy",
+    "itemId": "closed[].itemId"
+   },
+   {
+    "kind": "closed[].kind",
+    "id": 2,
+    "text": "closed[].text",
+    "weight": 2,
+    "firstSeen": "closed[].firstSeen",
+    "lastSeen": "closed[].lastSeen",
+    "validTo": "closed[].validTo",
+    "supersededBy": "closed[].supersededBy",
+    "itemId": "closed[].itemId"
+   },
+   {
+    "kind": "closed[].kind",
+    "id": 3,
+    "text": "closed[].text",
+    "weight": 3,
+    "firstSeen": "closed[].firstSeen",
+    "lastSeen": "closed[].lastSeen",
+    "validTo": "closed[].validTo",
+    "supersededBy": "closed[].supersededBy",
+    "itemId": "closed[].itemId"
+   }
+  ]
+ },
+ {
+  "id": "id",
+  "names": [
+   "names[]"
+  ],
+  "firstSeen": "firstSeen",
+  "lastSeen": "lastSeen",
+  "messageCount": 3,
+  "character": "character",
+  "interests": [
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 1,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen",
+    "itemId": "interests[].itemId",
+    "recordedAt": "interests[].recordedAt"
+   },
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 2,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen",
+    "itemId": "interests[].itemId",
+    "recordedAt": "interests[].recordedAt"
+   },
+   {
+    "topic": "interests[].topic",
+    "note": "interests[].note",
+    "weight": 3,
+    "firstSeen": "interests[].firstSeen",
+    "lastSeen": "interests[].lastSeen",
+    "itemId": "interests[].itemId",
+    "recordedAt": "interests[].recordedAt"
+   }
+  ],
+  "style": "style",
+  "details": [
+   {
+    "id": 1,
+    "text": "details[].text",
+    "weight": 1,
+    "firstSeen": "details[].firstSeen",
+    "lastSeen": "details[].lastSeen",
+    "itemId": "details[].itemId",
+    "recordedAt": "details[].recordedAt"
+   },
+   {
+    "id": 2,
+    "text": "details[].text",
+    "weight": 2,
+    "firstSeen": "details[].firstSeen",
+    "lastSeen": "details[].lastSeen",
+    "itemId": "details[].itemId",
+    "recordedAt": "details[].recordedAt"
+   },
+   {
+    "id": 3,
+    "text": "details[].text",
+    "weight": 3,
+    "firstSeen": "details[].firstSeen",
+    "lastSeen": "details[].lastSeen",
+    "itemId": "details[].itemId",
+    "recordedAt": "details[].recordedAt"
+   }
+  ],
+  "detailsSeq": 3,
+  "aliases": [
+   {
+    "name": "aliases[].name",
+    "weight": 1,
+    "firstSeen": "aliases[].firstSeen",
+    "lastSeen": "aliases[].lastSeen",
+    "itemId": "aliases[].itemId"
+   },
+   {
+    "name": "aliases[].name",
+    "weight": 2,
+    "firstSeen": "aliases[].firstSeen",
+    "lastSeen": "aliases[].lastSeen",
+    "itemId": "aliases[].itemId"
+   },
+   {
+    "name": "aliases[].name",
+    "weight": 3,
+    "firstSeen": "aliases[].firstSeen",
+    "lastSeen": "aliases[].lastSeen",
+    "itemId": "aliases[].itemId"
+   }
+  ],
+  "relationship": "relationship",
+  "affinity": {
+   "score": 3,
+   "reason": "affinity.reason",
+   "history": [
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 1,
+     "appliedDelta": 1,
+     "score": 1,
+     "reason": "affinity.history[].reason",
+     "itemId": "affinity.history[].itemId"
+    },
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 2,
+     "appliedDelta": 2,
+     "score": 2,
+     "reason": "affinity.history[].reason",
+     "itemId": "affinity.history[].itemId"
+    },
+    {
+     "ts": "affinity.history[].ts",
+     "delta": 3,
+     "appliedDelta": 3,
+     "score": 3,
+     "reason": "affinity.history[].reason",
+     "itemId": "affinity.history[].itemId"
+    }
+   ],
+   "decayedAt": "affinity.decayedAt"
+  },
+  "episodes": [
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 1,
+    "addedAt": "episodes[].addedAt",
+    "itemId": "episodes[].itemId"
+   },
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 2,
+    "addedAt": "episodes[].addedAt",
+    "itemId": "episodes[].itemId"
+   },
+   {
+    "date": "episodes[].date",
+    "what": "episodes[].what",
+    "quote": "episodes[].quote",
+    "feeling": "episodes[].feeling",
+    "weight": 3,
+    "addedAt": "episodes[].addedAt",
+    "itemId": "episodes[].itemId"
+   }
+  ],
+  "updatedAt": null,
+  "relationshipScore": 3,
+  "relationshipWrittenAt": "relationshipWrittenAt",
+  "addressedAs": {
+   "alpha": {
+    "score": 3,
+    "last": "addressedAs.k.last"
+   }
+  },
+  "avatar": {
+   "hash": null,
+   "text": "avatar.text",
+   "describedAt": "avatar.describedAt",
+   "default": true
+  },
+  "realName": {
+   "name": "realName.name",
+   "from": "realName.from",
+   "to": null,
+   "itemId": "realName.itemId",
+   "recordedAt": "realName.recordedAt"
+  },
+  "portraitAttemptAt": null,
+  "portraitRefreshedAt": "portraitRefreshedAt",
+  "portraitMessageCount": 3,
+  "portraitDueAt": null,
+  "closed": [
+   {
+    "kind": "closed[].kind",
+    "id": 1,
+    "text": "closed[].text",
+    "weight": 1,
+    "firstSeen": "closed[].firstSeen",
+    "lastSeen": "closed[].lastSeen",
+    "validTo": "closed[].validTo",
+    "supersededBy": "closed[].supersededBy",
+    "itemId": "closed[].itemId"
+   },
+   {
+    "kind": "closed[].kind",
+    "id": 2,
+    "text": "closed[].text",
+    "weight": 2,
+    "firstSeen": "closed[].firstSeen",
+    "lastSeen": "closed[].lastSeen",
+    "validTo": "closed[].validTo",
+    "supersededBy": "closed[].supersededBy",
+    "itemId": "closed[].itemId"
+   },
+   {
+    "kind": "closed[].kind",
+    "id": 3,
+    "text": "closed[].text",
+    "weight": 3,
+    "firstSeen": "closed[].firstSeen",
+    "lastSeen": "closed[].lastSeen",
+    "validTo": "closed[].validTo",
+    "supersededBy": "closed[].supersededBy",
+    "itemId": "closed[].itemId"
+   }
+  ]
+ }
+]

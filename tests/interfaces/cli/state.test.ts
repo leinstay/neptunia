@@ -1,0 +1,184 @@
+// interfaces/cli/state.ts: the chat's state and its header without a terminal.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  backspace,
+  browse,
+  emptyInput,
+  foldedText,
+  insert,
+  menuOf,
+  moveCursor,
+  statusLine,
+  submit,
+} from '../../../interfaces/cli/state.ts';
+import type { StatusBrief } from '../../../interfaces/cli/state.ts';
+import { KEY, chatEnv, until, withChat } from '../../fixtures/chat-rig.ts';
+
+const BRIEF: StatusBrief = {
+  core: { state: 'paused', reason: 'memory-down', model: 'opus', route: 'claude-harness', bound: true },
+  memory: { session: 'apply', model: 'opus', route: 'claude-harness', bound: true, probe: 'failed', checkedAt: 1000 },
+  analyzer: { model: 'opus', route: 'direct-api', bound: true },
+  interfaces: [
+    { name: 'discord', enabled: true, connected: false },
+    { name: 'telegram', enabled: false, connected: false },
+  ],
+};
+
+/** All of it working: the core runs, memory writes, the analyzer has its key, Discord is connected. */
+const HEALTHY: StatusBrief = {
+  core: { state: 'running', reason: null, model: 'anthropic/claude-opus-4.6', route: 'claude-harness', bound: true },
+  memory: {
+    session: 'apply',
+    model: 'claude-opus-4-6',
+    route: 'claude-harness',
+    bound: true,
+    probe: 'ok',
+    checkedAt: 1000,
+  },
+  analyzer: { model: 'google/gemini-3-flash', route: 'direct-api', bound: true },
+  interfaces: [{ name: 'discord', enabled: true, connected: true }],
+};
+
+const header = (brief: StatusBrief): Array<string> =>
+  statusLine(brief, { connected: true, polledAt: 1000, now: 2000 }).split('\n');
+/** The state word of the line that starts with `label`. */
+const stateOf = (lines: ReadonlyArray<string>, label: string): string | undefined =>
+  lines
+    .find((line) => line.startsWith(`${label}: `))
+    ?.slice(label.length + 2)
+    .split(/[ ·(]/)[0];
+
+test('a multiline paste with non-Latin text stays whole and backspace removes one whole character', () => {
+  // Bug: a pasted newline sends the line early, or backspace cuts an emoji in half.
+  const pasted = insert(emptyInput(), 'γεια\nσου 🙂');
+  assert.equal(pasted.text, 'γεια\nσου 🙂');
+  assert.equal(backspace(pasted).text, 'γεια\nσου ');
+  const left = moveCursor(pasted, -1);
+  assert.equal(left.cursor, pasted.text.length - 2);
+  assert.equal(insert(left, 'x').text, 'γεια\nσου x🙂');
+});
+
+test('history comes back newest first, and a secret never enters it', () => {
+  // Bug: a typed key lands in the history file, or up and down walk the wrong way.
+  let state = insert(emptyInput(['two', 'one']), 'three');
+  const sent = submit(state, { secret: false });
+  assert.deepEqual(sent.next.history, ['three', 'two', 'one']);
+  state = browse(sent.next, -1);
+  assert.equal(state.text, 'three');
+  state = browse(browse(state, -1), 1);
+  assert.equal(state.text, 'three');
+  assert.equal(browse(state, 1).text, '');
+  const secret = submit(insert(emptyInput(['two']), 'sk-or-secret'), { secret: true });
+  assert.equal(secret.line, 'sk-or-secret');
+  assert.deepEqual(secret.next.history, ['two']);
+});
+
+test('the slash menu completes nested commands and leaves arguments alone', () => {
+  // Bug: the menu stays open over an argument, or finds nothing for a word of a command's description.
+  const commands = [
+    { name: 'status', help: 'the short summary' },
+    { name: 'keys', help: 'the model keys' },
+    { name: 'skills', help: 'her status of skills' },
+  ];
+  assert.deepEqual(
+    menuOf('/s', commands).map((one) => one.name),
+    ['status', 'skills', 'keys']
+  );
+  assert.deepEqual(menuOf('/status x', commands), []);
+  assert.deepEqual(
+    menuOf('/skills se', [{ name: 'skills setup', help: 'configure a skill' }]).map((one) => one.name),
+    ['skills setup']
+  );
+  assert.deepEqual(menuOf('hello', commands), []);
+});
+
+test('a long answer folds with a count and expands whole', () => {
+  // Bug: a long report pushes the whole chat off the screen, or the folded part cannot be reached.
+  const text = Array.from({ length: 25 }, (_, i) => `l${i}`).join('\n');
+  assert.equal(foldedText(text, false).hidden, 5);
+  assert.equal(foldedText(text, true).text, text);
+});
+
+test('the header gives one line per role with its state, its model once and its route', () => {
+  // Bug: the memory line names the model twice (the role's and the harness's) and runs past the width, and the core's and
+  // the analyzer's models and routes are nowhere on the screen.
+  const lines = header(HEALTHY);
+  assert.deepEqual(
+    lines.map((line) => line.split(':')[0]),
+    ['Core', 'Memory', 'Analyzer', 'Interfaces']
+  );
+  const memory = lines[1] ?? '';
+  assert.equal(memory.split('claude-opus-4-6').length - 1, 1, 'the model the route runs, once');
+  assert.ok(!memory.includes('anthropic/claude-opus-4.6'), 'no second model name');
+  assert.ok(memory.endsWith('claude-harness'), memory);
+  assert.ok((lines[0] ?? '').includes('anthropic/claude-opus-4.6') && (lines[0] ?? '').endsWith('claude-harness'));
+  assert.ok((lines[2] ?? '').includes('google/gemini-3-flash') && (lines[2] ?? '').endsWith('direct-api'));
+});
+
+test('one state word means the same on every line of the header', () => {
+  // Bug: a running core reads `running`, a working memory `ready` and a connected interface `connected`, so the owner
+  // cannot tell at a glance that everything works; or a broken part reads like a working one.
+  const lines = header(HEALTHY);
+  const working = ['Core', 'Memory', 'Analyzer'].map((label) => stateOf(lines, label));
+  assert.equal(new Set(working).size, 1, working.join(' '));
+  // The interfaces line holds no state words: it names the command line and the
+  // interfaces that work, so a disconnected one is left out instead of reading `error`.
+  assert.equal(lines[3], 'Interfaces: CLI, Discord');
+  const broken = header(BRIEF);
+  assert.equal(broken[3], 'Interfaces: CLI', 'a disconnected interface is not listed');
+  assert.notEqual(stateOf(broken, 'Memory'), working[0]);
+  assert.match(broken[0] ?? '', /\(memory-down\)/, 'a pause keeps its reason');
+  assert.notEqual(stateOf(broken, 'Core'), working[0]);
+  assert.doesNotMatch(broken.join('\n'), /telegram/i, 'only enabled interfaces');
+});
+
+test('a role with no key, a memory session that is off and an analyzer without a model each read as not working', () => {
+  // Bug: a role whose direct route has no key shows as working, and the persona's turns or sweeps fail with nothing on the screen.
+  const active = stateOf(header(HEALTHY), 'Core');
+  const unbound = header({ ...HEALTHY, analyzer: { ...HEALTHY.analyzer, bound: false } });
+  assert.notEqual(stateOf(unbound, 'Analyzer'), active);
+  const off = header({ ...HEALTHY, memory: { ...HEALTHY.memory, session: 'off' } });
+  assert.notEqual(stateOf(off, 'Memory'), active);
+  assert.notEqual(stateOf(off, 'Memory'), stateOf(unbound, 'Analyzer'), 'off and without a key are different facts');
+  const noModel = header({ ...HEALTHY, analyzer: { ...HEALTHY.analyzer, model: null } });
+  assert.equal(stateOf(noModel, 'Analyzer'), stateOf(off, 'Memory'), 'a role that does not run is off on every line');
+});
+
+test('a lost link or an old poll says so on every line', () => {
+  // Bug: a dropped connection or an old poll still reads as healthy.
+  const stale = statusLine(HEALTHY, { connected: true, polledAt: 1000, now: 100_000 }).split('\n');
+  assert.equal(stale.filter((line) => line.endsWith(' (outdated)')).length, 4);
+  const lost = statusLine(HEALTHY, { connected: false, polledAt: 1000, now: 2000 }).split('\n');
+  assert.equal(lost.length, 4);
+  assert.equal(new Set(lost.map((line) => line.split(': ')[1])).size, 1, 'nothing known, the same word on each line');
+  assert.notEqual(stateOf(lost, 'Core'), stateOf(header(HEALTHY), 'Core'));
+});
+
+const FAMILY = '👨‍👩‍👧';
+
+const ACCENT = 'é';
+
+test('Backspace removes a whole grapheme, and the cursor crosses one in one step', () => {
+  // Bug: Backspace leaves half a family emoji, or the accent without its letter.
+  assert.equal(backspace(insert(emptyInput(), `a${FAMILY}`)).text, 'a');
+  assert.equal(backspace(insert(emptyInput(), `a${ACCENT}`)).text, 'a');
+  const state = insert(emptyInput(), `a${FAMILY}b`);
+  const before = moveCursor(moveCursor(state, -1), -1);
+  assert.equal(before.cursor, 1);
+  assert.equal(moveCursor(before, 1).cursor, 1 + FAMILY.length);
+});
+
+test('Backspace over a family emoji in the input removes it whole', async () => {
+  // Bug: half a joined emoji goes to the core.
+  const { env, sent } = chatEnv();
+  await withChat(env, async (rig) => {
+    rig.type('a👨‍👩‍👧');
+    await until(() => rig.screen().join('').includes('👨‍👩‍👧'));
+    rig.type(KEY.backspace);
+    await until(() => !rig.screen().join('').includes('👨'));
+    rig.type(KEY.enter);
+    await until(() => sent.length === 1);
+  });
+  assert.deepEqual(sent, ['a']);
+});

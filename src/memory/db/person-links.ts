@@ -1,0 +1,339 @@
+// The owner's binding of accounts to people. A person may hold any number of accounts on any interfaces, the owner and
+// the persona included. Only the owner's `/memory bind` command writes here, through the memory writer, with `by` set
+// to `owner`: no model proposal, name match or claimed id creates a link. The one other link is the core's, `by`
+// `core`, from a new account to a meta-person of its own (`ensureAccountPerson`). `personMembers` follows merges and verified
+// links to the accounts of one person. `linkedDmScopes` tells a DM context the stored DM places of those accounts, so a
+// DM reads the person's history while each row keeps the scope of the chat it came from. A merge written by the
+// owner widens a DM context and a merge written by anyone else never does. One `people` row carries the shared affinity
+// score. `createOwnerAccounts` answers the owner check over the same links (src/tools/operations/grants.ts#isOwnerId): the live
+// row of `account_person_links` is the one source of truth, and the account's `link` and `linked_by` columns are its copy
+// for the readers that join accounts. Called by session-write.ts (the writes), service.ts (the context), private-read.ts
+// (the private view), identity-links.ts and person-merge.ts (the links they write), core.ts and
+// src/interface/commands/console.ts.
+
+import { currentIface } from './current-iface.ts';
+import { projectRow } from './graph.ts';
+import { SELF_PERSON, survivorOf } from './ids.ts';
+import { personOfAccount } from './meta-person.ts';
+import { followAccount, hasMetaSchema, mintMetaPerson, syncPersonAccount } from './meta-person-write.ts';
+import type { AccountAddress } from '../../protocol/identity.ts';
+import { collectionId } from './unit-keys.ts';
+import { profileKeyOf } from './profile-holder.ts';
+import type { UnitKey } from './unit-keys.ts';
+import type { Db, MemoryHandle } from './types.ts';
+import { dbOf } from './types.ts';
+
+type Row = Record<string, unknown>;
+type AccountRow = {
+  id: string;
+  iface: string;
+  native: string;
+  person_id: string | null;
+  link: string | null;
+};
+export type LinkedDm = { iface: string; person: string; place: string | null };
+/** One person as the stored rows hold them: the final survivor, the people merged into it and their accounts. */
+export type PersonMembers = { survivor: string; mergedFrom: Array<string>; accounts: Array<Row> };
+
+function coded(code: string): Error {
+  return Object.assign(new Error(code), { code });
+}
+
+function accountById(db: Db, id: unknown): AccountRow | undefined {
+  return db
+    .prepare('SELECT id, iface, COALESCE(native_key, native_id) AS native, person_id, link FROM accounts WHERE id = ?')
+    .get(id) as AccountRow | undefined;
+}
+
+/** The newest generation of a native id on an interface: what an owner's words name. */
+function accountByNative(db: Db, iface: unknown, native: unknown): AccountRow | undefined {
+  return db
+    .prepare(
+      `SELECT id, iface, COALESCE(native_key, native_id) AS native, person_id, link FROM accounts
+       WHERE iface = ? AND (native_key = ? OR native_id = ?) ORDER BY generation DESC LIMIT 1`
+    )
+    .get(iface, native, native) as AccountRow | undefined;
+}
+
+/** The account node of exactly this interface, authority, native id and generation, or null. */
+export function accountNodeOf(db: Db, address: AccountAddress): string | null {
+  const row = db
+    .prepare(
+      `SELECT id FROM accounts WHERE iface = ? AND authority_id = ? AND generation = ?
+       AND (native_key = ? OR native_id = ?) LIMIT 1`
+    )
+    .get(address.interfaceId, address.authorityId, address.generation, address.nativeId, address.nativeId);
+  return typeof row?.id === 'string' ? row.id : null;
+}
+
+/** The person of an account, made from the account's own DM person when it has none yet. */
+function personOf(db: Db, account: AccountRow, at: string): string {
+  if (account.person_id) return account.person_id;
+  const person = mintMetaPerson(db, at);
+  link(db, account.id, person, at);
+  return person;
+}
+
+/**
+ * The person of an account, a new meta-person linked to it when it has none (plan 2026-11-08-meta-person: every account
+ * has one). The link is the core's, not the owner's word, so it hands out no owner rights. A person of the old shape
+ * stays as it is until the offline migration moves it. Returns the person, null on a database older than schema 40.
+ */
+export function ensureAccountPerson(db: Db, accountId: string, at: string): string | null {
+  // A database older than schema version 40 has no meta-person: its accounts stay as they are.
+  if (!hasMetaSchema(db)) return null;
+  const person = personOfAccount(db, accountId);
+  if (person !== null) {
+    syncPersonAccount(db, accountId, at);
+    return person;
+  }
+  const meta = mintMetaPerson(db, at);
+  linkAccount(db, accountId, meta, at, { by: 'core', reason: 'new account' });
+  // The person and the account's link are graph rows too, projected in the same transaction as the link.
+  projectRow(db, 'people', { id: meta }, { at });
+  projectRow(db, 'accounts', { id: accountId }, { at });
+  return meta;
+}
+
+function closeLinks(db: Db, accountId: string, at: string): void {
+  db.prepare('UPDATE account_person_links SET valid_to_at = ? WHERE account_id = ? AND valid_to_at IS NULL').run(
+    at,
+    accountId
+  );
+}
+
+/** Who wrote a link and why: the owner's command unless a caller names another writer. */
+export type LinkAuthor = { by: string; reason: string; state?: 'verified' | 'proposed' };
+
+const OWNER_COMMAND: LinkAuthor = { by: 'owner', reason: 'owner command' };
+
+/**
+ * Links `accountId` to `person`: its live links closed, one new row in `account_person_links`, and the account's columns
+ * copied from it (a proposal leaves `person_id` empty). A verified link moves the account's row
+ * in `person_accounts` and the author person of its lines with it (meta-person-write.ts#followAccount).
+ */
+export function linkAccount(db: Db, accountId: string, person: string, at: string, author: LinkAuthor): void {
+  const state = author.state ?? 'verified';
+  closeLinks(db, accountId, at);
+  db.prepare(
+    `INSERT INTO account_person_links (id, account_id, person_id, state, by, reason, valid_from_at, recorded_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(`link:${accountId}:${person}:${at}`, accountId, person, state, author.by, author.reason, at, at);
+  if (state !== 'verified') return;
+  db.prepare("UPDATE accounts SET person_id = ?, link = 'verified', linked_by = ?, linked_at = ? WHERE id = ?").run(
+    person,
+    author.by,
+    at,
+    accountId
+  );
+  followAccount(db, accountId, at);
+}
+
+function link(db: Db, accountId: string, person: string, at: string): void {
+  linkAccount(db, accountId, person, at, OWNER_COMMAND);
+}
+
+/**
+ * The one write of a binding, on the writer connection: `{ op, accountId, target }`, the target `{ accountId }`,
+ * `{ personId }`, `{ self: true }` or `{ owner: true }`. Throws `UNKNOWN_ACCOUNT` or `UNKNOWN_PERSON` for a name nobody
+ * stored. An unbind leaves the account with a person of its own.
+ */
+export function applyPersonLinkWrite(handle: MemoryHandle, update: Row): { ok: true; person: string | null } {
+  const at = new Date(typeof update.now === 'number' ? update.now : Date.now()).toISOString();
+  return handle.transaction(() => {
+    const db = dbOf(handle);
+    const account = accountById(db, update.accountId);
+    if (account === undefined) throw coded('UNKNOWN_ACCOUNT');
+    const done = bindingOf(db, account, update, at);
+    // The account's links are its graph edges and the person its names point at (names.ts): both follow the binding.
+    if (done.person !== null) projectRow(db, 'people', { id: done.person }, { at });
+    projectRow(db, 'accounts', { id: account.id }, { at });
+    return done;
+  });
+}
+
+/** The binding itself: the account's links rewritten, and the person it ends with. */
+function bindingOf(db: Db, account: AccountRow, update: Row, at: string): { ok: true; person: string | null } {
+  if (update.op === 'unbind') {
+    closeLinks(db, account.id, at);
+    const own = mintMetaPerson(db, at);
+    link(db, account.id, own, at);
+    return { ok: true as const, person: own };
+  }
+  const target = update.target as { self?: boolean; owner?: boolean; accountId?: unknown; personId?: unknown };
+  if (target.owner === true) {
+    // The owner names their own account: it keeps its person and its memory, and the link becomes the owner's own word.
+    const own = personOf(db, account, at);
+    if (account.person_id) link(db, account.id, own, at);
+    return { ok: true as const, person: own };
+  }
+  let person: string = SELF_PERSON;
+  if (typeof target.personId === 'string') {
+    const known = db.prepare('SELECT 1 AS ok FROM people WHERE id = ?').get(target.personId);
+    if (!known) throw coded('UNKNOWN_PERSON');
+    person = target.personId;
+  } else if (target.self !== true) {
+    const other = accountById(db, target.accountId);
+    if (other === undefined) throw coded('UNKNOWN_ACCOUNT');
+    person = personOf(db, other, at);
+  }
+  link(db, account.id, person, at);
+  return { ok: true as const, person };
+}
+
+/**
+ * The profile unit of the person an account is linked to, when another account's unit holds it: the unit that owns the
+ * person's `people` row. Null for an account with no person, a person whose row no unit owns, and a row its own account
+ * owns in another root. What a linked account writes through its own unit stays account-specific (account-profile.ts).
+ */
+export function linkedProfileUnit(db: Db, accountId: string): { id: string; key: UnitKey } | null {
+  const person = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId)?.person_id;
+  if (typeof person !== 'string' || !person) return null;
+  // The profile that holds the person's row names its account (profile-holder.ts).
+  const holder = db
+    .prepare("SELECT holder_id FROM people WHERE id = ? AND retired_at IS NULL AND writer = 'profile'")
+    .get(survivorOf(db, person))?.holder_id;
+  if (typeof holder !== 'string') return null;
+  const key = profileKeyOf(holder);
+  return key.subject.id === accountId ? null : { id: collectionId(key), key };
+}
+
+const placeholders = (values: ReadonlyArray<unknown>): string => values.map(() => '?').join(', ');
+
+/**
+ * Who `person` stands for: the survivor of its merges, every person merged into that survivor and their verified
+ * accounts, joined through stored rows. `ownerMergesOnly` is for an outward context: a merge only counts there when
+ * the owner wrote it or a one-time code proved it (`by` `code`, the persona's link tool); any other neither moves the
+ * person nor adds to it. A person merged into another reaches it through `people_merges`, never through the text of its
+ * id.
+ */
+export function personMembers(
+  db: Db,
+  person: string,
+  { ownerMergesOnly }: { ownerMergesOnly: boolean }
+): PersonMembers {
+  const whose = ownerMergesOnly ? " AND by IN ('owner', 'code')" : '';
+  const forward = db.prepare(`SELECT into_person AS next FROM people_merges WHERE from_person = ?${whose}`);
+  const backward = db.prepare(
+    `SELECT from_person AS next FROM people_merges WHERE into_person = ?${whose} ORDER BY from_person`
+  );
+  let survivor = person;
+  const walked = new Set([survivor]);
+  for (let row = forward.get(survivor); row && !walked.has(String(row.next)); row = forward.get(survivor)) {
+    survivor = String(row.next);
+    walked.add(survivor);
+  }
+  const members = new Set([survivor]);
+  for (const member of members) for (const row of backward.all(member)) members.add(String(row.next));
+  const ids = [...members];
+  const accounts = db
+    .prepare(
+      `SELECT * FROM accounts WHERE person_id IN (${placeholders(ids)}) AND link = 'verified' AND retired_at IS NULL
+       ORDER BY iface, id`
+    )
+    .all(...ids);
+  return { survivor, mergedFrom: ids.slice(1), accounts };
+}
+
+/** The live DM places whose stored partner is one of `accountIds`, whoever the place's partner person says it was. */
+export function dmPlacesOfAccounts(db: Db, accountIds: ReadonlyArray<unknown>): Array<Row> {
+  if (accountIds.length === 0) return [];
+  return db
+    .prepare(
+      `SELECT * FROM places WHERE partner_account IN (${placeholders(accountIds)})
+       AND (kind = 'dm' OR chat = 'dm') AND retired_at IS NULL ORDER BY iface, id`
+    )
+    .all(...accountIds);
+}
+
+/**
+ * The person a linked place's scope columns name: its stored partner, unless that partner is now somebody else's. After
+ * an account moves to another person, the old partner on its place would otherwise open the old person's scope columns.
+ */
+function scopePersonOf(db: Db, place: Row, account: Row, members: PersonMembers): string {
+  const partner = place.partner_person;
+  const current = String(account.person_id);
+  if (typeof partner !== 'string' || partner === '') return current;
+  if (partner === members.survivor || members.mergedFrom.includes(partner)) return partner;
+  const held = db
+    .prepare("SELECT 1 AS ok FROM accounts WHERE person_id = ? AND link = 'verified' AND id != ? LIMIT 1")
+    .get(partner, account.id);
+  return held ? current : partner;
+}
+
+/**
+ * The DM places of the person behind a DM's person id, read from the stored accounts and places, without `ownPlace`, the
+ * DM the context was issued in. Empty for a person with no verified account and no observed DM.
+ */
+export function linkedDmScopes(db: Db, dmPerson: string, ownPlace: string | null): Array<LinkedDm> {
+  const members = personMembers(db, dmPerson, { ownerMergesOnly: true });
+  const byId = new Map(members.accounts.map((account) => [account.id, account]));
+  const linked: Array<LinkedDm> = [];
+  for (const place of dmPlacesOfAccounts(db, [...byId.keys()])) {
+    const account = byId.get(place.partner_account);
+    if (account === undefined || place.id === ownPlace) continue;
+    linked.push({
+      iface: String(place.iface),
+      person: scopePersonOf(db, place, account, members),
+      place: String(place.id),
+    });
+  }
+  return linked;
+}
+
+/** The person of an account's live verified link the owner wrote, or null. */
+export function ownerLinkedPerson(db: Db, accountId: string): string | null {
+  const row = db
+    .prepare(
+      `SELECT person_id FROM account_person_links WHERE account_id = ? AND state = 'verified' AND by = 'owner'
+       AND valid_to_at IS NULL ORDER BY recorded_at DESC, id DESC LIMIT 1`
+    )
+    .get(accountId);
+  return typeof row?.person_id === 'string' ? row.person_id : null;
+}
+
+/**
+ * The owner's account on `iface`: the native id of the account whose live owner link to `ownerPerson`, or to the
+ * person it was merged into, came last. Binding a second account there makes it this one, and the first stays linked.
+ * Null when there is none.
+ */
+export function ownerAccountOf(db: Db, ownerPerson: string, iface: string): string | null {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(a.native_key, a.native_id) AS native FROM account_person_links l
+       JOIN accounts a ON a.id = l.account_id
+       WHERE l.person_id = ? AND l.state = 'verified' AND l.by = 'owner' AND l.valid_to_at IS NULL AND a.iface = ?
+       ORDER BY l.recorded_at DESC, l.rowid DESC LIMIT 1`
+    )
+    .get(survivorOf(db, ownerPerson), iface);
+  return typeof row?.native === 'string' ? row.native : null;
+}
+
+/** The owner's account on the interface of the stored place `placeId`, by `bot.ownerPerson` of `config`; null when none. */
+export function ownerAccountOfPlace(db: Db, config: unknown, placeId: string): string | null {
+  const bot: unknown = config !== null && typeof config === 'object' ? Reflect.get(config, 'bot') : null;
+  const named: unknown = bot !== null && typeof bot === 'object' ? Reflect.get(bot, 'ownerPerson') : null;
+  const owner = typeof named === 'string' && named !== '' ? named : null;
+  const iface = db.prepare('SELECT iface FROM places WHERE id = ?').get(placeId)?.iface;
+  return owner === null || typeof iface !== 'string' ? null : ownerAccountOf(db, owner, iface);
+}
+
+/**
+ * The owner check's reader over a read connection. Only a live link the owner wrote counts: a memory session proposes
+ * links and an import carries them, and neither hands out the owner's rights. The account's columns are never read, and
+ * a person merged away stands for the person it was merged into. The interface is the current event's or turn's, the
+ * home interface on a wake. Closed memory passes nobody.
+ */
+export function createOwnerAccounts({ database, home }: { database: () => Db | null; home: () => string }): {
+  isBoundTo(person: string, native: string): boolean;
+} {
+  return {
+    isBoundTo(person, native) {
+      const db = database();
+      if (db === null) return false;
+      const account = accountByNative(db, currentIface() ?? home(), native);
+      const linked = account === undefined ? null : ownerLinkedPerson(db, account.id);
+      return linked !== null && survivorOf(db, linked) === survivorOf(db, person);
+    },
+  };
+}

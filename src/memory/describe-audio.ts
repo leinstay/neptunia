@@ -1,0 +1,110 @@
+// How the describer (src/memory/describe.ts) tells a voice message, an audio file and a text file: the first two heard on the
+// `video` role through `describe/audio`, the third from its own words with no model. What it comes to is a transcript, in the
+// language spoken: quoted speech, so the script check of a picture's description does not apply.
+
+/** A voice message or an audio file, or a text file, as the collectors list them. */
+type Item = { itemId: string; kind: string; url: string; durationSec?: number | null };
+/** The live `media.video` section with its fixed fields. */
+type VideoSettings = {
+  summaryChars: number;
+  maxSeconds: number;
+  maxBytes: number;
+  toolTimeoutMs: number;
+  ffmpegPath: string;
+  maxOutputTokens: number;
+  provider?: unknown;
+};
+type Clip = { ok: true; dataUrl: string; seconds: number; bytes: number } | { ok: false; reason: string };
+export type Completion = { text?: unknown; usage?: unknown; estimated?: unknown };
+/** A request's answer, or why the provider cut it short twice (`filter`, `cut`). */
+export type Asked = { answer: Completion } | { cut: string };
+
+/** What the describer gives this module, read at the moment of use. */
+export type AudioDeps = {
+  prompt: () => unknown;
+  settings: () => VideoSettings;
+  model: () => string | null | undefined;
+  fill: (template: string, values: Record<string, unknown>) => string;
+  fetchAudio: (url: string, options: Record<string, unknown>) => Promise<Clip>;
+  fetchText: (url: string) => Promise<{ ok: boolean; text?: string; reason?: string }>;
+  /** One request of `kind`, asked once more when the provider cut its answer short. */
+  ask: (kind: string, messages: Array<unknown>, options: unknown) => Promise<Asked>;
+  requestOptions: (settings: VideoSettings, seconds: number, model: unknown) => object;
+  failureReason: (error: unknown) => string;
+  /** Shortens a heard text or a text file over `maxChars` (src/behavior/summarize.ts); the text is kept whole by what it returns. */
+  summarize: (text: string, maxChars: number) => Promise<string>;
+  keep: (item: Item, entry: Record<string, unknown>) => void;
+  miss: (item: Item, reason: unknown) => null;
+  now: () => number;
+};
+
+/** The length of a text file's text form: a file over it is kept as the summarizer's retelling. */
+export const TEXT_FORM_CHARS = 2000;
+
+/**
+ * How an audio file goes in a request: the one place its packaging lives. The `video` role takes a clip, so the file is carried
+ * as a `video_url` part holding what src/media/fetch-video.ts#fetchAudio made of it.
+ */
+function audioPart(dataUrl: string): object {
+  return { type: 'video_url', video_url: { url: dataUrl } };
+}
+
+/** The text form of a heard file; null when it cannot be had, its cause kept on a miss. */
+export async function hearAudio(
+  deps: AudioDeps,
+  item: Item
+): Promise<{ text: string; usage: unknown; estimated: number } | null> {
+  const promptText = deps.prompt();
+  if (typeof promptText !== 'string' || !promptText) return null;
+  const settings = deps.settings();
+  const clip = await deps.fetchAudio(item.url, {
+    durationSec: item.durationSec,
+    maxSeconds: settings.maxSeconds,
+    maxBytes: settings.maxBytes,
+    toolTimeoutMs: settings.toolTimeoutMs,
+    ffmpegPath: settings.ffmpegPath,
+  });
+  if (!clip.ok) return deps.miss(item, clip.reason);
+  const maxChars = settings.summaryChars;
+  const model = deps.model();
+  let asked: Asked;
+  try {
+    asked = await deps.ask(
+      item.kind,
+      [
+        { role: 'system', content: deps.fill(promptText, { maxChars }) },
+        { role: 'user', content: [audioPart(clip.dataUrl)] },
+      ],
+      { ...deps.requestOptions(settings, clip.seconds, model), provider: settings.provider }
+    );
+  } catch (error) {
+    const reason = deps.failureReason(error);
+    // A refusal by the daily cap says nothing about the file: heard after the reset.
+    return reason === 'daily-cap' ? null : deps.miss(item, reason);
+  }
+  if ('cut' in asked) return deps.miss(item, asked.cut);
+  const completion = asked.answer;
+  const heard = typeof completion.text === 'string' ? completion.text : '';
+  if (!heard.trim()) return deps.miss(item, 'empty');
+  const text = await deps.summarize(heard.trim(), maxChars);
+  const ts = deps.now();
+  deps.keep(item, { text, ts, describedAt: ts, model });
+  return {
+    text,
+    usage: completion.usage ?? null,
+    estimated: typeof completion.estimated === 'number' ? completion.estimated : 0,
+  };
+}
+
+/** A text file's text form is its own words, retold once by `summarize` when they run over `TEXT_FORM_CHARS`. */
+export async function readTextFile(
+  deps: AudioDeps,
+  item: Item
+): Promise<{ text: string; usage: null; estimated: number } | null> {
+  const read = await deps.fetchText(item.url);
+  if (!read.ok || !read.text) return deps.miss(item, read.reason ?? 'download');
+  const ts = deps.now();
+  const text = await deps.summarize(read.text.trim(), TEXT_FORM_CHARS);
+  deps.keep(item, { text, ts, describedAt: ts });
+  return { text, usage: null, estimated: 0 };
+}

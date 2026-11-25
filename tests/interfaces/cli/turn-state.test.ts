@@ -1,0 +1,348 @@
+// interfaces/cli/turn-state.ts: the client's picture of the turns, built only from the core's events; and the keys on the mounted chat.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  activeTurn,
+  emptyTurns,
+  queuedTurns,
+  reduceTurns,
+  requestCancel,
+  turnOf,
+  callsInProgress,
+  latestThink,
+} from '../../../interfaces/cli/turn-state.ts';
+import type { ClientTurnEvent, TurnsState } from '../../../interfaces/cli/turn-state.ts';
+import { KEY, chatEnv, pause, press, shows, until, withChat } from '../../fixtures/chat-rig.ts';
+
+const fold = (events: ReadonlyArray<ClientTurnEvent>, start: TurnsState = emptyTurns()): TurnsState =>
+  events.reduce(reduceTurns, start);
+
+const AT = 1000;
+const accepted = (turnId: string, seq: number): ClientTurnEvent => ({ type: 'accepted', turnId, seq, at: AT });
+const running = (turnId: string, seq: number, streaming = true): ClientTurnEvent => ({
+  type: 'running',
+  turnId,
+  seq,
+  at: AT,
+  streaming,
+});
+const text = (turnId: string, seq: number, chunk: string): ClientTurnEvent => ({
+  type: 'text',
+  turnId,
+  seq,
+  at: AT,
+  text: chunk,
+});
+
+test('text chunks build in sequence order, and a replayed event adds nothing', () => {
+  // Bug: a reconnect's replay doubles a sentence.
+  const state = fold([
+    accepted('t1', 1),
+    running('t1', 2),
+    text('t1', 3, 'one '),
+    text('t1', 4, 'two'),
+    text('t1', 3, 'one '),
+    text('t1', 4, 'two'),
+  ]);
+  assert.equal(turnOf(state, 't1')?.text, 'one two');
+});
+
+test('the final response stands as the core sent it, with its identity', () => {
+  // Bug: the client keeps the streamed draft, and the shown answer differs from what the persona sent.
+  const state = fold([
+    accepted('t1', 1),
+    running('t1', 2),
+    text('t1', 3, 'draft'),
+    { type: 'committed', turnId: 't1', seq: 4, at: AT, responseId: 'resp-1', text: 'The  final\ntext ' },
+  ]);
+  const turn = turnOf(state, 't1');
+  assert.equal(turn?.state, 'committed');
+  assert.equal(turn?.responseId, 'resp-1');
+  assert.equal(turn?.text, 'The  final\ntext ');
+  assert.equal(activeTurn(state), null);
+});
+
+test('a route without streaming shows no text until the final one', () => {
+  // Bug: a progress bar of synthesized words pretends the model is streaming.
+  const state = fold([accepted('t1', 1), running('t1', 2, false)]);
+  assert.equal(turnOf(state, 't1')?.streaming, false);
+  assert.equal(turnOf(state, 't1')?.text, '');
+});
+
+test('tool and task progress keep their order on the turn', () => {
+  // Bug: the running tool shown is the first ever, or progress of a finished turn reappears.
+  const state = fold([
+    accepted('t1', 1),
+    running('t1', 2),
+    { type: 'progress', turnId: 't1', seq: 3, at: AT, kind: 'tool', name: 'search', detail: 'started' },
+    { type: 'progress', turnId: 't1', seq: 4, at: AT, kind: 'tool', name: 'search', detail: 'done' },
+    { type: 'progress', turnId: 't1', seq: 5, at: AT, kind: 'task', name: 'errand', detail: 'running' },
+  ]);
+  assert.deepEqual(
+    turnOf(state, 't1')?.progress.map((one) => one.detail),
+    ['started', 'done', 'running']
+  );
+});
+
+test('asking to cancel changes nothing but the mark: only the core says a turn has stopped', () => {
+  // Bug: the client draws cancelled while the backend still runs.
+  const before = fold([accepted('t1', 1), running('t1', 2)]);
+  const asked = requestCancel(before, 't1');
+  assert.equal(turnOf(asked, 't1')?.state, 'running');
+  assert.equal(turnOf(asked, 't1')?.cancelRequested, true);
+  const ended = reduceTurns(asked, { type: 'cancelled', turnId: 't1', seq: 3, at: AT });
+  assert.equal(turnOf(ended, 't1')?.state, 'cancelled');
+  assert.equal(activeTurn(ended), null);
+});
+
+test('an acknowledgement for an old turn leaves the running one alone', () => {
+  // Bug: the late ack of the first turn marks the second as stopped.
+  const state = fold([
+    accepted('t1', 1),
+    running('t1', 2),
+    { type: 'committed', turnId: 't1', seq: 3, at: AT, responseId: 'x', text: 'done' },
+    accepted('t2', 4),
+    running('t2', 5),
+    { type: 'cancelled', turnId: 't1', seq: 6, at: AT },
+  ]);
+  assert.equal(activeTurn(state)?.turnId, 't2');
+  assert.equal(turnOf(state, 't1')?.state, 'committed', 'a terminal state is final');
+  assert.equal(requestCancel(state, 'unknown'), state);
+});
+
+test('the queue shows in core order, and a failure of the turn before it leaves it queued', () => {
+  // Bug: the client drops the queued lines when the turn before them fails.
+  const state = fold([
+    accepted('t1', 1),
+    running('t1', 2),
+    accepted('t2', 3),
+    { type: 'queued', turnId: 't2', seq: 4, at: AT },
+    accepted('t3', 5),
+    { type: 'queued', turnId: 't3', seq: 6, at: AT },
+    { type: 'failed', turnId: 't1', seq: 7, at: AT, code: 'provider-down' },
+  ]);
+  assert.deepEqual(
+    queuedTurns(state).map((turn) => turn.turnId),
+    ['t2', 't3']
+  );
+});
+
+test('no events means no active turn and an empty queue', () => {
+  // Bug: a fresh chat offers a cancel of nothing.
+  assert.equal(activeTurn(emptyTurns()), null);
+  assert.deepEqual(queuedTurns(emptyTurns()), []);
+});
+
+function turnChat() {
+  const cancels: Array<string> = [];
+  const rig = chatEnv({ cancelTurn: (turnId) => void cancels.push(turnId) });
+  const event = (one: ClientTurnEvent): void => rig.listeners.turn?.(one);
+  return { ...rig, cancels, event };
+}
+
+test('Escape with text clears only the draft, and the running turn goes on', async () => {
+  // Bug: clearing a typo cancels the persona's reply.
+  const { env, cancels, event } = turnChat();
+  await withChat(env, async (rig) => {
+    event(accepted('t1', 1));
+    event(running('t1', 2));
+    await until(shows(rig, 'Thinking…'));
+    await press(rig, 'a typo', shows(rig, '> a typo'));
+    await press(rig, KEY.escape, () => !rig.screen().join('\n').includes('a typo'));
+    assert.equal(rig.screen().join('\n').includes('a typo'), false);
+  });
+  assert.deepEqual(cancels, []);
+});
+
+test('Escape on an empty draft asks the core once, and the chat shows running until the acknowledgement', async () => {
+  // Bug: double Escape sends two cancels, the second reaching the next turn; or the chat claims it stopped.
+  const { env, cancels, event } = turnChat();
+  await withChat(env, async (rig) => {
+    event(accepted('t1', 1));
+    event(running('t1', 2));
+    await until(shows(rig, 'Thinking…'));
+    const runningScreen = rig.screen().join('\n');
+    await press(rig, KEY.escape, shows(rig, 'Cancelling…'));
+    rig.type(KEY.escape);
+    // The second Escape changes nothing when the guard works, so only a fixed wait lets a second cancel show.
+    await pause(60);
+    assert.deepEqual(cancels, ['t1']);
+    assert.notEqual(rig.screen().join('\n'), runningScreen, 'the request shows');
+    event({ type: 'cancelled', turnId: 't1', seq: 3, at: AT });
+    await until(shows(rig, 'was cancelled'));
+    rig.type(KEY.escape);
+    // Nothing runs, so nothing changes; a fixed wait lets a stray cancel show.
+    await pause(60);
+    assert.deepEqual(cancels, ['t1'], 'nothing runs, nothing to cancel');
+  });
+});
+
+test('with no turn running Escape asks nothing of the core', async () => {
+  // Bug: a stray Escape sends a cancel for a turn that ended long ago.
+  const { env, cancels } = turnChat();
+  await withChat(env, async (rig) => {
+    rig.type(KEY.escape);
+    // Nothing runs, so nothing changes; a fixed wait lets a stray cancel show.
+    await pause(60);
+  });
+  assert.deepEqual(cancels, []);
+});
+
+test('leaving the chat does not cancel the running turn', async () => {
+  // Bug: closing the terminal aborts the persona's reply.
+  const { env, cancels, event } = turnChat();
+  await withChat(env, async (rig) => {
+    event(accepted('t1', 1));
+    event(running('t1', 2));
+    await until(shows(rig, 'Thinking…'));
+  });
+  assert.deepEqual(cancels, []);
+});
+
+test('a line sent during a turn goes to the core, and shows as queued once the core says so', async () => {
+  // Bug: the client holds the line itself and it is lost on disconnect, or it shows as sent to the persona.
+  const { env, sent, event } = turnChat();
+  await withChat(env, async (rig) => {
+    event(accepted('t1', 1));
+    event(running('t1', 2));
+    await until(shows(rig, 'Thinking…'));
+    await press(rig, 'next line', shows(rig, '> next line'));
+    await press(rig, KEY.enter, () => sent.length === 1);
+    rig.type(KEY.enter);
+    // The second Enter finds an empty draft and changes nothing, so only a fixed wait lets a second send show.
+    await pause();
+    assert.deepEqual(sent, ['next line'], 'a second Enter on the empty draft sends nothing');
+    const before = rig.screen().join('\n');
+    event({ type: 'accepted', turnId: 't2', seq: 3, at: AT, text: 'next line' });
+    event({ type: 'queued', turnId: 't2', seq: 4, at: AT });
+    await until(shows(rig, '1 queued'));
+    assert.notEqual(rig.screen().join('\n'), before, 'the queue shows');
+  });
+});
+
+test('a lost link says so, and the turn state stays what the core last said until the replay', async () => {
+  // Bug: a disconnect clears the running turn, and a replay then duplicates its text.
+  const { env, event, listeners } = turnChat();
+  await withChat(env, async (rig) => {
+    event(accepted('t1', 1));
+    event(running('t1', 2));
+    event(text('t1', 3, 'partial-words'));
+    await until(shows(rig, 'partial-words'));
+    listeners.connected?.(false);
+    // The words stay on the screen, so nothing changes to wait for; a fixed wait lets a wiped turn show.
+    await pause();
+    assert.match(rig.screen().join('\n'), /partial-words/);
+    listeners.connected?.(true);
+    event(text('t1', 3, 'partial-words'));
+    event(text('t1', 4, ' and-more'));
+    await until(shows(rig, 'and-more'));
+    const shown = rig.screen().join('\n');
+    assert.equal(shown.split('partial-words').length - 1, 1);
+    assert.match(shown, /and-more/);
+  });
+});
+
+const step = (seq: number, name: string, detail: string): ClientTurnEvent => ({
+  type: 'progress',
+  turnId: 't1',
+  seq,
+  at: AT,
+  kind: 'tool',
+  name,
+  detail,
+});
+
+test('the row above the input names the calls in progress, never a result status, and goes with the turn', async () => {
+  // Bug: the row read `conversation.read not_configured` after the call had returned, a result status that looks like
+  // a broken setting, and it stayed there for the rest of the turn.
+  const { env, event } = turnChat();
+  await withChat(env, async (rig) => {
+    event(accepted('t1', 1));
+    event(running('t1', 2));
+    event(step(3, 'conversation.read', 'started'));
+    event(step(4, 'memory.recall', 'started'));
+    await until(shows(rig, 'memory.recall'));
+    assert.ok(rig.screen().join('\n').includes('conversation.read'), 'both calls in progress');
+    assert.ok(!rig.screen().join('\n').includes('started'), 'no step word');
+    event(step(5, 'conversation.read', 'not_configured'));
+    await until(() => !rig.screen().join('\n').includes('conversation.read'));
+    const screen = rig.screen().join('\n');
+    assert.ok(!screen.includes('not_configured'), 'no result status');
+    assert.ok(screen.includes('memory.recall'), 'the call still in progress stays');
+    event({ type: 'committed', turnId: 't1', seq: 6, at: AT, responseId: 'r1' });
+    await until(() => !rig.screen().join('\n').includes('memory.recall'));
+    assert.ok(!rig.screen().join('\n').includes('Thinking…'), 'nothing of the turn stays once it ended');
+  });
+});
+
+// The think of the persona's running turn on the command line's status row: `latestThink` in interfaces/cli/turn-state.ts reads it from
+// the turn's progress, and the chat's status row shows it after the call names until the turn ends.
+
+const THINK_AT = 1000;
+const thinkFold = (events: ReadonlyArray<ClientTurnEvent>): TurnsState => events.reduce(reduceTurns, emptyTurns());
+const thinkAccepted: ClientTurnEvent = { type: 'accepted', turnId: 't1', seq: 1, at: THINK_AT };
+const thinkRunning: ClientTurnEvent = { type: 'running', turnId: 't1', seq: 2, at: THINK_AT, streaming: false };
+const think = (seq: number, detail: string): ClientTurnEvent => ({
+  type: 'progress',
+  turnId: 't1',
+  seq,
+  at: THINK_AT,
+  kind: 'think',
+  name: 'think',
+  detail,
+});
+const call = (seq: number, name: string, detail: string): ClientTurnEvent => ({
+  type: 'progress',
+  turnId: 't1',
+  seq,
+  at: THINK_AT,
+  kind: 'tool',
+  name,
+  detail,
+});
+
+test('returns the newest think of a turn that got two', () => {
+  // Bug: the row keeps showing the first reason after the persona moved on to the next step.
+  const turn = turnOf(
+    thinkFold([thinkAccepted, thinkRunning, think(3, 'first reason'), think(4, 'second reason')]),
+    't1'
+  );
+  assert.ok(turn);
+  assert.equal(latestThink(turn), 'second reason');
+});
+
+test('returns null for a turn with call progress only', () => {
+  // Bug: a call's step word shows as the persona's thinking.
+  const turn = turnOf(
+    thinkFold([thinkAccepted, thinkRunning, call(3, 'lore.list', 'started'), call(4, 'lore.list', 'ok')]),
+    't1'
+  );
+  assert.ok(turn);
+  assert.equal(latestThink(turn), null);
+});
+
+test('keeps a think out of the calls in progress', () => {
+  // Bug: the think's text counts as an open call and shows as "using think".
+  const turn = turnOf(thinkFold([thinkAccepted, thinkRunning, think(3, 'why'), call(4, 'lore.list', 'started')]), 't1');
+  assert.ok(turn);
+  assert.deepEqual(callsInProgress(turn), ['lore.list']);
+});
+
+test('the status row shows the think after the call names while the turn runs, and neither once it committed', async () => {
+  // Bug: the think stays on the row after the answer, or never shows.
+  const { env, listeners } = chatEnv();
+  const event = (one: ClientTurnEvent): void => listeners.turn?.(one);
+  await withChat(env, async (rig) => {
+    event(thinkAccepted);
+    event(thinkRunning);
+    event(call(3, 'lore.list', 'started'));
+    event(think(4, 'checking the lore before I answer'));
+    await until(shows(rig, 'checking the lore before I answer'));
+    const row = rig.screen().join('\n');
+    assert.ok(row.includes('Using lore.list'), 'the call names are still there');
+    assert.ok(row.indexOf('Using lore.list') < row.indexOf('checking the lore'), 'the think follows the names');
+    event({ type: 'committed', turnId: 't1', seq: 5, at: THINK_AT, text: 'done' });
+    await until(() => !shows(rig, 'checking the lore')());
+    assert.equal(shows(rig, 'Using lore.list')(), false);
+  });
+});

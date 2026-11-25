@@ -1,0 +1,82 @@
+// Operations: `config.set|unset`: one config override in the private settings file (data/config/config.json).
+// The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
+// the operation's `ctx` as the command context.
+
+import { leafPaths } from './catalog.ts';
+import { governsPersona } from './rights.ts';
+import { splitPath, unsetPath, ownValueAt, jsonTypeOf, withArticle, reloadNote } from './shared.ts';
+import { defineOp, perEnv, invalid, denied } from './registry.ts';
+import { CODE } from '../codes.ts';
+import { textOf } from '../types.ts';
+import type { Obj, OpContext } from '../types.ts';
+
+const handlers = perEnv((env) => {
+  const { hot, editLocalConfig, writeLocalPath } = env;
+
+  /** Made by the persona (`context.actor`, their skills), a change of any key that governs authorization or their own
+   * controls (src/tools/operations/rights.ts#governsPersona) is refused whoever asked. */
+  function assertMayChangeConfig(parts: ReadonlyArray<string>, context: OpContext): void {
+    if (context?.actor === 'persona' && governsPersona(parts.join('.'))) {
+      throw denied(`the persona never changes ${parts.join('.')}`, CODE.SELF_GRANT);
+    }
+  }
+
+  /**
+   * `config.set`: one leaf of the live config (a path autocomplete offers, src/tools/operations/catalog.ts
+   * #leafPaths, walked over own keys only) overridden in the private settings file. The value is JSON, or
+   * the raw text when it does not parse -- or when the setting is a string, so an id typed bare
+   * stays text. Its JSON type must be the current one's (any type when the current is null).
+   */
+  function cmdSet(args: Obj, context: OpContext) {
+    const dottedPath = textOf(args.path).trim();
+    const rawValue = textOf(args.value).trim();
+    if (!dottedPath) throw invalid('a config path is required');
+    // Read against the live config, so a key holding a dot (a route key such as `openai/gpt-6.1`) is one key.
+    const parts = splitPath(dottedPath, hot.config);
+    const key = parts.join('.');
+    assertMayChangeConfig(parts, context);
+
+    const current = ownValueAt(hot.config, parts);
+    if (!key || !current.found) throw invalid(`unknown config path: ${dottedPath}`);
+    if (!leafPaths(hot.config).includes(key)) throw invalid(`${key} is a section, not a value: set one of its keys`);
+
+    let value;
+    try {
+      value = JSON.parse(rawValue);
+    } catch {
+      value = rawValue;
+    }
+    if (typeof current.value === 'string' && typeof value !== 'string') value = rawValue;
+    const expected = jsonTypeOf(current.value);
+    if (expected !== 'null' && jsonTypeOf(value) !== expected) {
+      throw invalid(`${key} expects ${withArticle(expected)}, got ${withArticle(jsonTypeOf(value))}`);
+    }
+
+    const ok = writeLocalPath(parts, value);
+    return `Set ${key} = ${JSON.stringify(value)} ${reloadNote(ok)}`;
+  }
+
+  function cmdUnset(args: Obj, context: OpContext) {
+    const dottedPath = textOf(args.path).trim();
+    if (!dottedPath) throw invalid('a config path is required');
+    const parts = splitPath(dottedPath, hot.config);
+    const key = parts.join('.');
+    if (!key) throw invalid('a config path is required');
+    assertMayChangeConfig(parts, context);
+    const ok = editLocalConfig((local) => unsetPath(local, parts));
+    return `Unset ${key} ${reloadNote(ok)}`;
+  }
+
+  return { assertMayChangeConfig, cmdSet, cmdUnset };
+});
+
+defineOp({
+  name: 'config.set',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdSet(args, ctx),
+});
+defineOp({
+  name: 'config.unset',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdUnset(args, ctx),
+});

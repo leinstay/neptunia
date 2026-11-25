@@ -1,0 +1,31 @@
+{
+  "id": "gen-fault-run-search",
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": "Cats push cups off tables to test them and to get attention.",
+        "annotations": [
+          {
+            "type": "url_citation",
+            "url_citation": {
+              "url": "https://pets.test/why-cats-push-cups",
+              "title": "Why cats push cups off tables",
+              "content": "Cats test objects with their paws and learn that a falling cup gets a reaction."
+            }
+          },
+          {
+            "type": "url_citation",
+            "url_citation": {
+              "url": "https://vets.test/attention",
+              "title": "Attention seeking in cats",
+              "content": "A cat repeats what brings its people to the room."
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "usage": { "prompt_tokens": 12, "completion_tokens": 14 }
+}

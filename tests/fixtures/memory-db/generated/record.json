@@ -1,0 +1,179 @@
+[
+ {
+  "v": 1,
+  "id": "id",
+  "kind": "seen",
+  "messageId": "messageId",
+  "revision": 1,
+  "occurredAt": "occurredAt",
+  "recordedAt": "recordedAt",
+  "guildId": "guildId",
+  "scope": {
+   "channel": "scope.channel",
+   "user": "scope.user"
+  },
+  "by": "by",
+  "replyTo": null,
+  "text": "text",
+  "media": [
+   "media[]"
+  ],
+  "mentions": [
+   "mentions[]"
+  ],
+  "direct": true,
+  "participants": [
+   "participants[]"
+  ],
+  "sourceMessageIds": [
+   "sourceMessageIds[]"
+  ],
+  "origin": "origin",
+  "links": [
+   {
+    "id": "links[].id",
+    "url": "links[].url",
+    "title": "links[].title",
+    "description": "links[].description",
+    "site": "links[].site"
+   },
+   {
+    "id": "links[].id",
+    "url": "links[].url",
+    "title": "links[].title",
+    "description": "links[].description",
+    "site": "links[].site"
+   },
+   {
+    "id": "links[].id",
+    "url": "links[].url",
+    "title": "links[].title",
+    "description": "links[].description",
+    "site": "links[].site"
+   }
+  ],
+  "turnId": null,
+  "opId": null,
+  "feltId": "feltId",
+  "itemId": "itemId",
+  "revisionId": "revisionId"
+ },
+ {
+  "v": 2,
+  "id": "id",
+  "kind": "said",
+  "messageId": "messageId",
+  "revision": 2,
+  "occurredAt": "occurredAt",
+  "recordedAt": "recordedAt",
+  "guildId": "guildId",
+  "scope": {
+   "channel": "scope.channel",
+   "user": "scope.user"
+  },
+  "by": "by",
+  "replyTo": "replyTo",
+  "text": "text",
+  "media": [
+   "media[]"
+  ],
+  "mentions": [
+   "mentions[]"
+  ],
+  "direct": false,
+  "participants": [
+   "participants[]"
+  ],
+  "sourceMessageIds": [
+   "sourceMessageIds[]"
+  ],
+  "origin": "origin",
+  "links": [
+   {
+    "id": "links[].id",
+    "url": "links[].url",
+    "title": "links[].title",
+    "description": "links[].description",
+    "site": "links[].site"
+   },
+   {
+    "id": "links[].id",
+    "url": "links[].url",
+    "title": "links[].title",
+    "description": "links[].description",
+    "site": "links[].site"
+   },
+   {
+    "id": "links[].id",
+    "url": "links[].url",
+    "title": "links[].title",
+    "description": "links[].description",
+    "site": "links[].site"
+   }
+  ],
+  "turnId": "turnId",
+  "opId": "opId",
+  "feltId": "feltId",
+  "itemId": "itemId",
+  "revisionId": "revisionId"
+ },
+ {
+  "v": 3,
+  "id": "id",
+  "kind": "felt",
+  "messageId": "messageId",
+  "revision": 3,
+  "occurredAt": "occurredAt",
+  "recordedAt": "recordedAt",
+  "guildId": "guildId",
+  "scope": {
+   "channel": "scope.channel",
+   "user": "scope.user"
+  },
+  "by": "by",
+  "replyTo": "replyTo",
+  "text": "text",
+  "media": [
+   "media[]"
+  ],
+  "mentions": [
+   "mentions[]"
+  ],
+  "direct": true,
+  "participants": [
+   "participants[]"
+  ],
+  "sourceMessageIds": [
+   "sourceMessageIds[]"
+  ],
+  "origin": "origin",
+  "links": [
+   {
+    "id": "links[].id",
+    "url": "links[].url",
+    "title": "links[].title",
+    "description": "links[].description",
+    "site": "links[].site"
+   },
+   {
+    "id": "links[].id",
+    "url": "links[].url",
+    "title": "links[].title",
+    "description": "links[].description",
+    "site": "links[].site"
+   },
+   {
+    "id": "links[].id",
+    "url": "links[].url",
+    "title": "links[].title",
+    "description": "links[].description",
+    "site": "links[].site"
+   }
+  ],
+  "turnId": "turnId",
+  "opId": "opId",
+  "feltId": "feltId",
+  "itemId": "itemId",
+  "revisionId": "revisionId"
+ }
+]

@@ -1,0 +1,156 @@
+// A skill's whole package: `SKILL.md`, `setup.json` and `scripts/`. `packageHash` makes one content hash of all of them,
+// so an edited script is a new candidate version like an edited text, and nothing runs until it is activated.
+// `snapshotPackage` keeps an immutable copy per hash under `.versions/<hash>/`, and `skill.run` runs the activated
+// version's copy, so an edit never changes what runs. A skill with only a `SKILL.md` keeps the hash of its text. Called by
+// load.ts and src/tools/operations/skill.ts.
+
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const SETUP_FILE = 'setup.json';
+const SCRIPTS_DIR = 'scripts';
+const VERSIONS_DIR = '.versions';
+
+export type ScriptArg = { type: 'string' | 'number' | 'boolean' | 'object'; required: boolean };
+export type ScriptManifest = { args: Record<string, ScriptArg>; credentials: Array<string> };
+
+function filesUnder(dir: string, prefix = ''): Array<string> {
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .flatMap((entry) =>
+      entry.isDirectory()
+        ? filesUnder(path.join(dir, entry.name), `${prefix}${entry.name}/`)
+        : entry.isFile()
+          ? [`${prefix}${entry.name}`]
+          : []
+    )
+    .sort();
+}
+
+function extraFilesOf(skillDir: string): Array<string> {
+  const setup = fs.existsSync(path.join(skillDir, SETUP_FILE)) ? [SETUP_FILE] : [];
+  return [...setup, ...filesUnder(path.join(skillDir, SCRIPTS_DIR), `${SCRIPTS_DIR}/`)];
+}
+
+/** The hash of the package, or `textHash` when the skill is its text alone. */
+export function packageHash(skillDir: string, text: string, textHash: string): string {
+  const extra = extraFilesOf(skillDir);
+  if (extra.length === 0) return textHash;
+  const hash = createHash('sha256').update(text);
+  for (const file of extra) hash.update(`\0${file}\0`).update(fs.readFileSync(path.join(skillDir, file)));
+  return hash.digest('hex');
+}
+
+/** The folder of a version's immutable copy. */
+export function snapshotDir(skillDir: string, hash: string): string {
+  return path.join(skillDir, VERSIONS_DIR, hash);
+}
+
+/**
+ * Whether the snapshot of a version can run `script`: `missing` when its folder or its `SKILL.md` is gone, or when its
+ * bytes changed and the script file is among what went; `tampered` when its bytes no longer hash to `hash`; null when
+ * it is intact (a script it never held is the caller's mistake, which the manifest check answers).
+ */
+export function snapshotProblem(packageDir: string, hash: string, script: string): 'missing' | 'tampered' | null {
+  const textFile = path.join(packageDir, 'SKILL.md');
+  if (!fs.existsSync(textFile)) return 'missing';
+  const text = fs.readFileSync(textFile, 'utf8');
+  const textHash = createHash('sha256').update(text).digest('hex');
+  if (packageHash(packageDir, text, textHash) === hash) return null;
+  return fs.existsSync(path.join(packageDir, SCRIPTS_DIR, script)) ? 'tampered' : 'missing';
+}
+
+/**
+ * Copies the package once per hash; a copy interrupted before its rename is never used. A `<hash>.made` file beside the
+ * copy records that it was made, so a copy deleted later stays deleted and `skill.run` refuses it as `skill-missing`
+ * instead of the next load quietly restoring it from the working files.
+ */
+export function snapshotPackage(skillDir: string, text: string, hash: string): void {
+  const target = snapshotDir(skillDir, hash);
+  const made = `${target}.made`;
+  if (fs.existsSync(target) || fs.existsSync(made)) return;
+  const temp = `${target}.${process.pid}.tmp`;
+  fs.rmSync(temp, { recursive: true, force: true });
+  fs.mkdirSync(temp, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(temp, 'SKILL.md'), text);
+  for (const file of extraFilesOf(skillDir)) {
+    fs.mkdirSync(path.dirname(path.join(temp, file)), { recursive: true });
+    fs.copyFileSync(path.join(skillDir, file), path.join(temp, file));
+  }
+  fs.renameSync(temp, target);
+  fs.writeFileSync(made, '');
+}
+
+export type PackageCode = 'bad-setup' | 'missing-script' | 'undeclared-script' | 'symlink';
+
+const isLink = (file: string): boolean => {
+  try {
+    return fs.lstatSync(file).isSymbolicLink();
+  } catch {
+    // A file that is not there is no link.
+    return false;
+  }
+};
+
+function holdsLink(dir: string): boolean {
+  if (isLink(dir)) return true;
+  if (!fs.existsSync(dir)) return false;
+  return fs.readdirSync(dir, { withFileTypes: true }).some((entry) => {
+    return entry.isSymbolicLink() || (entry.isDirectory() && holdsLink(path.join(dir, entry.name)));
+  });
+}
+
+/**
+ * Whether a package reaches outside its folder: `SKILL.md`, `setup.json`, `scripts/` or anything under it is a symbolic
+ * link. The loader asks before it reads a byte, so a version never holds bytes from elsewhere.
+ */
+export function packageHasLink(skillDir: string): boolean {
+  const files = [path.join(skillDir, 'SKILL.md'), path.join(skillDir, SETUP_FILE)];
+  return files.some(isLink) || holdsLink(path.join(skillDir, SCRIPTS_DIR));
+}
+
+/**
+ * The first thing that keeps a package from running, or null: `setup.json` that does not parse, a declared script with
+ * no file, or a script file `skill.run` would refuse because `setup.json` does not declare it. A file in a subfolder
+ * of `scripts/` is not a script. A package of `SKILL.md` alone is complete.
+ */
+export function packageProblem(skillDir: string): PackageCode | null {
+  const onDisk = filesUnder(path.join(skillDir, SCRIPTS_DIR)).filter((file) => !file.includes('/'));
+  const file = path.join(skillDir, SETUP_FILE);
+  let declared: Array<string> = [];
+  if (fs.existsSync(file)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { scripts?: Record<string, unknown> } | null;
+      declared = Object.keys(parsed?.scripts ?? {});
+    } catch {
+      return 'bad-setup';
+    }
+  }
+  if (declared.some((name) => !onDisk.includes(name))) return 'missing-script';
+  if (onDisk.some((name) => !declared.includes(name))) return 'undeclared-script';
+  return null;
+}
+
+/** What `setup.json` declares for one script of a snapshot, or null when it declares no such script. */
+export function scriptManifest(packageDir: string, script: string): ScriptManifest | null {
+  const file = path.join(packageDir, SETUP_FILE);
+  if (!fs.existsSync(file)) return null;
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { scripts?: Record<string, unknown> };
+  const raw = parsed.scripts?.[script] as { args?: Record<string, ScriptArg>; credentials?: Array<string> } | undefined;
+  if (raw === undefined) return null;
+  return { args: raw.args ?? {}, credentials: Array.isArray(raw.credentials) ? raw.credentials : [] };
+}
+
+/** The first thing wrong with `args` against the manifest, or null. A key the manifest does not name is refused. */
+export function argsProblem(manifest: ScriptManifest, args: Record<string, unknown>): string | null {
+  for (const key of Object.keys(args)) if (!Object.hasOwn(manifest.args, key)) return `unknown argument ${key}`;
+  for (const [key, want] of Object.entries(manifest.args)) {
+    const value = args[key];
+    if (value === undefined) {
+      if (want.required) return `${key} is required`;
+    } else if (typeof value !== want.type) return `${key} must be a ${want.type}`;
+  }
+  return null;
+}

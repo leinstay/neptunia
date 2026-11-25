@@ -1,0 +1,177 @@
+// The scene of tests/src/turn/request/memory-block.test.ts, tests/src/turn/memory-read.test.ts and
+// tests/src/turn/participation.test.ts: one ordinary reply turn of the real turn runner over a real store
+// and memory database, on a root of the fake interface with `general` (c1), `journal` (d1) and `notes` (d2), and a
+// scripted model. Synthetic text only.
+import { placeOfRoot, placeOfChat } from '../../src/memory/addresses.ts';
+import { after } from 'node:test';
+import assert from 'node:assert/strict';
+import { createStore } from '../../src/memory/store.ts';
+import { placeCollection } from '../../src/memory/db/unit-keys.ts';
+import { writeUnitUpdate } from './memory-db/unit-writes.ts';
+import { addLine } from './memory-db/mind-world.ts';
+import { dbOf, seedMirror } from './diary-mirror.ts';
+import type { MemoryService } from './diary-mirror.ts';
+import { openTestMemory } from './memory-db/service.ts';
+import { hotWith, rawMessage, sequenceLlm } from './turn-harness.ts';
+import { freshWorld, world } from './turn-world.ts';
+import { worldTurnRunner } from './world-runner.ts';
+
+const NOW = Date.parse('2026-10-17T12:00:00Z');
+const MINUTE = 60_000;
+export const ROOT = 'g1';
+
+/** The memory databases the scenes opened, closed when the file is done. */
+const OPEN: Array<{ close(): unknown }> = [];
+after(async () => {
+  for (const item of OPEN.splice(0)) await item.close();
+});
+
+/** The persona's own message in `placeId`, ten minutes ago, as discord.js hands it over. */
+function ownLine(id: string, placeId: string): Record<string, unknown> {
+  return {
+    ...rawMessage({ id, ts: NOW - 10 * MINUTE, content: 'σημείωμα' }),
+    placeId,
+    author: { id: 'self-id', bot: true, globalName: 'Bot', username: 'Bot' },
+    member: { displayName: 'Bot' },
+  };
+}
+
+/**
+ * One ordinary reply turn to Alice in `here`, on a root with `general` (c1), `journal` (d1) and `notes` (d2),
+ * each with notes in memory and the persona's line ten minutes ago in d1 and d2, stored too. Memory holds the `diary`
+ * mirrors on `mirrors`; the config sets `diary.placeId` only when `diaryChannelId` is given.
+ */
+export async function replyTurn({
+  here,
+  mirrors,
+  diaryChannelId = null,
+}: {
+  here: 'c1' | 'd1';
+  mirrors: Array<'d1' | 'd2'>;
+  diaryChannelId?: string | null;
+}): Promise<{ memory: { memoryDb: MemoryService }; store: ReturnType<typeof createStore>; request: unknown }> {
+  const { memory, store, requests } = await replyTurns({
+    here,
+    mirrors,
+    diaryChannelId,
+    steps: [{ answers: ['<msg>γεια</msg>'] }],
+  });
+  return { memory, store, request: requests[0] };
+}
+
+/** One reply turn of `replyTurns`: what is done to memory before it, and the model's answers to its requests. */
+export type AwarenessStep = { before?: (memoryDb: MemoryService) => void; answers: ReadonlyArray<unknown> };
+
+/**
+ * The scene of `replyTurn` with reply turns to Alice's line one after another on one turn runner, each step's `before`
+ * run on the memory before its turn. Returns every request the model got, in order.
+ */
+export async function replyTurns({
+  here,
+  mirrors,
+  diaryChannelId = null,
+  steps,
+}: {
+  here: 'c1' | 'd1';
+  mirrors: Array<'d1' | 'd2'>;
+  diaryChannelId?: string | null;
+  steps: ReadonlyArray<AwarenessStep>;
+}): Promise<{ memory: { memoryDb: MemoryService }; store: ReturnType<typeof createStore>; requests: Array<unknown> }> {
+  const memory = await openTestMemory({ now: () => NOW });
+  OPEN.push(memory);
+  const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
+  const names = { c1: 'general', d1: 'journal', d2: 'notes' } as const;
+  for (const [id, name] of Object.entries(names)) {
+    store.touchChannel(placeOfChat(store, { id, iface: 'fake' }), { name }, NOW - 5 * MINUTE);
+  }
+  store.flush();
+  await store.flushSettled({});
+  // The channels' notes, written into the database as the memory session leaves them: the store has no writer of notes.
+  const stamp = new Date().toISOString();
+  for (const [id, name] of Object.entries(names)) {
+    const place = placeOfChat(store, { id, iface: 'fake' });
+    await writeUnitUpdate(memory.memoryDb, {
+      op: 'value',
+      key: placeCollection('channel', place),
+      value: { ...store.getChannel(place), purpose: `${name} purpose`, updatedAt: stamp },
+    });
+  }
+  // Before schema v15 there is no `mirrors` table: the turn then runs without them, so a test fails on what the turn
+  // shows, not here.
+  const db = dbOf(memory.memoryDb);
+  const hasMirrors = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").all();
+  if (hasMirrors.length > 0)
+    for (const id of mirrors) seedMirror(memory.memoryDb, { iface: 'fake', chatId: id, name: names[id], at: NOW });
+  // The persona's channels sit under the server, as the observation of their first lines leaves them.
+  const server = placeOfRoot(store, ROOT, 'fake');
+  db.prepare("INSERT OR IGNORE INTO places (id, iface, kind) VALUES (?, 'fake', 'server')").run(server);
+  for (const id of Object.keys(names))
+    db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(server, placeOfChat(store, { id, iface: 'fake' }));
+  // The persona's lines in d1 and d2 are stored too, so a reply's `<memory>` brings both places to mind as theirs.
+  for (const id of ['d1', 'd2'] as const)
+    addLine(db, {
+      id: `src:fake:p-${id}:1:said`,
+      iface: 'fake',
+      place: placeOfChat(store, { id, iface: 'fake' }),
+      author: 'self',
+      text: 'σημείωμα',
+      at: new Date(NOW - 10 * MINUTE).toISOString(),
+    });
+  freshWorld();
+  const trigger = rawMessage({ id: 'm1', ts: NOW - 1000, content: 'γεια σου' });
+  for (const id of ['d1', 'd2'] as const) {
+    const lines = id === here ? [ownLine(`p-${id}`, id), { ...trigger, placeId: id }] : [ownLine(`p-${id}`, id)];
+    world().channel({ id, name: names[id], placeId: ROOT, historyMessages: lines, lastMessageAt: NOW - 10 * MINUTE });
+  }
+  if (here === 'c1') world().channel({ id: 'c1', name: names.c1, placeId: ROOT, historyMessages: [trigger] });
+  let step = 0;
+  let firstOfStep = 0;
+  // Each request is answered from its step's answers, the last one repeated.
+  const llm = sequenceLlm([
+    (request: unknown) => {
+      const answers = steps[step]?.answers ?? ['<skip/>'];
+      const answer = answers[Math.min(llm.calls.length - 1 - firstOfStep, answers.length - 1)];
+      return typeof answer === 'function' ? (answer as (given: unknown) => unknown)(request) : answer;
+    },
+  ]);
+  const turns = worldTurnRunner({
+    hot: hotWith({
+      config: diaryChannelId === null ? {} : { diary: { placeId: diaryChannelId } },
+      // The persona's one read of memory, so a turn may read what memory holds about a place.
+      access: { 'memory.read': { everyone: false, roles: [], users: ['self-id'] } },
+    }),
+    store,
+    // The memory the runner may read the mirrors from (the store reads the same database).
+    memoryDb: memory.memoryDb,
+    // The database a reply's request reads `<memory>` from (src/memory/db/frame-reads.ts).
+    journalDb: () => db,
+    memoryContext: () => ({ kind: 'group', iface: 'fake' }),
+    llm,
+    calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
+    rng: () => 0.5,
+    now: () => NOW,
+  });
+  for (const [index, one] of steps.entries()) {
+    step = index;
+    firstOfStep = llm.calls.length;
+    one.before?.(memory.memoryDb);
+    const result = await turns.runTurn({
+      channel: { id: here },
+      mode: 'reply',
+      trigger: {
+        ...trigger,
+        placeId: here,
+        authorId: 'u1',
+        authorName: 'Alice',
+        self: false,
+        bot: false,
+        ts: NOW - 1000,
+      },
+      triggerKind: 'mention',
+    });
+    assert.equal((result as { outcome?: unknown }).outcome, 'spoke', 'the persona answers Alice');
+    await store.flushSettled({});
+  }
+  return { memory, store, requests: [...llm.calls] };
+}
+

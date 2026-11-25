@@ -1,0 +1,24 @@
+{
+  "name": "self-rescheduling",
+  "description": "The persona keeps pushing the same intention ten minutes ahead, and keeps setting a new one in the same chain: the per-chain cap ends both.",
+  "start": "2026-11-02",
+  "days": 5,
+  "timezone": "UTC",
+  "seed": 79,
+  "channels": [
+    { "id": "c-general", "name": "general" },
+    { "id": "c-games", "name": "games" },
+    { "id": "c-memes", "name": "memes" },
+    { "id": "c-music", "name": "music" },
+    { "id": "c-books", "name": "books" },
+    { "id": "c-art", "name": "art" }
+  ],
+  "history": { "selfHours": [11, 17], "channel": "c-general" },
+  "stub": { "usdPerRequest": 0.06, "intention_due": [[{ "skill": "web.search", "args": { "q": "news" } }]] },
+  "intentions": [
+    { "key": "push-ahead", "purpose": "check the leaderboard", "channel": "c-games", "due": "1 10:00", "stub": { "intention_due": [[{ "skill": "intention.update", "args": { "id": "$intention", "due": "10m" } }]] } },
+    { "key": "chain-seed", "purpose": "watch the stream schedule", "channel": "c-memes", "due": "1 14:00", "chain": "stream-watch", "stub": { "intention_due": [[{ "skill": "intention.set", "args": { "purpose": "watch the stream schedule again", "due": "15m", "chain": "$chain", "channel": "$channel", "key": "chain-seed" } }]] } }
+  ],
+  "events": [],
+  "expect": { "capped": ["per-chain"] }
+}

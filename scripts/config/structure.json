@@ -1,0 +1,1616 @@
+{
+  "entries": [
+    {
+      "path": "README.md",
+      "purpose": "The project README for people who find the repository.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "*.md",
+      "purpose": "The root documents: agent rules, style guide, writing guide, contributing and security policy.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "LICENSE",
+      "purpose": "The license text.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".github/",
+      "purpose": "The continuous integration workflows, the issue and pull request templates and the README images.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "prompts.local/",
+      "purpose": "A deployment prompt layer that shadows the tracked prompts.",
+      "layer": "local",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "config.local/",
+      "purpose": "A deployment's settings, labels and tool texts, each laid over its tracked file, and the settings of each interface it runs.",
+      "layer": "local",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "data/README.md",
+      "purpose": "The one public file of the persona root: what its folders hold.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "data/",
+      "purpose": "A deployment memory, state and logs.",
+      "layer": "local",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "config/",
+      "purpose": "The tracked default settings, the labels code inserts (split into model and owner) and the texts of the persona's tools.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "package.json",
+      "purpose": "The root package: scripts, workspaces and development dependencies.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "package-lock.json",
+      "purpose": "The locked dependency tree.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "tsconfig.json",
+      "purpose": "The TypeScript compiler options used for type checking.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "eslint.config.ts",
+      "purpose": "The ESLint flat configuration.",
+      "layer": "public",
+      "imports": [
+        "@eslint/js",
+        "globals",
+        "eslint-plugin-import-x",
+        "typescript-eslint",
+        "scripts/eslint-test-rules.ts"
+      ],
+      "test": "none"
+    },
+    {
+      "path": "eslint-suppressions.json",
+      "purpose": "The recorded ESLint violations that may only shrink.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "scripts/config/code-health-baseline.json",
+      "purpose": "The recorded size and structure breaches that may only shrink.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "scripts/config/prose-baseline.json",
+      "purpose": "The recorded prose violations that may only shrink.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "scripts/config/structure.json",
+      "purpose": "This manifest of the tracked tree.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".prettierrc",
+      "purpose": "The Prettier options.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".prettierignore",
+      "purpose": "The files Prettier never formats.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".gitignore",
+      "purpose": "The paths git ignores.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".gitattributes",
+      "purpose": "The git attributes of the tree.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": ".nvmrc",
+      "purpose": "The Node version of the project.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "prompts/",
+      "purpose": "The tracked prompt files the model reads.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "docs/",
+      "purpose": "How the engine works, one topic per file.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "agents/",
+      "purpose": "The profile and prompt of each errand agent.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "bin/",
+      "purpose": "Entry points that run as their own process.",
+      "layer": "public",
+      "imports": ["interfaces/cli/**", "node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "deploy/",
+      "purpose": "The systemd unit templates that `neptunia setup` renders, and the description of what it does.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "interfaces/README.md",
+      "purpose": "The overview of the interface packages.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "interfaces/discord/",
+      "purpose": "The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. It reads the core's media classifier and video-site matcher, pure modules, and classifies Discord's embeds and media addresses itself.",
+      "layer": "public",
+      "imports": [
+        "node:*",
+        "discord.js",
+        "src/media/classify.ts",
+        "src/media/video-sites.ts",
+        "src/protocol/**",
+        "interfaces/discord/platform-types.ts",
+        "interfaces/discord/values.ts"
+      ],
+      "test": "required"
+    },
+    {
+      "path": "interfaces/discord/setup.ts",
+      "purpose": "The setup of the Discord interface, which refuses until the neptunia CLI runs it. No behaviour to test.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "interfaces/cli/",
+      "purpose": "The owner's chat in a terminal: the Ink presentation, written with createElement, and the link that serves the `cli` adapter. It reads the core's media classifier, a pure module, and nothing else of the engine beyond the protocol.",
+      "layer": "public",
+      "imports": [
+        "ink",
+        "react",
+        "@jimp/*",
+        "@jsquash/webp",
+        "node:*",
+        "src/media/classify.ts",
+        "src/protocol/**",
+        "interfaces/cli/**"
+      ],
+      "test": "none"
+    },
+    {
+      "path": "tests/",
+      "purpose": "The node:test files, one per module at the module's path: `src/memory/db/open.ts` has `tests/src/memory/db/open.test.ts`.",
+      "layer": "public",
+      "imports": [
+        "discord.js",
+        "ink",
+        "react",
+        "eslint",
+        "typescript",
+        "node:*",
+        "src/**",
+        "interfaces/**",
+        "scripts/**",
+        "bin/**",
+        "tests/**"
+      ],
+      "test": "none"
+    },
+    {
+      "path": "tests/fixtures/",
+      "purpose": "Fakes, harnesses and sample data the tests share.",
+      "layer": "public",
+      "imports": [
+        "@jimp/*",
+        "@jsquash/webp",
+        "discord.js",
+        "node:*",
+        "src/**",
+        "interfaces/**",
+        "scripts/**",
+        "bin/**",
+        "tests/**"
+      ],
+      "test": "none"
+    },
+    {
+      "path": "scripts/",
+      "purpose": "Scripts for development and measurement, never run by the engine.",
+      "layer": "public",
+      "imports": ["node:*", "src/**", "interfaces/**", "scripts/**", "typescript", "discord.js", "eslint", "estree"],
+      "test": "none"
+    },
+    {
+      "path": "scripts/lib/",
+      "purpose": "What the scripts under `scripts/` share, among them the fake interface the tests drive as well.",
+      "layer": "public",
+      "imports": ["node:*", "src/**", "interfaces/**", "scripts/**"],
+      "test": "none"
+    },
+    {
+      "path": "scripts/fixtures/",
+      "purpose": "Sample weeks for the virtual-week harness, the example scenarios of the replay script, and the provider answers and the local page of the fault run.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "scripts/config/",
+      "purpose": "The settings of the development checks: the baselines, and the structure manifest.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "src/*.ts",
+      "purpose": "The small modules every part uses: settings, hot reload, logging, paths, time and text formatting.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/config/",
+      "purpose": "Where the settings and the labels live, the join and split of the labels, the settings schema and its checks.",
+      "layer": "public",
+      "imports": ["node:*", "src/config/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/config/schema/",
+      "purpose": "The entries of the settings schema, one file per top-level section of `config/config.json`.",
+      "layer": "public",
+      "imports": ["src/config/schema.ts"],
+      "test": "none"
+    },
+    {
+      "path": "interfaces/discord/platform-types.ts",
+      "purpose": "The parts of the discord.js objects the package reads (message, channel, guild, member, reaction), every field optional. Types only.",
+      "layer": "public",
+      "imports": ["discord.js", "interfaces/discord/embed.ts"],
+      "test": "none"
+    },
+    {
+      "path": "interfaces/discord/values.ts",
+      "purpose": "The package's copies of the small helpers that read an unknown value: a thrown error's fields, a record, a scalar as text. Tested through the files that call them.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "src/web/search-types.ts",
+      "purpose": "The shapes the web search clients share: a result, a failure, the options of a search. Types only.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "src/agent-runner/backend.ts",
+      "purpose": "The agent backends: `codex exec`, `claude -p` and OpenCode behind one interface, the choice between them, and the task engine of a runner. Tested by `tests/agent-backend-*.test.ts`, one file per concern.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/error-fields.ts",
+      "purpose": "Reads the fields the engine looks at on a thrown value, `name`, `code` and `statusCode` among them, without a check at every use. Tested through the clients that read it.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "src/index.ts",
+      "purpose": "The entry point: reads the paths and the environment, reads where the interfaces run, loads the Discord package by path when it runs in this process, starts the core and owns the process signals and exit. It imports no Discord.",
+      "layer": "public",
+      "imports": ["node:*", "src/*.ts", "src/interface/mode.ts"],
+      "test": "none"
+    },
+    {
+      "path": "src/rules-list.ts",
+      "purpose": "The rules block of a system text: the rules prompt followed by one line per live rule, and nothing while no rule is live.",
+      "layer": "public",
+      "imports": ["src/format.ts"],
+      "test": "required"
+    },
+    {
+      "path": "src/process-errors.ts",
+      "purpose": "What the core does with an uncaught error: an idle HTTP/2 stream's close is logged and survived, and any other ends the process with exit 1.",
+      "layer": "public",
+      "imports": [],
+      "test": "required"
+    },
+    {
+      "path": "src/core.ts",
+      "purpose": "The composition root: `startCore` builds the core over the paths, the environment and the interfaces it is given. Proved by the slice test. It imports no Discord.",
+      "layer": "public",
+      "imports": [
+        "node:*",
+        "src/*.ts",
+        "src/agent-runner/**",
+        "src/config/files.ts",
+        "src/behavior/**",
+        "src/board/**",
+        "src/chat/**",
+        "src/service/commands.ts",
+        "src/errands/**",
+        "src/intentions/**",
+        "src/keys/**",
+        "src/llm/**",
+        "src/media/**",
+        "src/memory/**",
+        "src/net/**",
+        "src/protocol/**",
+        "src/setup/**",
+        "src/skills/**",
+        "src/speech/**",
+        "src/subharness/**",
+        "src/tools/**",
+        "src/web/**",
+        "src/interface/directory.ts",
+        "src/interface/dm-ahead.ts",
+        "src/interface/door.ts",
+        "src/interface/cli-chat.ts",
+        "src/interface/link.ts",
+        "src/interface/members.ts",
+        "src/interface/neptunia-cli.ts",
+        "src/interface/owner-pairing.ts",
+        "src/interface/root-joining.ts",
+        "src/interface/interface-settings.ts",
+        "src/interface/person-link.ts",
+        "src/interface/commands/chat-state.ts",
+        "src/interface/commands/console.ts",
+        "src/interface/commands/status-brief.ts",
+        "src/interface/mode.ts",
+        "src/interface/principals.ts",
+        "src/interface/reads.ts",
+        "src/interface/socket.ts"
+      ],
+      "test": "none"
+    },
+    {
+      "path": "src/agent-runner/",
+      "purpose": "The process that works errands: the socket server, the profiles, the backends (codex, claude, OpenCode) and the sweep. Each run goes through the subharness.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/skills/",
+      "purpose": "The persona's skills: the SKILL.md format and loader, the index of the active ones, the port over the registry in the memory database, its client over the memory writer and the agents' commands.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/chat/",
+      "purpose": "The owner's chat sessions: named views with a lineage over the stored lines of a place, kept in a file of their own and apart from memory.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/service/",
+      "purpose": "The scheduled services: the schedule of a setting and what is due, the `service` command family over the four mechanics, the service manager's calls and the locked writer of the local settings.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/service/commands.ts",
+      "purpose": "The `service` command family over the four mechanics. Tested through `tests/src/service/commands.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/service/local-settings.ts",
+      "purpose": "The locked writer of the local settings. Tested through the concurrent setups of `tests/src/service/local-settings.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/service/manager.ts",
+      "purpose": "The service manager: its scope and its calls. Tested through a fake manager in `tests/src/service/commands.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/subharness/",
+      "purpose": "The subharness: the routing of `config.json` (which key, backend, model, effort and mode each part runs on), the owner's switch of the agent backend and the mode of each agent, the one seam every agent run goes through, where each backend is installed in the private layer, and the rows that say what is off.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/subharness/tool-bridge.ts",
+      "purpose": "The core's end of the MCP server of a subscription turn, its per-turn tokens and its socket pair. Tested through the MCP server tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/setup/",
+      "purpose": "`neptunia setup`: the unit templates rendered for the installing user, the nine steps, the writing of the units, and the questions for the persona's subharness backends and two mechanics.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/setup/clients.ts",
+      "purpose": "The clients of the core and their tokens on disk, for `neptunia setup`. Tested through `tests/src/setup/clients.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/board/",
+      "purpose": "The board in the memory database: the tables that hold the persona's errands, their one write and their reads.",
+      "layer": "public",
+      "imports": ["node:*", "src/board/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/board/archive.ts",
+      "purpose": "The persona's errands as rows of the board. Tested through the errand board tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/board/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/board/errands.ts",
+      "purpose": "The errand store's side of the board: its one write inside the memory writer's transaction, its reads of the errands and of the ends not yet delivered. Tested through the errand board and errand tools board tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/board/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/health/",
+      "purpose": "The three parts of the owner's `/doctor`: the server, the core and the memory, each judged by a pure function over a probe or the memory database.",
+      "layer": "public",
+      "imports": ["node:*", "src/health/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/behavior/",
+      "purpose": "What a turn does: the pipeline, triggers, prefetch, prompt assembly, recall, the inner turn and the heartbeat.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/behavior/mirror-desk.ts",
+      "purpose": "What the owner's mirror commands read and change. Tested through the mirror command tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/mirror-drain.ts",
+      "purpose": "One drain of the diary's mirrors: expired claims, adapter lookups, lost entries, queued sends and backfill slots. Tested through the mirror delivery and backfill tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/mirror-stored.ts",
+      "purpose": "A diary entry rebuilt from memory for a publication that goes out after its turn. Tested through the mirror delivery tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/missed-types.ts",
+      "purpose": "The long input and result types of the signatures of the missed-answer registry. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/prompt-types.ts",
+      "purpose": "The long input and result types of the signatures of the persona's request builders. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/recall-run-types.ts",
+      "purpose": "The long input and result types of the signatures of the recall runner. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/recall-types.ts",
+      "purpose": "The long input and result types of the signatures of the recall search. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/turn-types.ts",
+      "purpose": "The long input and result types of the signatures of the turn runner. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/types.ts",
+      "purpose": "The shapes the inner life modules share. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/settings.ts",
+      "purpose": "The inner life's settings: the wake kinds, the `wakes` defaults and `innerSettings`. Tested through the inner life tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/queue.ts",
+      "purpose": "The inner life's state file `inner.json`, the wakes an intention gives, how queued wakes coalesce, its facts and journal notes. Tested through the inner life tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/places.ts",
+      "purpose": "The persona's attention and the places view of the inner life: the place index, the attend wakes and the places page. Tested through the inner life tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/heartbeat.ts",
+      "purpose": "The heartbeat's schedule: its timer, its wake, its facts and the log line of its outcome. Tested through the inner life and heartbeat tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/drain.ts",
+      "purpose": "The inner life's drain: one inner turn for the queue's first group, its wake run, its retries and its feedback facts. Tested through the inner life and fault-injection tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/wake-queue.ts",
+      "purpose": "The inner life's wake queue: the only writer of the queue's view and its rows in `wakes`, each transition written when it happens, the claim and finish of a turn's wakes, and the start's recovery of cut-off turns, slept wakes and the `core:alive` lease. Tested through the inner life, inner wakes and fault-injection tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/deliveries.ts",
+      "purpose": "A wake's sends after its completion: the hold of a live wake turn, its deliveries sent through the port, and what a crash left reconciled and sent at a start. Tested through the inner wake sends tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/facts.ts",
+      "purpose": "The inner life's facts: what did not go through in a turn, kept until a model answer carried them. Tested through the inner life and inner turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/inner/status.ts",
+      "purpose": "The owner's status of the inner life and its kill switch. Tested through the inner life and status tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/",
+      "purpose": "A turn, one topic per module. The functions that stand on their own are its settings, timers, triggers, inputs, mentions, targets, media, history, routing, journal records and skill calls. The modules that `createTurnRunner` in `src/behavior/turn.ts` builds once over a typed context are the facts, the inputs, participation, the journal notes, the diary's first step, the pictures and GIFs, the sends, the typing indicator, the dry act, the act, the pulls, the skill calls, the tool round, the in-turn tools, the second look, the lookup and the outcome. `src/behavior/turn.ts` keeps their wiring, hands each attempt to `runAttempt` in `src/turn/phases/attempt.ts`, which runs it through the phases of `src/turn/phases/`, and re-exports what its importers read. The block builders of a turn's request, which `buildRequest` in `src/behavior/prompt.ts` assembles, are in `src/turn/request/`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/tools/wake-tools.ts",
+      "purpose": "What a heartbeat accepts and offers, the intention changes it goes on after, and the key that keeps a restarted wake from repeating them. Tested through the wake completion tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/settings.ts",
+      "purpose": "The pace and tool loop settings a turn reads from the live config. Tested through the turn, config and inner turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/timers.ts",
+      "purpose": "The stages, the bar signal, the typing refresh and the stage record of a turn's preparation. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/triggers.ts",
+      "purpose": "The trigger kinds and what they say about a turn: plain posts, who waits, who asked, the attention. Tested through the turn and attention tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/lookup-input.ts",
+      "purpose": "The transcript and trigger input of the re-watch classifier's request. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/mentions.ts",
+      "purpose": "The `@name` matching, the member directory, the stored names and profiles a request shows and the untagged note. Tested through the turn and mention feedback tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/targets.ts",
+      "purpose": "Where a post or a reaction lands, the link a post carries, and a post's check arguments. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/media.ts",
+      "purpose": "The re-watch tokens and the media of a history a turn's preparation works on. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/history.ts",
+      "purpose": "The history a turn reads with its reply parents and continues after a skill call. Tested through the turn, prompt anchors and replay loop tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/routing.ts",
+      "purpose": "The channel directory of a turn and whether a chat belongs to a root. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/journal.ts",
+      "purpose": "The journal records of a turn: skip codes, operations, diagnostics, send hashes, usage and the turn record. Tested through the journal turn, skill result and failed-earlier tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/calls.ts",
+      "purpose": "The persona's skill calls as a turn makes them: the requester, the call view, the search handles, the envelope, the answer split and the reply request's options. Tested through the replay skill, replay loop and turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/task-input.ts",
+      "purpose": "The `tasks` input of a turn's request. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/participation.ts",
+      "purpose": "The persona's participation in a server turn: whether the store applies, the live input of a person's live line and the record of their lines. Tested through the turn and participation tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/journal-notes.ts",
+      "purpose": "What a turn notes as it runs: the facts for the persona's next request, the text an attempt saw, the trigger and call marks, the previous think, and the journal's and the record's lines. Tested through the turn, journal turn and failed-earlier tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/diary.ts",
+      "purpose": "A diary post's first step and its picture gate: the plan request with its seeds and topic, the plan's search and a set post's seeds. Tested through the diary turn and diary requests tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/draw-gif.ts",
+      "purpose": "The pictures and GIFs of a turn: the persona's `draw.create` tool, the post of the GIF the media pick chose and the grace of its answer. Tested through the turn, media draw, draw parity and gifs tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/sends.ts",
+      "purpose": "How the persona's words are rendered and timed before they go out: a post's mentions, emoji and links, the settle wait for the trigger's author, and the diary's place name. Tested through the turn, message links and channel links tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/typing.ts",
+      "purpose": "The typing indicator of a turn while its tool loop runs and while it prepares. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/act.ts",
+      "purpose": "The act of a turn: the persona's reactions and messages and the picked GIF posted, checked, typed out, journaled and recorded, and a diary post's speech held. Tested through the turn, journal turn, gifs and diary turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/pulls.ts",
+      "purpose": "What a turn that spoke had in view: the lines of its chat, so a call queued meanwhile and already shown is not answered twice. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/facts.ts",
+      "purpose": "The facts kept for the persona's next request in a chat: the inner life's store while it is on, else the runner's own. Tested through the turn, inner turn and turn failed earlier tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/inputs.ts",
+      "purpose": "The port references, the gateway's check of one effect, the memory context of an attempt and the errands, intentions and places inputs of a request. Tested through the turn, turn errands and inner turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/skill-calls.ts",
+      "purpose": "The persona's skill calls in a turn: what a call resolves against, the gateway's check, the plan of a call, an inner turn's gate, the call made with its journal lines and marks, and a step's calls in segments. Tested through the turn, inner turn, heartbeat intents and turn errands tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/tool-round.ts",
+      "purpose": "The steps of a turn: the persona's calls planned and made, their speech posted or held, one more request while something is left to read or a quiet call answered someone, and the history read, the think kept and the transcript of a step's note. Tested through the turn, inner turn, heartbeat intents and diary turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/in-turn-tools.ts",
+      "purpose": "The persona's in-turn tools over a turn's own context: the web search and read, the second look, the media find, the memory search, the chat read, the picture and a diary post's voice. Tested through the turn, turn chat read and media draw tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/rewatch.ts",
+      "purpose": "The video state a turn knows and the `<transcript>` context its classifiers read. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/lookup.ts",
+      "purpose": "What a turn looks up before its reply: the memory prefetch, the splitter, and the directory and private partner. Tested through the turn and events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/outcome.ts",
+      "purpose": "How a turn ends: runTurn around its attempts, the chain of parts of a split message, the facts an addressed turn keeps, the end hook, the idle notifications and the diary wake's inputs. Tested through the turn, turn attention, turn failed earlier and diary turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/draft.ts",
+      "purpose": "The draft of one attempt of a turn: the topic modules' draft types joined, with the journal's, and the fields only the phases share. Tested through the turn and journal turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/attempt.ts",
+      "purpose": "One attempt of a turn: its draft created, its phases run in order, the attempt closed, what the turn's end reads noted and the report `runTurn` hears. Tested through the turn, turn attention and journal turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/context.ts",
+      "purpose": "What the phases of an attempt share: the runner's dependencies and topic functions, the attempt's arguments and lifecycle, its early result and the cancellation point at its bar. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/preflight.ts",
+      "purpose": "The first phase of an attempt: the pause and the attention, the chat's info, the journal's start and the settle wait. Tested through the turn and turn attention tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request.ts",
+      "purpose": "The second phase of an attempt: the steps of `src/turn/phases/request/` in order, up to the reply request, each step's fields spread into one flat record. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/setup.ts",
+      "purpose": "The request's settings for the attempt, its bar and cancellation point, the listing, the history, the memory prefetch and a diary post's plan. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/searches.ts",
+      "purpose": "Which searches a turn may run: the web lookup, the web search and the server search. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/pulls.ts",
+      "purpose": "The mode a turn is answered in, noted on its life. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/stages.ts",
+      "purpose": "The preparation's deadline and its first stages: the file previews, the captions, the splitter and the video watches. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/second-look.ts",
+      "purpose": "The deadline's media extension and the video states a turn's transcript shows. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/lookup.ts",
+      "purpose": "The link reads of a turn. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/wait.ts",
+      "purpose": "The one wait for the preparation, and what of it was late. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/gather.ts",
+      "purpose": "What the preparation brought, taken as the request shows it: deleted lines, late video states, reads, searches, a diary plan and whether the turn may draw. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/facts.ts",
+      "purpose": "What was kept for the persona in the chat, the task input, the follow-up prompt's check, their time away and skills discovery. Tested through the turn and turn failed earlier tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/request/build.ts",
+      "purpose": "The persona's tools for the turn, the request input, the request built, the memory reads record and the lines the journal names as seen. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/response.ts",
+      "purpose": "The third phase of an attempt: the reply request under the bar, the persona's answer read and shaped, the answer logged, the seen marks, and the cut-off and silence that end the turn. Tested through the turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/act.ts",
+      "purpose": "The fourth phase of an attempt: how the persona's answer reaches the chat, and the recovery turn's last check. Tested through the turn and journal turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/tool-round.ts",
+      "purpose": "The fifth phase of an attempt: the persona's calls under the turn's effect keys, their speech, the later steps, and the cut-off and short diary set that end the turn. Tested through the turn, turn tool steps and diary turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/phases/outcome.ts",
+      "purpose": "The last phase of an attempt: what its steps posted, a diary entry recorded, the result, how an attempt that threw ends and what every attempt closes. Tested through the turn and diary turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/types.ts",
+      "purpose": "The shapes a turn's request is built from: the labels and config as the block builders read them, the profiles, the messages, the budget's sections and the request's input. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/text.ts",
+      "purpose": "The text tools every request builder shares: a block's tags, the `{{key}}` filler, the stored `<@id>` tokens as names, the labels' check and two date forms. Tested through the prompt and prompts shipped tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/reads.ts",
+      "purpose": "The memory-read collector of a request: what it carried from memory, in the order of its blocks. Tested through the prompt memory reads tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/head.ts",
+      "purpose": "The stable head of a request: its labels, switches, handles and directories, the transcript's options, the system prompt, the chat's lines and the room its sections share. Tested through the prompt, prompt directory and channel handles tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/profiles.ts",
+      "purpose": "One member as a request shows them: the profile with its marks and the fields of their live line. Tested through the prompt and memory session tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/server.ts",
+      "purpose": "What memory learned of a place, as a request quotes it: the stored place notes and their settings. Tested through the prompt tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/emoji-gifs.ts",
+      "purpose": "The custom emoji in a request and the description fields of a library GIF. Tested through the prompt emoji, prompt gifs and prompt freeze tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/recall.ts",
+      "purpose": "The automatic memory prefetch of a turn as its request reads it: the excerpts whose stored facts go to `<found>`. Tested through the prompt tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/senses.ts",
+      "purpose": "What the persona can sense and do in a turn: the `<senses>` lines in their stable and per-turn halves, and the `<tool_catalogue>` block. Tested through the prompt, prompts shipped and skills tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/task.ts",
+      "purpose": "The task of a request: its prompt file, the trigger's label, a routed call's origin, the room's question, what else the author waits for and the follow-up check. Tested through the prompt and turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/diary.ts",
+      "purpose": "A diary entry's own blocks: `<diary>`, `<kind>`, `<scene>`, `<topic>` and `<stored_facts>`, and its task text. Tested through the prompt diary and diary requests tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/wake.ts",
+      "purpose": "What a request carries from the persona's own life: the bodies of their errands, intentions, wake, places and previous think. Tested through the prompt, previous think and inner turn tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/tail.ts",
+      "purpose": "The end of a request: `<now>`, the user message's text parts in their three cache segments and what of the chat went in. Tested through the prompt and prompt freeze tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/reader.ts",
+      "purpose": "The user message of a request on the turn frame: its blocks in the frame's order, the budget's fit and the handles given after it. Tested through the prompt reader tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/framed.ts",
+      "purpose": "A reply's or an errand result's request on the frame, in the shape `buildRequest` returns. Tested through the prompt reader tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/",
+      "purpose": "The message pipeline's topic modules, each built once by `createMessageHandler` in `src/behavior/pipeline.ts` over a typed context: a new message's path, the classifiers, the pending queue and its drain, the settle waits, the private chat's gate, and an edit and a deletion of a message.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/pipeline/edits.ts",
+      "purpose": "What changes to a message after it arrived: an edit as a `seen` line of the record with its next revision, late media counted, warmed and linked to the line's current revision, and a deletion as a `deleted` line. Tested through the events and pipeline no raw tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/private-gate.ts",
+      "purpose": "The private chat: a direct message's gate with zero tokens, its silent drop and daily-cap notice, its observation and its turn, and the same gate and count for a queued direct message and a recovery turn. Tested through the private, core pause and events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/address-classifier.ts",
+      "purpose": "The address classifier's call about an untagged line in an open follow-up window: its `yes`, `overheard` or `no`, the window's no-streak bumped on a `no`, and a failed call let through while the line keeps a one-to-one exchange. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/answer.ts",
+      "purpose": "The ordinary path of a server call: held while the attention is taken, otherwise counted, rolled for the ignore chance and answered by a reply turn. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/call-outcome.ts",
+      "purpose": "What follows a call's turn: the limit notice of a refusal, the ring's stamp of a routed call, and a held call looked up again before it is answered. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/classifier-request.ts",
+      "purpose": "The request the address classifier sends about one new line: the channel's last lines, the author's stored aliases and the line itself as the candidate. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/chats.ts",
+      "purpose": "What the pipeline asks the interface about a chat: how it looks now, whether a turn may open there, where a call written in it is answered, and whether a line replies to the persona. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/drain.ts",
+      "purpose": "The drain of the pending queue: after a turn ends, the oldest waiting call is checked again and answered, one at a time, after a switch pause. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/address-attention.ts",
+      "purpose": "A channel's follow-up window, opened by the persona's post, kept in the state and closed by a run of `no` verdicts, and the checks in front of the address classifier. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/follow-up.ts",
+      "purpose": "The follow-up path of an untagged line: one address classifier call in flight per channel, the lines that arrive meanwhile held, and the turn a verdict starts or defers. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/following.ts",
+      "purpose": "A member's line right after the persona spoke in a channel, joined to their newest participation episode. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/handle-message.ts",
+      "purpose": "What happens to one new message: ignored, observed, classified or answered as a call, once across the live path and the start's catch-up. Tested through the events and catch-up tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/media-prefill.ts",
+      "purpose": "An observed line's media read ahead of time: its pictures captioned, its first videos watched and its first link read, and the cached captions the classifiers show. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/merge.ts",
+      "purpose": "A call held while the attention is taken: queued, or folded by the merge classifier into an item its author already waits for. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/observe.ts",
+      "purpose": "A line's observation, sent to the memory database and awaited at most `memoryDb.observeTimeoutMs`. Tested through the core slice test.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/pause-notice.ts",
+      "purpose": "The pause notice: a direct call that arrives while the persona is paused gets one plain line, at most once per channel per `PAUSE_NOTICE_MINUTES` (10) of `src/behavior/limits.ts`. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/pending-queue.ts",
+      "purpose": "The pending queue of calls that found the attention taken: added, replaced, evicted and requeued, with their log lines and their missed facts. Tested through the events tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/pipeline/types.ts",
+      "purpose": "The shapes the pipeline modules share. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/errands/",
+      "purpose": "The errand service: the store, the client to the runner and the turns that bring results back.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/intentions/",
+      "purpose": "The persona intentions: model, store, sources and the service that wakes them.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/errands/types.ts",
+      "purpose": "The shapes the errand modules share. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/intentions/types.ts",
+      "purpose": "The shapes the intention modules share. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/interface/",
+      "purpose": "The core side of the interface port: the door that admits events, the link to an interface, the socket server and typing leases.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/interface/commands/",
+      "purpose": "The owner's command table of the chat and `neptunia -p`, its parse, and the console that runs a parsed command in the core as the owner.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/interface/commands/proxy.ts",
+      "purpose": "The `/proxy` commands over the engine proxy. Tested by the proxy command tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/interface/commands/mirror.ts",
+      "purpose": "The owner's `/mirror` commands. Tested through the mirror command tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/keys/",
+      "purpose": "The model keys of a deployment: the key store of named keys (`keys.json`), the key ring read off the chains of routes, the probes that check a key and a model, and the owner's key and chain commands.",
+      "layer": "public",
+      "imports": [
+        "node:*",
+        "src/keys/**",
+        "src/llm/openrouter.ts",
+        "src/llm/roles.ts",
+        "src/llm/route-text.ts",
+        "src/log.ts"
+      ],
+      "test": "required"
+    },
+    {
+      "path": "src/llm/",
+      "purpose": "The language model calls: OpenRouter, roles, budgets, token counts, limits and output parsing.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/media/",
+      "purpose": "Pictures, video, audio, GIFs and drawing on the core side.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/memory/",
+      "purpose": "The memory modules above the database: records, lore, episodes, recall ranking, vectors and backfills.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/memory/types.ts",
+      "purpose": "The types the memory modules share: untyped JSON, the settings handle, the logger and the memory database. Types and two small guards, tested through the modules that use them.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/",
+      "purpose": "The memory database: schema, the single writer, sessions, wakes and the read paths.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/memory/db/media-store.ts",
+      "purpose": "The one store of media: its read, its writes, its vectors and its search. Tested through the media memory tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/roots.ts",
+      "purpose": "The server places of the roots a `hello` names. Tested through `tests/src/memory/db/roots.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/meta-person.ts",
+      "purpose": "The read adapter of the meta-person: the person of an account and the accounts of a person, from `person_accounts` first and the old verified links after. Tested through `tests/src/memory/db/meta-person.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/media-stems.ts",
+      "purpose": "The stems of a media row. Tested through the media memory tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/source-current.ts",
+      "purpose": "Which rows of sources are a chat line as it stands now, as SQL. Tested through the recall tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/source-kinds.ts",
+      "purpose": "The kinds of a source row that are the persona's own. Tested through the memory database tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/readers/seam.ts",
+      "purpose": "The read seam of a module over the memory database. Tested through the memory database tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/describe-audio.ts",
+      "purpose": "How the describer tells a voice message, an audio file and a text file. Tested through `tests/src/memory/describe.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/diary-past.ts",
+      "purpose": "The read of the persona's past diary entries for a request. Tested through the diary tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/diary-audience.ts",
+      "purpose": "The audience of a diary entry over the memory database: the places the persona can name and whether a stored entry may reach a place. Tested through the mirror audience tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/mirror-config.ts",
+      "purpose": "The owner's configuration of the diary's mirrors, written by the one writer, and the scans of what a mirror still lacks. Tested through the mirror command and backfill tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/publication-delivery.ts",
+      "purpose": "The delivery state of a publication: its claim, its segment receipts and how each send ended. Tested through the mirror delivery tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/mirrors.ts",
+      "purpose": "The reads of the diary's mirrors over the memory database: the places the persona's diary is posted to and whether a chat is one. Tested through the mirror and diary mirror tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/frame-reads.ts",
+      "purpose": "The reads of a request on the turn frame beside the graph reader: the persona's lines elsewhere and the lines around one, a line by its identity, a place's stored fields and an interface's names.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/reader-worker.ts",
+      "purpose": "The reader thread of the memory database: one read-only connection and the searches of recall. Tested through the recall-off-main tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/reader-client.ts",
+      "purpose": "The service's side of the reader thread: the queue of searches, abandoning one and restarting a dead thread. Tested through the recall-off-main tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/inspection-export.ts",
+      "purpose": "The owner's inspection export on its own thread. Tested through the inspect-export-off-main test.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/inspection-export-worker.ts",
+      "purpose": "The thread that runs one inspection export. Tested through the inspect-export-off-main test.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/types.ts",
+      "purpose": "The shapes the memory database files share: a row, the connection, the handle and the settings, with the helpers that read them. Types only, tested through the modules that use them.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/schema-baseline.ts",
+      "purpose": "The schema a new memory database starts from, with its seed rows. Tested through `tests/src/memory/db/schema-baseline.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/session-rows.ts",
+      "purpose": "The rows of the persona's memory session beside the store's files: what a member's profile reads of them and what a unit write leaves as the persona wrote it. Tested through the two-writers tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/semantic-rows.ts",
+      "purpose": "What the semantic writer and reader share: the label and merge rows a version derives, and the versions a context selects at a cutoff. Tested through the semantic write and read tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/semantic-answer.ts",
+      "purpose": "The entities and assertions groups of a memory session's answer, checked and resolved to typed ids. Tested through the semantic session tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/session-size.ts",
+      "purpose": "The size of one memory session request: the page budget, the cut of a batch by lines and the split of a page into parts of fewer people. Tested through the page budget tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/session-scopes.ts",
+      "purpose": "The scopes a memory session sweeps: the groups of an interface, and each DM alone by the place its lines' audience names. Tested through the session tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/dm-rescope.ts",
+      "purpose": "Gives every row of a DM's audience the partner person its place names, with the audience unchanged. Tested through the DM scope tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/semantic-types.ts",
+      "purpose": "The shapes of semantic memory: references, arguments, candidates, resolved writes and the retrieval page. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/readers/",
+      "purpose": "The read queries of the memory database.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/mnemonic/",
+      "purpose": "The word lists of the phrase codes, `bip-en` and `bip-ru`, with 2048 words each and one word per line. Data, read by `src/interface/phrase-codes.ts`.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "src/tools/operations/",
+      "purpose": "The typed operations behind the owner's commands and the persona's tools.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/protocol/",
+      "purpose": "The neutral protocol of events, actions and envelopes between the core and its interfaces, and the serving side of the link.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/protocol/host.ts",
+      "purpose": "The types of what the core hands an interface when it starts one and what the interface hands back. Types only.",
+      "layer": "public",
+      "imports": ["src/protocol/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/tools/",
+      "purpose": "The tools the persona can call: definitions, registry, executors and the gateway.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/tools/send-hold.ts",
+      "purpose": "The hold of a wake turn's sends: the port a posting operation sends through keeps each send for the wake's completion. Tested through the inner wake sends tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/speech/",
+      "purpose": "Voice messages: text preparation, synthesis and audio conversion.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/web/",
+      "purpose": "Web search, page fetching and link reading.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/net/",
+      "purpose": "The engine proxy: its route and health monitor, the environment a child gets for it, and the one call that sets it for the whole process. Tested by the proxy monitor, global and harness tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/net/**", "src/keys/**"],
+      "test": "none"
+    }
+  ]
+}

@@ -1,0 +1,444 @@
+// The shapes the inner life modules share: a wake and the queue's state file, the facts, the settings, the turn an
+// inner turn asks the turn runner for and its result, the sources a life is given and the `life` context the facade
+// (src/behavior/inner.ts) builds over them. Types only, nothing runs here. src/behavior/inner/*.ts, the wake's words
+// (src/behavior/wake.ts) and the turn runner read them.
+
+import type { ServiceSchedule } from '../../service/schedule.ts';
+import type { Obj } from '../../tools/types.ts';
+import type { Due, Intention } from '../../intentions/types.ts';
+import type { Reads } from '../../interface/reads.ts';
+import type { Adapter, ChatRef } from '../../protocol/adapter.ts';
+import type { SendHold } from '../../tools/send-hold.ts';
+import type { Handle, WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
+import type { Lane } from '../../turn/triggers.ts';
+import type { WAKE_KINDS } from './settings.ts';
+
+/** A wake kind. */
+export type WakeKind = (typeof WAKE_KINDS)[number];
+
+/** What an attend wake knows of its place: the lines since the persona's last look, their authors, the newest line. */
+export type AttendInfo = {
+  place: string;
+  lines: number;
+  people: Array<string>;
+  since: number | null;
+  newestAt: number;
+  newestId: string;
+};
+
+/**
+ * A wake as the queue keeps it. Every kind carries the first block of fields; the rest belong to some kinds and to the
+ * queue's bookkeeping, and the code reads them the same way whatever the kind, so they are optional here rather than
+ * split into one variant per kind.
+ */
+export type Wake = {
+  scopePlaceId?: string | null;
+  chat?: ChatRef | null;
+  id: string;
+  kind: string;
+  reason: string;
+  intentionIds: Array<string>;
+  chainId: string;
+  dueAt: number;
+  placeId: string | null;
+  dmChat: boolean;
+  /** `errand_deadline`: the errand the persona waits for. */
+  errandId?: string;
+  /** `attend`: the place and its lines. */
+  attend?: AttendInfo;
+  /** `feedback`: the current channel of the turn it reports. */
+  here?: string | null;
+  /** `feedback`: the turn it reports. */
+  turnId?: string | null;
+  /** `feedback`: the facts it carries, and their ids in the state. */
+  facts?: Array<FactPayload>;
+  factIds?: Array<string>;
+  queuedAt?: number;
+  /** A retried wake: the attempt (`error` for the one more try of a one-off), its first failure and its due time. */
+  retry?: number | 'error';
+  firstFailedAt?: number;
+  notBefore?: number;
+  lastCode?: string;
+  /** The cap that holds the wake. */
+  capped?: string;
+};
+
+/**
+ * A fact as the prompt shows it: its kind and its payload. The fields every kind may carry are named with their types,
+ * so a reader of a fact's code or reason gets text; the rest of a kind's payload is read as untrusted.
+ */
+export type FactPayload = Obj & {
+  kind: string;
+  code?: string | null;
+  why?: string;
+  wake?: string;
+  status?: string;
+  text?: string;
+  intentionId?: string | null;
+  purpose?: string;
+};
+
+/** A fact as the state keeps it: the payload, its id, where it may be shown, when it happened and when it was told. */
+export type Fact = FactPayload & {
+  scopePlaceId?: string | null;
+  chat?: ChatRef | null;
+  id: string;
+  placeId: string | null;
+  dmChat: boolean;
+  at: number;
+  told: false | number;
+};
+
+/** What a caller hands in to keep a fact: its kind, its payload and where it may be shown. */
+export type FactInput = Obj & {
+  scopePlaceId?: string | null;
+  chat?: ChatRef | null;
+  kind: string;
+  placeId?: unknown;
+  dmChat?: unknown;
+  at?: unknown;
+};
+
+/** Where a fact may be shown: the chat, whether it is a private chat, and whether any server place will do. */
+export type FactScope = {
+  scopePlaceId?: string | null;
+  chat?: ChatRef | null;
+  placeId?: unknown;
+  dmChat?: boolean;
+  anywhere?: boolean;
+};
+
+/** The facts of the turns that are not inner turns, kept in the inner life's state (or in process). */
+export type FactsApi = {
+  enabled: () => boolean;
+  add: (fact: FactInput) => Fact | null;
+  pending: (scope?: FactScope) => Array<Fact>;
+  markTold: (ids: unknown) => void;
+};
+
+/** What a handled wake leaves in the state: when, how it ended and, for an attend wake, its place. */
+export type Handled = { at: number; outcome: string; place?: string | null };
+
+/** One inner turn that ran, as the state keeps it for the day's counts. */
+export type TurnRecord = {
+  scopePlaceId?: string | null;
+  chat?: ChatRef | null;
+  at: number;
+  chainId: string;
+  usd: number;
+  outcome: unknown;
+  kinds: Array<string>;
+  code?: string;
+  failed?: true;
+};
+
+/** The mark of a turn in flight: what a restart finds when the process died in it. */
+export type Inflight = {
+  scopePlaceId?: string | null;
+  chat?: ChatRef | null;
+  turnId: string;
+  wakeIds: Array<string>;
+  kind: string;
+  startedAt: number;
+  placeId: string | null;
+  dmChat: boolean;
+  privateAccountId: string | null;
+  /** The interface the turn's chat belongs to; absent in a mark written before it was recorded. */
+  iface?: string;
+};
+
+/**
+ * The persona's inner life state: what `inner.json` keeps, and the wake queue's view (`queue`, `handled`, `inflight`),
+ * which only src/behavior/inner/wake-queue.ts writes.
+ */
+export type InnerState = {
+  v: number;
+  stopped: boolean;
+  stoppedAt: number | null;
+  stoppedBy: string | null;
+  queue: Array<Wake>;
+  handled: Record<string, Handled>;
+  heartbeat: { nextAt: number | null; lastAt: number | null } | null;
+  turns: Array<TurnRecord>;
+  spend: Array<{ at: number; usd: number }>;
+  turnIds: Array<string>;
+  facts: Array<Fact>;
+  inflight: Inflight | null;
+};
+
+/** The `wakes` section with every number checked (innerSettings). */
+export type InnerSettings = {
+  mode: 'live' | 'shadow';
+  tickSeconds: number;
+  queueMax: number;
+  chatMessages: number;
+  heartbeat: {
+    enabled: boolean;
+    schedule: ServiceSchedule;
+    jitterMinutes: number;
+    dueJitterMinutes: number;
+    maxOpen: number;
+    maxRecurring: number;
+    /** `heartbeat.firstLineDays`: the days back the times the persona wrote first in a direct chat count. */
+    firstLineDays: number;
+  };
+  caps: { perChain: number };
+  attention: {
+    settleSeconds: number;
+    perDayDefault: number;
+    pageSize: number;
+    placesInWake: number;
+    lookbackHours: number;
+  };
+  loop: { maxSteps: number; timeBudgetMs: number; maxCallsPerStep: number; callTimeoutMs: number };
+  factsKeepDays: number;
+  retry: { delaysMinutes: Array<number>; maxHours: number };
+};
+
+/** One place of the places view. */
+export type PlaceRow = {
+  id: string;
+  name: string;
+  writable: boolean | null;
+  lines: number;
+  people: number;
+  newestAt: number | null;
+  attended: boolean;
+};
+
+/** One page of the places view: the total, the page, its size, how many more follow and its places. */
+export type PlacesPage<TItem = PlaceRow> = {
+  total: number;
+  page: number;
+  pageSize: number;
+  more: number;
+  items: Array<TItem>;
+};
+
+/** One line of a place in the index: its message id, time, author (none for the persona's) and whether it is theirs. */
+export type PlaceLine = { id: string; at: number; by: string | null; said: boolean };
+
+/** The index of one place's places: the lines per place over the lookback window and how far the record was read. */
+export type PlaceIndex = {
+  scannedTo: number | null;
+  places: Map<string, { lines: Array<PlaceLine>; ids: Set<string> }>;
+};
+
+/** The record as the inner life reads it: its lines from a time on. */
+export type RecordSource = {
+  iterate?(query: { from?: string }): AsyncIterable<unknown> | Iterable<unknown>;
+  /** The persona's lines appended (src/memory/record.ts): a wake's held post becomes their `said` line once sent. */
+  append?(lines: ReadonlyArray<unknown>, options?: Obj): unknown;
+};
+
+/**
+ * The intention service as the inner life calls it (src/intentions/service.ts). Every member is optional and a list is
+ * read as untrusted records, so a test's narrower fake of the service fits.
+ */
+export type InnerIntentions = {
+  due?(): ReadonlyArray<Due>;
+  reconcile?(): unknown;
+  list?(options: { all: boolean; closed?: boolean }): ReadonlyArray<unknown>;
+  advance?(id: string, options: { named: boolean }): unknown;
+  attending?(): ReadonlyArray<unknown>;
+  store?(): { get?(id: string): Intention | null | undefined; list?(): ReadonlyArray<Intention> } | null | undefined;
+  countAttendWake?(id: string): unknown;
+  /** The intention a wake that slept was for: a one-off cancelled with `sleptAt`, a recurring one past its occurrence. */
+  sleep?(id: string): unknown;
+};
+
+/** The journal as the inner life writes and reads it. */
+export type InnerJournal = {
+  inner?(fields: Obj): unknown;
+  turnOperations?(query: {
+    turnId: string;
+    days: Array<string>;
+    privateAccountId: string | null;
+    /** The interface of the turn, which a DM's place is resolved under; absent means the home interface. */
+    iface?: string;
+  }): unknown;
+  read?(query: { day: string; kind: string; n: number }): unknown;
+  /** One operation of a turn (src/memory/journal.ts#op): a wake's held post is a `post` around its send. */
+  op?(base: Obj): InnerJournalOp;
+};
+
+/** A journal operation as the inner life closes it (src/memory/journal.ts#op). */
+export type InnerJournalOp = {
+  opId: string | null;
+  started(extra?: Obj): Promise<void> | void;
+  succeeded(result?: Obj): Promise<void> | void;
+  failed(code: string, result?: Obj): Promise<void> | void;
+  unknown(result?: Obj): Promise<void> | void;
+};
+
+/** The memory store as the inner life reads it: its pause, the profiles and the persona's diary for the heartbeat. */
+export type InnerStore = {
+  state?: { data?: { paused?: unknown; pausedAt?: unknown } };
+  listUserProfiles?(): unknown;
+  getDiary?(): { posts?: unknown } | null | undefined;
+};
+
+/** The facts an inner turn's request carries in `<wake>` (the drain builds them, src/behavior/wake.ts words them). */
+export type WakeInfo = {
+  kind: string;
+  items: Array<WakeItem>;
+  facts?: Array<FactPayload>;
+  intentions: Array<Intention>;
+  notes?: Record<string, string>;
+  now: number;
+  timezone: string;
+  chainId: string;
+  /** The code of the place a due intention named and could not be reached in: the turn runs nowhere. */
+  placeFailure?: string;
+};
+
+/** One wake of an inner turn as its request shows it. */
+export type WakeItem = {
+  kind: string;
+  reason: string;
+  intentionIds: Array<string>;
+  errandId: string | null;
+  attend?: AttendInfo & { placeName: string; peopleNames: Array<unknown> };
+  delayed?: { minutes: number; code: string };
+  facts?: Array<FactPayload>;
+  turnId?: string | null;
+};
+
+/** How many turns a chain had on the local day and how many are left under its cap. */
+export type ChainBudget = { used: number; cap: number; left: number };
+
+/** What the drain asks the turn runner for: the chat of the turn, null for a turn that runs nowhere. */
+export type InnerTurnParams = {
+  chat?: ChatRef | null;
+
+  mode: 'inner';
+  triggerKind: 'inner';
+  journalTurn: { turnId: string; attemptId: number };
+  inner: {
+    wake: WakeInfo;
+    currentChannel: string | null;
+    shadow: boolean;
+    mayAct: () => boolean;
+    /** A live wake turn's hold: the persona's posts wait in it for the wake's completion (src/tools/send-hold.ts). */
+    hold?: SendHold | null;
+  };
+};
+
+/** The port a completed wake's deliveries go out through (the core's guarded port), and its reconcile. */
+export type InnerPort = Pick<Adapter, 'send' | 'capabilities' | 'fetchMessages'>;
+
+/** The turn runner as the inner life calls it. */
+export type InnerTurns = {
+  runTurn(params: InnerTurnParams): Promise<unknown>;
+  isAnyBusy?(lane?: Lane): boolean;
+  isBusy?(chatId: string): boolean;
+};
+
+/** One call of an inner turn as its result lists it (src/behavior/turn.ts#runTurn's `inner.actions`). */
+export type TurnAction = Obj & {
+  skill?: unknown;
+  status?: unknown;
+  result?: unknown;
+  code?: unknown;
+  text?: unknown;
+  presented?: unknown;
+  state?: unknown;
+  intentionId?: unknown;
+  target?: unknown;
+  createdId?: unknown;
+};
+
+/** What a turn costs while it runs: its result, its cost, its requests and those on the core role. */
+export type Measured = { result: unknown; usd: number; requests: number; voice: number };
+
+/** The meter of what a turn costs (createCostMeter). */
+export type CostMeter = {
+  run(fn: () => unknown): Promise<Measured>;
+  running?(): { usd: number; peak: number };
+};
+
+/** The `inner.wake` event the life hands to the door. */
+export type InnerWakeEvent = { kind: 'inner.wake'; at: number; id: string; wake: Wake };
+
+/** One write of a wake run to the memory database (src/memory/db/wakes.ts). */
+export type WakeUpdate = { kind: 'wake'; op: 'start' | 'actions' | 'finish' } & Obj;
+
+/** What the inner life logs through. */
+export type Logger = { info(message: string, fields?: Obj): void; warn(message: string, fields?: Obj): void };
+
+/** The places the interface publishes for a place. */
+export type PlaceEntry = { id: string; name: string; writable: boolean | null };
+
+/** The database the queue is kept in: its read connection (null while it is not open) and its writer. */
+export type WakeBackend = { read(): Handle | null; write(update: WakeQueueUpdate): Promise<unknown> };
+
+/** The queue's state in process (`life.wakes`). */
+export type WakeQueueState = {
+  /** The database the queue is kept in, opened on first use. */
+  backend: WakeBackend | null;
+  /** Whether the view was read back from the table. */
+  loaded: boolean;
+  /** The wakes the view held before this life admitted any: the start handles them interrupted. */
+  oldIds: Set<string>;
+  /** The lease tokens of the wakes this life's turns hold, by wake id. */
+  claims: Map<string, number>;
+  /** The ids of the wakes an inner turn of this life runs for now (a stop leaves them to that turn). */
+  running: Set<string>;
+  /** The start's recovery, run once. */
+  started: Promise<void> | null;
+  /** The holder name of this life's leases (one per process start). */
+  holder: string;
+  /** Set once the core stops: `core:alive` is let go and never renewed again. */
+  released: boolean;
+  /** What the persona slept through: the downtime and pause intervals, the pause under way, how many wakes slept. */
+  sleep: { windows: Array<readonly [number, number]>; pausedFrom: number | null; slept: number };
+};
+
+/** The context every module of the inner life works over: its sources, its clock and its state in process. */
+export type InnerContext = {
+  hot: { readonly config: unknown };
+  dataDir: string;
+  turns: InnerTurns;
+  intentions: InnerIntentions | null;
+  record: RecordSource | null;
+  placesOf: (() => unknown) | null;
+  nameOf: ((accountId: string) => unknown) | null;
+  journal: InnerJournal | null;
+  reads: (Pick<Reads, 'chatInfo'> & { offers?(wire: string): boolean }) | null;
+  iface: () => string;
+  chatName: (chatId: string) => string | null;
+  submit: ((event: InnerWakeEvent) => Promise<unknown>) | null;
+  store: InnerStore | null;
+
+  peopleWaiting: () => boolean;
+  ready: () => Promise<unknown>;
+  uuid: () => string;
+  costs: CostMeter;
+  memoryDb: InnerMemoryDb | null;
+  /** The port a completed wake's deliveries go out through; without one a wake turn holds nothing. */
+  port: InnerPort | null;
+  rng: () => number;
+  now: () => number;
+  log: Logger;
+  /** Per place: the state read from its file. */
+  states: Map<string, InnerState>;
+  /** Per place: the place index (the record's lines per place over the lookback window). */
+  placeIndexes: Map<string, PlaceIndex>;
+  ticking: boolean;
+  /** The ids of the facts a running turn carries, which a turn on the other lane leaves to it. */
+  showing: Set<string>;
+  factSeq: number;
+  /** The chain the persona state's and the queue's writes go through, in order. */
+  writes: Promise<unknown>;
+  /** The wake queue's state in process (src/behavior/inner/wake-queue.ts). */
+  wakes: WakeQueueState;
+};
+
+/** The memory database as the inner life uses it (src/memory/db/service.ts): wake runs, the writer, the reads. */
+export type InnerMemoryDb = {
+  namespace?(): string | null;
+  recordWake?(update: WakeUpdate): unknown;
+  memoryWrite?(update: WakeQueueUpdate): Promise<unknown>;
+  writeOperational?(write: { op: 'value'; of: 'inner'; subject: string; value: unknown }): Promise<unknown>;
+  readHandle?(): { db: object } | null;
+};

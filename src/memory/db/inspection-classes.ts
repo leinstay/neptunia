@@ -1,0 +1,105 @@
+// What each table of the engine's schema stores, for the owner's storage catalog (src/memory/db/inspection.ts): `domain` is
+// what the persona knows, its evidence and who it is about, `operational` is state the engine runs on, `derived` can be
+// rebuilt from other tables, `metadata` describes the database itself. A table missing here reads like any other and is
+// reported as `unclassified`; tests/src/memory/db/inspection-classes.test.ts fails until its migration's author
+// classifies it here. A virtual table, an FTS shadow and a `sqlite_` table are classed by their kind.
+
+export type StorageClass = 'domain' | 'operational' | 'derived' | 'metadata' | 'unclassified';
+
+const TABLES_BY_CLASS: Readonly<Record<Exclude<StorageClass, 'unclassified'>, ReadonlyArray<string>>> = {
+  domain: [
+    'account_person_links',
+    'accounts',
+    'affinity_events',
+    'audiences',
+    'authorities',
+    'claim_sources',
+    'claim_version_sources',
+    'claim_versions',
+    'claims',
+    'connections',
+    'day',
+    'decisions',
+    'description_versions',
+    'descriptions',
+    'diary',
+    'diary_mirrors',
+    'episode_sources',
+    'episodes',
+    'execution_contexts',
+    'external_keys',
+    'intentions',
+    'interfaces',
+    'media',
+    'media_links',
+    'media_names',
+    'memberships',
+    'message_families',
+    'model_requests',
+    'participant_links',
+    'participants',
+    'people',
+    'people_merges',
+    'person_accounts',
+    'places',
+    'semantic_arguments',
+    'semantic_assertion_versions',
+    'semantic_dependencies',
+    'semantic_entities',
+    'semantic_entity_kinds',
+    'semantic_predicate_versions',
+    'source_relations',
+    'sources',
+    'work',
+    'work_events',
+  ],
+  operational: [
+    'board_events',
+    'board_outbox',
+    'board_results',
+    'board_tasks',
+    'co_owners',
+    'deliveries',
+    'focus_events',
+    'focus_members',
+    'ingest',
+    'ingest_cursor',
+    'leases',
+    'mirrors',
+    'operational',
+    'publications',
+    'relationship_daily',
+    'rules',
+    'session_runs',
+    'skill_versions',
+    'skills',
+    'turn_reads',
+    'wake_actions',
+    'wake_runs',
+    'wakes',
+  ],
+  derived: [
+    'graph_edges',
+    'graph_nodes',
+    'names',
+    'node_access',
+    'semantic_entity_merges',
+    'semantic_labels',
+    'semantic_search_documents',
+    'vectors',
+  ],
+  metadata: ['board_schema_version', 'meta', 'schema_version'],
+};
+
+const CLASS_OF: ReadonlyMap<string, StorageClass> = new Map(
+  Object.entries(TABLES_BY_CLASS).flatMap(([storageClass, tables]) =>
+    tables.map((table): [string, StorageClass] => [table, storageClass as StorageClass])
+  )
+);
+
+/** The class of a table of the given SQLite kind. */
+export function storageClassOf(name: string, kind: 'table' | 'virtual' | 'shadow' | 'sqlite'): StorageClass {
+  if (kind === 'sqlite') return 'metadata';
+  if (kind === 'virtual' || kind === 'shadow') return 'derived';
+  return CLASS_OF.get(name) ?? 'unclassified';
+}

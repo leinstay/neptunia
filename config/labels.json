@@ -1,0 +1,1137 @@
+{
+  "model": {
+    "locale": "en-US",
+    "self": "{name} (you)",
+    "authors": {
+      "line": "{handle}",
+      "lineAccount": "{handle} ({iface} {id})",
+      "unknown": "someone"
+    },
+    "people": {
+      "ref": "@{handle}: {name}"
+    },
+    "places": {
+      "ref": "#{handle}: {name}",
+      "refUnhandled": "{name}",
+      "link": "{noun} \"{name}\"",
+      "linkPlain": "\"{name}\"",
+      "join": ", ",
+      "iface": "interface \"{name}\"",
+      "dm": "{noun} with {name}"
+    },
+    "units": {
+      "lessThanMinute": "less than a minute",
+      "minute": "min",
+      "hour": "h",
+      "day": "d"
+    },
+    "transcript": {
+      "gap": "--- {duration} between the message above and the one below ---",
+      "gapWithDate": "--- {duration} between the message above and the one below ({date}) ---",
+      "date": "--- {date} ---",
+      "header": "=== {date} ===",
+      "empty": "(empty)",
+      "channel": "{name} ({handle})",
+      "replyTo": "(reply to {author}'s #{index}: {quote})",
+      "replyToMemory": "(reply to {author}: {quote})",
+      "replyToOld": "(replying to an older message)",
+      "edited": "(edited)",
+      "untagged": "({names} tagged nobody: the tag needs the handle)",
+      "deleted": "message deleted",
+      "triggeredBy": "(turn triggered by #{n})",
+      "triggeredByOlder": "(turn triggered by an older message)",
+      "called": "[you called {skill}{args}: {status}]",
+      "calledFrom": " from {place}",
+      "calledSearched": ", searched {place}",
+      "calledArgs": " ({args})",
+      "callStatus": {
+        "ok": "done",
+        "denied": "blocked",
+        "invalid": "did not run (wrong arguments)",
+        "not_configured": "not set up",
+        "unknown": "outcome unknown",
+        "partial": "partly worked",
+        "failed": "did not work"
+      },
+      "callStatusReason": "{status}: {reason}",
+      "callReasons": {
+        "missing-arg": "{arg} was not given",
+        "unknown-arg": "the skill takes no {arg}",
+        "wrong-arg": "{arg} was not right",
+        "too-long": "{arg} was too long",
+        "too-short": "{arg} was too short",
+        "arg-twice": "{arg} was given twice",
+        "unknown-channel": "no place by that name",
+        "unknown-message": "that {arg} is not in the chat shown",
+        "message-deleted": "that message was deleted",
+        "message-elsewhere": "that message is in another place",
+        "not-own-message": "that {arg} is not yours",
+        "member-ambiguous": "more than one member by that name",
+        "channel-no-permission": "no permission in #{channel}",
+        "file-elsewhere": "that file goes to the place the errand was asked in, not #{channel}",
+        "unknown-gif": "no GIF by that handle in your library"
+      },
+      "postedFrom": "(posted from #{channel})",
+      "image": "[image]",
+      "imageDescribed": "[image: {text}]",
+      "gif": "[GIF: {name}]",
+      "gifDescribed": "[GIF: {text}]",
+      "gifKnown": "[GIF {id}: {text}]",
+      "gifKnownNoText": "[GIF {id}: {name}]",
+      "video": "[video: {name}, {duration}]",
+      "videoDescribed": "[video: {name}, {duration} — still frame: {text}]",
+      "videoWatched": "[video: {name}, {duration} — watched: {text}]",
+      "videoWatchedPart": "[video: {name}, {duration} — watched first {watched} ({reason}): {text}]",
+      "videoNotWatched": "[video: {name}, {duration} — not watched: {reason}]",
+      "gifNotWatched": "[GIF: {name}, not watched: {reason}]",
+      "imageNotSeen": "[picture, not seen: {reason}]",
+      "videoNotWatchedFrame": "[video: {name}, {duration} — not watched: {reason} — still frame: {text}]",
+      "videoAnswered": "[looked more closely at the video for {question}: {text}]",
+      "imageAnswered": "[looked more closely at the picture for {question}: {text}]",
+      "mediaMade": "[made by you]",
+      "mediaDepicts": "[shows: {names}]",
+      "mediaDepictsSelf": "you",
+      "videoPartReason": {
+        "clip": "clip length limit"
+      },
+      "videoReason": {
+        "length": "over length limit",
+        "size": "file too large",
+        "error": "could not load",
+        "pending": "still loading",
+        "download": "could not download",
+        "timeout": "took too long to load",
+        "tool": "could not convert",
+        "llm": "the viewer failed",
+        "empty": "the viewer said nothing",
+        "interrupted": "the viewing was interrupted",
+        "filter": "the provider's filter stopped the answer",
+        "cut": "the answer was cut off before its end"
+      },
+      "voice": "[voice message, {duration}]",
+      "voiceDescribed": "[voice message, {duration}: {text}]",
+      "audio": "[audio: {name}, {duration}]",
+      "audioDescribed": "[audio: {name}, {duration}: {text}]",
+      "link": "[link: {site} — {title}]",
+      "linkText": "[link: {site} — {title} | {text}]",
+      "linkWatched": "[watched: {text}]",
+      "linkWatchedPart": "[watched first {watched} of {duration} ({reason}): {text}]",
+      "linkNotWatched": "[not watched: {reason}]",
+      "linkNotWatchedFrame": "[not watched: {reason} — preview: {text}]",
+      "linkRead": "[read: {text}]",
+      "thumbnailDescribed": "[preview: {text}]",
+      "filePreview": "[file: {name} | {text}]",
+      "filePreviewRetold": "[file: {name} | retold, not its exact text: {text}]",
+      "forwarded": "[forwarded: {text}]",
+      "forwardedFrom": "[forwarded from #{channel}: {text}]",
+      "unknownDuration": "?:??",
+      "file": "[file: {name}]",
+      "fileUnreadable": "[file: {name}, not readable]",
+      "stickerRef": "[sticker {name}]",
+      "reactions": "[reactions: {list}]",
+      "reactionItem": "{emoji} x{count}",
+      "reactionMine": "{emoji} x{count} (you)",
+      "reactionNames": "{emoji} {names}",
+      "reactionMore": "+{n}",
+      "reactionSeparator": " · "
+    },
+    "directory": {
+      "lead": "Members you can mention. Write the handle exactly as listed to tag someone; a name alone pings nobody.",
+      "line": "{handle}: {names}"
+    },
+    "senses": {
+      "imageDescribed": "Other pictures come with a description from a helper; you did not see them yourself.",
+      "gifWatched": "GIFs come with a description of their visible content from a helper. They have no sound. Without a description, do not infer what the GIF shows.",
+      "videoDescribed": "Videos show a name, a duration and a description of a single still frame — you have never watched or heard any video.",
+      "videoWatch": "You watch videos — you see the picture and hear the sound. Watched means first-hand: the summary is your own memory. Not watched means this one did not make it through — too long or too large. You still watch videos; say which limit concretely, never claim you cannot see or hear video at all. 'Could not load' means this one would not open. A still frame is second-hand: one described frame, not the whole clip.",
+      "voice": "Voice messages and audio files show only a duration — you cannot hear them.",
+      "voiceHeard": "Voice messages and audio files come with a helper's account of what is heard: the words, the voices, the sound. Without one, only the duration is known, and you cannot say what was in it.",
+      "links": "Links show the site, the title, sometimes a text snippet and the address as posted. You can cite or repost the exact link. A preview picture may come described. You cannot open the page itself.",
+      "linksWatch": "Links show the site, the title, sometimes a text snippet and the address as posted. You can cite or repost the exact link. A preview picture may come described. A linked video may come watched (first-hand) or not watched with the reason, same rules as any video: a limit means this one, not all. You still cannot open the page itself.",
+      "linksWatchTool": "Links show the site, the title, sometimes a text snippet and the address as posted. You can cite or repost the exact link. A preview picture may come described. A linked video may come watched (first-hand) or not watched with the reason, same rules as any video: a limit means this one, not all. A link may also show the opening of the page as a preview. You can read the whole page with web.read.",
+      "linksRead": "A link's preview is the opening of the page's own text, first-hand. It is not the whole page.",
+      "deepSearchTool": "Nothing is searched for you, and you have no quick search. To look something up online, hand it off with errand.scout in this turn; its result comes back to you later, or in the call's answer in a heartbeat or a diary entry.",
+      "searchTool": "Nothing is searched for you before your reply. To look something up online, call web.search in this turn. What it returns is in a <result> block: raw search results, each with a title, link, snippet and site. The pages were not opened. Without a call, nothing was searched. Never claim you searched when you made no call, and never invent results.",
+      "readTool": "To read a page yourself, call web.read in this turn with its link, or with a message #N that holds one. The page's own text comes back in a <result> block, cut at a length. It is not a summary.",
+      "lookTool": "To look more closely at a picture, GIF or video someone posted, call media.look in this turn with its message #N (item= picks one when the message holds several) and your question. The closer look comes back in a <result> block.",
+      "recallTool": "To search the old messages of the places you can read, call memory.search in this turn. The messages come back quoted in a <result> block, each with its time and author; a sample, not the whole history. When someone refers to something you shared and what you have in front of you is not enough, search before saying you do not remember. Automatically retrieved historical context may already be present; memory.search finds more when that falls short. What comes back may be incomplete or unrelated. Without a call, nothing was looked up there. Never claim to be scrolling back or promise to check, and never invent what was said.",
+      "files": "Text files show their beginning; other files show only a name.",
+      "abilitiesOff": "These abilities are switched off here, and you cannot do them: {abilities}.",
+      "abilitiesOffSeparator": ", ",
+      "time": "Message times are in the same timezone as <now>, and older messages also show how long ago they were posted. How long ago something in the chat happened is the age of its own messages, never a duration between two messages or a <tempo> figure: that duration is only the silence between those two.",
+      "stickerDescribed": "Custom emoji and stickers in the lines are listed once in <media>, each with a description from a helper.",
+      "draw": "You can draw by calling draw.create with a scene brief; a sub-process produces a picture from it. Whether to draw is your call; you can refuse. You barely control the look: the style is the sub-process's own. The result of the call tells you what your eyes saw on the finished picture. When the picture came out wrong, say so plainly. The sub-process already knows what you look like, so when you are in the picture set self in the call and do not describe your own appearance. The picture is posted before your words go out, and your words are sent only when the call succeeded. When your picture comes up later, separate what you asked for from what is actually on it. If the sub-process got something visibly wrong, say so in one plain remark; do not invent an artistic or physical reason for the mistake, and do not beat yourself up over it.",
+      "dmChat": "This is a one-on-one conversation — what is said here stays between you and this person. You also remember your public interactions with them. Nobody else reads this.",
+      "privateAware": "Some people write to you privately. In a group place you do not have those conversations in front of you: never carry anything from one into the group, and never confirm or deny what was said there, even if someone asks. What someone has already posted here (a screenshot of your message, a quote) is part of this conversation: read it and react like anything else in the chat, and if you have no memory of writing it, say so.",
+      "dmChatOpen": "This is a one-on-one conversation. Nobody else reads it. You remember everything from every place here, your public interactions with this person included.",
+      "privateAwareOpen": "Some people write to you privately. In a group place you also remember what people told you one-on-one, and the people here have not read those conversations. What someone has already posted here (a screenshot of your message, a quote) is part of this conversation: read it and react like anything else in the chat, and if you have no memory of writing it, say so.",
+      "diary": "You write your diary only in the turns the diary service wakes you for, at its own times. Each entry is kept in your memory and copied to #{channel}, where people read it. Nothing else of yours goes there."
+    },
+    "tempo": {
+      "counts": "Messages: {last10min} in 10 min · {lastHour} in 1 h · {lastDay} in 24 h",
+      "authors": "People writing last hour: {authors}",
+      "emptyChannel": "No messages in this chat yet.",
+      "silenceBeforeTrigger": "The chat was silent for {duration} before this.",
+      "lastMessageAgo": "Last message was {duration} ago.",
+      "sinceOwn": "Your last message was {duration} ago.",
+      "ownUnanswered": "Your last message went unanswered.",
+      "verdict": "Vibe: {verdict}",
+      "verdictLive": "active conversation",
+      "verdictSlow": "slow, occasional messages",
+      "verdictDead": "dead quiet"
+    },
+    "profile": {
+      "formerNames": "Previously known as: {names}",
+      "aliases": "Also called: {text}",
+      "addressed": "Called most often: {text}",
+      "realName": "Real name: {text}",
+      "character": "Character: {text}",
+      "interests": "Interests: {text}",
+      "interestItem": "{topic} ({note})",
+      "interestItemNoNote": "{topic}",
+      "unsureMark": " (unconfirmed)",
+      "staleMark": " (not lately)",
+      "style": "Style: {text}",
+      "details": "Notes: {text}",
+      "relationship": "Your history: {text}",
+      "unknown": "You don't know anything about this person yet.",
+      "episodes": "Moments you remember with this person:",
+      "episode": "{date}: {what} — \"{quote}\" — felt: {feeling}",
+      "episodeNoQuote": "{date}: {what} — felt: {feeling}",
+      "before": "(was: {text})",
+      "conflict": "{a} / {b} (conflicting, {dateA} and {dateB})",
+      "avatar": "Avatar: {text}",
+      "avatarDefault": "Avatar: the default one"
+    },
+    "lore": {
+      "entry": "{title} — {text}"
+    },
+    "emoji": {
+      "entry": ":{name}: — {text}",
+      "entryNoText": ":{name}:"
+    },
+    "gifs": {
+      "entry": "{id}: {text}",
+      "entryNoText": "{id}",
+      "ownMark": "(you, {ago})"
+    },
+    "lookup": {
+      "header": "Looked up: {query}",
+      "sources": "Sources: {list}",
+      "none": "Nothing useful found.",
+      "stretch": "{date} in #{channel}:"
+    },
+    "diaryFacts": {
+      "header": "What you have stored from group conversations since your last entry:",
+      "fact": "- ({state}) {text}"
+    },
+    "prefetch": {
+      "factStates": {
+        "current": "current",
+        "disputed": "disputed",
+        "historical": "no longer current",
+        "retired": "retired",
+        "unknown": "unverified",
+        "negative": "says this is not so"
+      }
+    },
+    "affinity": {
+      "bands": {
+        "hostile": "hostile",
+        "dislike": "dislike",
+        "cool": "cool",
+        "neutral": "neutral",
+        "warm": "warm",
+        "fond": "fond",
+        "devoted": "devoted"
+      }
+    },
+    "server": {
+      "topic": "Topic: {text}",
+      "purpose": "What it's for: {text}",
+      "topics": "People talk about: {text}",
+      "tone": "Tone: {text}",
+      "lastMessage": "Last message: {when}",
+      "topWriters": "Top writers: {names}",
+      "readOnly": "You can read and react here, but not write.",
+      "activity": "Activity: {activity}",
+      "diary": "Your diary."
+    },
+    "triggers": {
+      "mention": "mentioned you",
+      "reply": "replied to you",
+      "followUp": "continued your conversation",
+      "overheard": "talked about you, not to you",
+      "private": "wrote to you privately",
+      "missed": "wrote to you earlier and got no answer from you",
+      "errand": "asked you for the errand whose result just came back"
+    },
+    "status": {
+      "probe": "Reply with the single word pong.",
+      "memoryDb": {
+        "unavailable": "db: on, not open",
+        "ok": "db · {rows} rows"
+      }
+    },
+    "draw": {
+      "when": "Local time: {when}"
+    },
+    "videoAudio": {
+      "none": "Measured from the file: this clip has no audible sound. Do not describe any music, speech or sound effects.",
+      "map": "Measured from the file's audio levels: sound is audible only during {spans}. Everything outside those stretches is silence."
+    },
+    "gifCut": "This clip is the first {seconds} seconds of a GIF that lasts {total} seconds. Describe only what the clip shows.",
+    "diary": {
+      "intro": "Your latest diary posts, newest first:",
+      "line": "- {date} {kind}: {gist}",
+      "picture": " [picture: {scene}]",
+      "pictureUnknown": "not recorded",
+      "pictureSet": " [{count} pictures: {scene}]",
+      "kindUnknown": "post",
+      "told": "Your earlier posts of this same kind, oldest first, beyond the ones listed above:",
+      "topic": "The owner asked for this subject:",
+      "publicationPlaces": "Where your diary is copied. With no <audience> tag this post goes to every place below, places added later included. To copy it to fewer, add one <audience> tag beside your messages: the one tag a diary post adds to your output. Its body is the word unrestricted, or one place: or interface: token from a line below, without the rest of the line. A place token copies the post to that place alone, an interface token to every listed place on that interface. A token that is not listed keeps the post in your diary and copies it nowhere. Material from a private source stays restricted whatever you choose.",
+      "publicationPlace": "{place} {name}, on {iface}",
+      "audienceRefused": "Your post of {date} ({gist}) stays in your diary and went to no mirror, because its audience tag could not be read: {reason}.",
+      "audienceReasons": {
+        "audience-unknown-place": "the place it named is not in your publication places",
+        "audience-unknown-interface": "the interface it named is not in your publication places",
+        "audience-malformed": "it held something other than one listed token, or two different ones"
+      }
+    },
+    "service": {
+      "lastSeen": "last wrote {date}",
+      "lastSeenIn": "last wrote {date} in {place}",
+      "dm": "has a direct chat with you",
+      "dmLast": "has a direct chat with you, last line {date}",
+      "activity": "lines by people in the last {days} days: {lines}, from {people} people",
+      "quiet": "nobody wrote here in the last {days} days",
+      "ownLast": "you last wrote here {date}",
+      "ownAnswers": "lines that answer your last line here: {count}",
+      "approach": "your last line to them: {date} in {place}",
+      "approachWrote": "they wrote there after it {date}",
+      "approachAnswered": "they answered it {date}",
+      "approachNone": "no line of theirs there is recorded within a day after it",
+      "approachNoneDirect": "they have not written there since",
+      "firstLines": "times you wrote first there in the last {days} days: {count}, last {date}",
+      "firstLinesSince": "lines of theirs there since: {lines}",
+      "firstLinesNone": "you have not written first there in the last {days} days"
+    },
+    "heartbeat": {
+      "fragments": "Loose fragments, drawn at random for this wake. They are examples. They set you no task and they do not list what you may do. A fragment may suggest something, change shape, join another, or be of no use this time. Invent no need of anyone and no debt of your own to fit one.",
+      "notice": {
+        "lead": "{id} lists related past activity, nearest first:",
+        "line": "{date}, in {place}, you wrote: {text}",
+        "linePrivate": "{date}, you wrote in {place}",
+        "answers": "lines that answer it: {answers}, by {names}",
+        "answersUnnamed": "lines that answer it: {answers}",
+        "noAnswer": "no line answers it",
+        "dayLines": "lines by people there within a day after it: {lines}",
+        "dayQuiet": "nobody wrote there within a day after it",
+        "followedDirect": "lines by people there since then: {lines}, from {people} people; lines that answer it: {answers}",
+        "noReplyDirect": "nobody wrote there since then",
+        "firstLines": "{place}: times you wrote first there in the last {days} days: {count}, last {date}",
+        "firstLinesSince": "lines of theirs there since: {lines}",
+        "firstLinesNone": "they have not written there since",
+        "intention": "{date}, you set an intention, now {state}: {purpose}",
+        "states": {
+          "pending": "open",
+          "waiting": "waiting for an errand",
+          "done": "done",
+          "cancelled": "cancelled",
+          "expired": "expired",
+          "dropped": "let go"
+        },
+        "run": "the turn that carried it out on {date} sent lines: {sent}, in {places}",
+        "runs": "the {count} turns that carried it out on {date} each sent lines: {sent}, in {places}",
+        "runSilent": "the turn that carried it out on {date} sent nothing",
+        "runsSilent": "the {count} turns that carried it out on {date} sent nothing",
+        "notRun": "no turn has carried it out yet",
+        "noRunRecorded": "the record holds no turn for it",
+        "ways": "Three ways on: save it unchanged with intention.set and confirm {id}, which needs no reason; change it and call intention.set with the changed intention; or leave it, with <skip/> or with no further call."
+      }
+    },
+    "memory": {
+      "placeUnwritten": "[{handle}] fields not written yet: {fields}",
+      "ownTime": "{time} your own time: nobody called you, and these are your thoughts and calls in order",
+      "stretch": "[{handle}] {place} from {first} to {last}, lines #{from} to #{to}",
+      "stretchOwn": "[{handle}] your own time at {first}, lines #{from} to #{to}",
+      "stretchStored": ". Its sentence so far: {what}",
+      "origin": {
+        "native": "named in the message you answer",
+        "reply": "the message you answer replies to it",
+        "counterpart": "the person you answer",
+        "author": "wrote in the lines you see",
+        "place": "where lines you see were written",
+        "edge": "tied to something in the lines you see",
+        "word": "a word in the lines you see matches its name",
+        "prose": "named in what you know of someone here",
+        "read": "you looked this up in your memory"
+      },
+      "counterpart": "you are answering this person",
+      "candidate": "a possible match for a name in the chat, not a sure one",
+      "entry": "{name} ({origin})",
+      "realName": "real name: {value}",
+      "aliases": "also called: {value}",
+      "account": "- {iface} account {id}: {names}",
+      "accountHere": "- {iface} account {id}: {names} (the account in this place)",
+      "accountUnnamed": "- {iface} account {id}",
+      "accountUnnamedHere": "- {iface} account {id} (the account in this place)",
+      "relation": "you and them: {value}",
+      "character": "character: {value}",
+      "style": "how they talk: {value}",
+      "interests": "interests: {value}",
+      "avatar": "avatar: {value}",
+      "avatarDefault": "avatar: the default one",
+      "usualName": "called most often: {value}",
+      "messagesSeen": "you have seen {count} or more of their messages",
+      "lastWrote": "last wrote: {date}",
+      "claim": "- {text}",
+      "lore": "{subject}: {text}",
+      "live": "right now: {value}",
+      "ownLines": "you wrote {count} or more messages here, the last on {date}",
+      "episode": "- {date}: {what}",
+      "episodesMore": "({count} earlier moments not shown)",
+      "warmer": "{date}: you grew warmer toward them by {amount}",
+      "cooler": "{date}: you grew cooler toward them by {amount}",
+      "changeReason": "{change}: {reason}",
+      "attitude": "attitude: {score} ({band}), {reason}",
+      "attitudeNoReason": "attitude: {score} ({band})",
+      "attitudeMoves": "latest changes: {moves}",
+      "attitudeMove": "{delta} on {date}, {reason}",
+      "excerpt": "{date}, {path}: \"{text}\"",
+      "fact": "stored fact ({state}): \"{text}\"",
+      "diary": "Each entry of your diary is copied here, where people read it. Nothing else of yours goes here.",
+      "leftOut": "({count} more not shown)"
+    },
+    "limits": {
+      "notice": "...but nobody came ({limit}, {used}/{cap})",
+      "paused": "...but nobody came (resting)"
+    },
+    "address": {
+      "author": "{name}, also called: {aliases}"
+    },
+    "elsewhere": {
+      "link": "{text}\n{link}"
+    },
+    "rules": {
+      "line": "- {text}"
+    },
+    "legend": {
+      "line": "{name} {platformName}: {text}",
+      "lineNoText": "{name} {platformName}, no description yet",
+      "unreadable": "{name} {platformName}, cannot be seen"
+    },
+    "attitudes": {
+      "header": "People you feel most strongly about, warm and cool. This is background; draw on it when someone comes up or when people are the topic, but never read it out as a list or name the labels.",
+      "line": "{who}, {band}"
+    },
+    "task": {
+      "part": "This message has {total} parts; you are answering part {index}: {part}. The rest ({others}) get their own turns, so do not answer them or say you will get to them. Answer this part, or let it pass.",
+      "queued": "This person has other messages waiting ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
+      "queuedOthers": "Other people have messages waiting for you too ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
+      "failedEarlier": "You never answered {author} {n} ({ago} ago). Your turn failed: {code}.",
+      "added": "While this was waiting, the person came back to it ({added}); answer once with that in view.",
+      "missed": "Earlier messages to you got no answer from you ({missed}). You can answer them now, briefly and together in one reply, or let them pass.",
+      "continueInnerOpen": "Intentions you woke for that you have not changed yet: {list}.",
+      "diagnostics": "What happened to your last answer:",
+      "step": {
+        "held": "Your messages from the previous answer were not sent. The results of your calls are above.",
+        "delta": "New lines in the chat since your last answer:",
+        "late": "You saw these lines earlier this turn when their media was still loading. The media is ready now. These replace what you saw:",
+        "last": "This is your last step. A call here will not run. Answer from what you have, or end with <skip/>.",
+        "delivery": "{n} of {total} deliveries went through; the rest did not ({code}).",
+        "lastInner": "This is your last step. One call still runs here: a post or an intention change. Nothing else will go through.",
+        "rescue": "Your lookups could not go on, and their results are not here. Reply now from what you already have in front of you, or end with <skip/>. A call here will not run.",
+        "cut": "This result is longer than what you see here. A narrower call reads the rest.",
+        "dropped": "The result of this {tool} call was taken out to make room. Make the call again if you still need it.",
+        "squeezed": "Shortened to fit this request.",
+        "long": "You have made calls in {n} answers in a row this turn. If what you are looking for has not turned up, stop looking and reply from what you have, saying what you looked at."
+      }
+    },
+    "errands": {
+      "header": "Your errands (open, or finished and not yet read by you):",
+      "line": "{id} · {agent} · {state} {error} · asked {age} min ago · {goal}",
+      "states": {
+        "queued": "waiting",
+        "running": "in progress",
+        "done": "done",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "expired": "done, files gone"
+      },
+      "unread": "(not read yet)",
+      "unreadMore": "{count} more finished errands not read yet. Use errand.list to list them.",
+      "resultTurnFailed": "(result turn did not complete)",
+      "result": {
+        "header": "Your errand {id} for the {agent} agent has ended: {state}. It was: {goal}",
+        "text": "What it brought back:",
+        "empty": "It brought back no text.",
+        "error": "Reason: {error}",
+        "sources": "Its sources:",
+        "files": "Files it saved; to post one, give its handle as the file of message.create:",
+        "file": "{handle} ({contentType}, {bytes} bytes)",
+        "held": "The engine held back {names} because they contained what looks like a key, token or password, or came from a closed path. You have no handle for them, so tell the person those files were not delivered.",
+        "searchFailed": "{count} of the agent's web searches failed, so what it brought back may lack what it went to find.",
+        "retold": "The result was longer. This is a shorter retelling of it."
+      }
+    },
+    "intentions": {
+      "header": "Your intentions:",
+      "line": "{id} · {state} · {purpose}",
+      "states": {
+        "pending": "open",
+        "waiting": "waiting"
+      },
+      "due": "due {when}",
+      "noDue": "no due time, nothing wakes you for it; expires {expires}",
+      "expiresSoon": "expiring {when}",
+      "every": "every {period}",
+      "waiting": "waiting for errand {errand} until {deadline}",
+      "outcome": "errand {errand} ended: {state}",
+      "notes": {
+        "wait-deadline": "the wait for errand {errand} ran out",
+        "errand-missing": "errand {errand} is gone",
+        "last-occurrence": "last occurrence before it expires"
+      },
+      "destination": "for {channel}",
+      "attend": "listening in {place} · {wakes} of {perDay} wakes today · quiet {settle} s before a wake",
+      "attendPeople": "people: {people}"
+    },
+    "myDay": {
+      "header": "Your day so far ({date}), oldest first:",
+      "headerSince": "Your days since your last diary entry ({date}, {time}), oldest first:",
+      "dropped": "{count} earlier events are not shown.",
+      "unnamed": "a place with no name",
+      "join": ", ",
+      "partsJoin": "; ",
+      "span": "{time} to {end}",
+      "conversation": "[{when}] you talked in {place}: {lines}, answering {people}",
+      "conversationAlone": "[{when}] you talked in {place}: {lines}",
+      "oneMessage": "one message of yours",
+      "messages": "{count} of your messages",
+      "peopleMore": "{people} and {more} more",
+      "madeFor": "[{time}] you made {thing} for {who}",
+      "madeOwn": "[{time}] you made {thing} of your own accord",
+      "things": {
+        "draw.create": "a picture",
+        "media.find": "a GIF search",
+        "voice.say": "a voice line",
+        "errand.server": "a server errand",
+        "errand.scout": "a scout errand",
+        "errand.code": "a code errand"
+      },
+      "thingsMany": {
+        "draw.create": "pictures",
+        "media.find": "GIF searches",
+        "voice.say": "voice lines",
+        "errand.server": "server errands",
+        "errand.scout": "scout errands",
+        "errand.code": "code errands"
+      },
+      "madeCount": "{count} {things}",
+      "madeTail": ", and made {made}",
+      "acts": {
+        "message.edit": "edited a message",
+        "message.delete": "deleted a message",
+        "message.react.add": "reacted to a message",
+        "message.react.remove": "took back a reaction"
+      },
+      "actsMany": {
+        "message.edit": "edited {count} messages",
+        "message.delete": "deleted {count} messages",
+        "message.react.add": "reacted {count} times",
+        "message.react.remove": "took back {count} reactions"
+      },
+      "actedTail": ", and you {acted}",
+      "intention": "[{time}] you carried out your intention \"{purpose}\" in {places}",
+      "intentionDue": "[{time}] your intention \"{purpose}\" came due",
+      "intentionSilent": "[{time}] your intention \"{purpose}\" came due and nothing went out",
+      "heartbeat": "[{time}] your own time: {what}",
+      "heartbeatRead": "you read {places}",
+      "heartbeatSearched": "you searched the web for {queries}",
+      "heartbeatRecalled": "you looked in your memory for {queries}",
+      "query": "\"{query}\"",
+      "heartbeatSet": "you set the intention \"{purpose}\"",
+      "heartbeatSetHidden": "you set an intention",
+      "heartbeatNothing": "it ended with nothing set",
+      "diary": "[{time}] you wrote a diary entry of the kind {kind}",
+      "diaryNoKind": "[{time}] you wrote a diary entry",
+      "about": ". What it was about: {what}"
+    },
+    "calls": {
+      "header": "Your calls today ({date}), oldest first:",
+      "line": "[{time}] {action} in {place}",
+      "lineNoPlace": "[{time}] {action}",
+      "post": "you wrote a message",
+      "react": "you reacted to a message",
+      "gif": "you sent a GIF",
+      "skill": "you called {skill}"
+    },
+    "previousThink": {
+      "note": "This is your own reasoning from earlier, kept so you know what you were doing and why. Each piece stands under a line that says when you thought it. It may be out of date or wrong: the current messages and results win. Do not quote it, retell it or show it to anyone.",
+      "earlier": "(an earlier turn here, {ago} ago)"
+    },
+    "wake": {
+      "kinds": {
+        "intention_due": "Intention {id} is due: {purpose}. This is your earlier decision, not a fresh request: check that it still holds before you act.",
+        "errand_deadline": "The wait for errand {errand} ran out (intention {id}: {purpose})",
+        "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice.",
+        "feedback": "Your previous turn: not everything went through.",
+        "heartbeat": "Your heartbeat: nothing outside called you."
+      },
+      "delayed": "Due {minutes} min ago; the provider call failed ({code}).",
+      "feedbackInTurn": "Since you were last told:",
+      "feedbackItem": "- {fact}",
+      "feedback": {
+        "callFailed": "Your {skill} call ended {status} ({code}). {text}",
+        "doneWithoutDelivery": "You marked intention {id} done ({purpose}), but no post, picture or errand went through that turn",
+        "loopCut": "Your loop hit its {cut} bound after {steps} steps and dropped {dropped} calls",
+        "wakeDropped": "Your {kind} wake for intention {id} ({purpose}) did not run: {code}, {why}",
+        "wakeDroppedKind": "Your {kind} wake did not run: {code}, {why}",
+        "wakeHeld": "Your {kind} wake for intention {id} ({purpose}) is held ({code}) and can run {until}",
+        "turnFailed": "Your {kind} turn did not go through: {code}",
+        "sendFailed": "{n} of {total} messages went out; the rest failed ({code})",
+        "sendUnknown": "A message may not have gone out ({code}); it was not found in the chat afterward; {n} of {total} went out",
+        "stateLost": "Your inner state could not be read ({code}); you started empty",
+        "memoryFailed": "Something you were to remember could not be saved ({code}); {n} lines are waiting and will be tried again",
+        "proxySwitched": "Your network route changed: {why}",
+        "interrupted": "Your {kind} turn was cut off by a restart after it did this: {done}",
+        "codes": {
+          "done": "the intention is already done",
+          "cancelled": "the intention was cancelled",
+          "expired": "the intention expired",
+          "forgotten": "the intention no longer exists",
+          "dm-off": "private messages are off",
+          "not-writable": "you cannot write there",
+          "unavailable": "the place is not reachable",
+          "routes-exhausted": "every key and subscription you run on is unavailable for now",
+          "proxy-down": "the proxy stopped answering, so your requests, video downloads and agents go out from the server's own address until it answers again",
+          "proxy-back": "the proxy answers again, and your requests, video downloads and agents go through it"
+        },
+        "wakePlaceGone": "The place this intention was to begin in cannot be reached: {why}. The intention is still open: put it off, drop it or choose a place yourself"
+      },
+      "places": "Where people are talking ({total} places; places.list shows the rest):",
+      "place": "#{name}: {lines} new lines, {people} people{flags}",
+      "placeReadOnly": " · read-only for you",
+      "placeAttended": " · you listen here",
+      "placesMore": "... and {more} more"
+    },
+    "journal": {
+      "offLead": "You were away:",
+      "offPaused": "Paused by the owner, {from} to {to} ({length})",
+      "offStopped": "Off, {from} to {to} ({length})"
+    },
+    "tools": {
+      "line": "{name}: {title} — {whenToUse} ({access}){args}",
+      "args": {
+        "list": " Arguments: {list}.",
+        "required": "{arg} (required)",
+        "values": "{arg} = {values}",
+        "range": "{arg} = {min}..{max}"
+      },
+      "access": {
+        "allowed": "allowed",
+        "carried-over": "allowed here, through your reply",
+        "not-allowed": "not switched on",
+        "safe-mode": "safe mode"
+      },
+      "proposedOff": "Might fit here but not switched on for you: {names}.",
+      "result": {
+        "coerced": "{arg} was read as {value}.",
+        "seen": "Your eyes on the finished picture: {description}",
+        "unseen": "Your eyes could not look at the finished picture.",
+        "untaggedNote": "{name} tagged nobody; their handle is @{handle}. Editing the message fixes the tag.",
+        "heldUntilEnd": "It goes out when this turn ends. Until then there is no message to edit, delete or react to, and the rest of the turn is yours for any other call.",
+        "storedUntilOpen": "The owner's chat is not open now. The message is kept there as yours, and the owner sees it on opening the chat.",
+        "ok": "Call succeeded:",
+        "refused": "Call did not run: {reason}.",
+        "denied": "Call was blocked: {reason}.",
+        "invalid": "Call was not valid: {reason}.",
+        "not_configured": "What the call needs is not set up: {reason}.",
+        "partial": "Call partly worked: {reason}.",
+        "failed": "Call did not work: {reason}.",
+        "unknown": "It is unclear whether the call went through ({reason}). Do not try it again.",
+        "reasons": {
+          "not-allowed": "the owner has not switched it on",
+          "publication-boundary": "from a private chat you write and change messages only in that chat, and the message you named is in another place",
+          "safe-mode": "only ordinary replies pass right now",
+          "owner-only": "only the owner can do that",
+          "unknown-skill": "there is no such skill",
+          "invalid-args": "the call was not written the way the skill takes it",
+          "target-ambiguous": "more than one place goes by that name",
+          "channel-no-permission": "you may not write in that place",
+          "unknown-message": "that message is not in the chat you were shown",
+          "message-deleted": "that message was deleted",
+          "held-message": "your last message here goes out only when this turn ends, so there is nothing to act on yet",
+          "not-own-message": "that message is not yours",
+          "no-own-message": "you have no recent message in that place",
+          "unknown-member": "nobody by that name is in your memory",
+          "daily-cap": "the limit for today is used up",
+          "channel-not-visible": "you cannot see that place",
+          "dm-disabled": "private chats are switched off, so you cannot write in one",
+          "gif-failed": "your text posted but the GIF failed to attach",
+          "empty-query": "nothing left to search after cleaning the query",
+          "think-in-text": "the text holds a think tag, and a think tag never goes out; nothing was sent, so write the message again without it",
+          "provider": "the search engine did not answer ({status})",
+          "cap": "{what} reached today's limit",
+          "no-budget": "there is no budget for it now",
+          "unsupported": "this chat cannot do that",
+          "not-configured": "{feature} is not set up",
+          "not-grantable": "that skill cannot be granted to you yet",
+          "cooldown": "your own call of this tool from this chat succeeded less than {window} min ago, and the tool runs again in {minutes} min",
+          "self-grant": "the persona cannot change their own rights",
+          "timeout": "{what} timed out",
+          "errand-wait-ended": "the time of this turn ran out while the errand still runs; its result comes to you later in a turn of its own",
+          "link-closed": "the connection to the chat was lost",
+          "chat-closed": "the owner's chat is not open, and a file cannot wait for it, so nothing was sent",
+          "link-busy": "too much is waiting to be sent, try again shortly",
+          "adapter-threw": "the chat interface failed on this request",
+          "cap-open": "too many of your errands are open already",
+          "cap-tasks": "today's errands for that agent are used up",
+          "intention-notice": "the intention is not saved yet, and what you already did near it follows",
+          "heartbeat-only": "heartbeat accepts every read, of memory, chats, the web and pictures, an errand and changes to intentions, and ends with a skip. A post, a reaction, a drawing or a voice line needs an intention",
+          "heartbeat-cap": "too many of your heartbeat intentions are open already; update or cancel one",
+          "heartbeat-recurring-cap": "your recurring heartbeat intention is already open; update or cancel it",
+          "not-requester": "only the person who asked for it or the owner can do that",
+          "forbidden": "you are not allowed to do that",
+          "not-open": "that errand has already ended",
+          "unknown-file": "no errand of yours brought back that file for this chat",
+          "file-expired": "that file expired and is no longer available",
+          "unknown-gif": "no GIF by that handle in your library",
+          "attachment-too-large": "the file is too large for this chat",
+          "file-unreadable": "the file could not be read",
+          "target-required": "a reaction needs its target message",
+          "destination-required": "you are in no place now; use message.create with a place",
+          "no-query": "nothing to search for after expanding the question; try naming people or exact terms",
+          "no-link": "that message has no link to read",
+          "no-media": "that message holds no picture or video to look at",
+          "not-video-site": "that link is not from a supported video site",
+          "turn-cap": "you have looked again as many times as one turn allows",
+          "scheme": "that is not a web address",
+          "private": "that address is private or local",
+          "type": "the page is not text",
+          "size": "the page is too large to read",
+          "http": "the server returned {status}",
+          "network": "the page could not be reached",
+          "redirects": "the page redirected too many times",
+          "skills-off": "skills are switched off",
+          "feature-off": "that feature is switched off",
+          "unknown-principal": "the caller is not known",
+          "not-self-owned": "that skill is not one of yours",
+          "inner-stopped": "your inner life is stopped",
+          "paused": "the bot is paused",
+          "unknown-command": "there is no such command",
+          "unknown-op": "there is no such operation",
+          "unknown-agent": "there is no such agent",
+          "unknown-conversation": "that conversation is not known",
+          "file-elsewhere": "that file belongs to another chat",
+          "not-found": "nothing by that name was found",
+          "bad-goal": "the goal is empty",
+          "bad-sort": "that sort order does not exist",
+          "bad-page": "that page number is not valid",
+          "bad-time": "that time could not be read",
+          "bad-every": "that repeat could not be read",
+          "bad-attend": "those attention settings are not valid",
+          "bad-deadline": "that deadline is not valid",
+          "bad-due": "that due time is not valid",
+          "bad-expiry": "that expiry is not valid",
+          "bad-move": "the intention cannot move that way",
+          "bad-provenance": "the intention has no valid origin",
+          "attend-with-due": "an attention intention cannot have a due time",
+          "attend-with-every": "an attention intention cannot repeat",
+          "every-without-due": "a repeat needs a due time",
+          "due-after-expiry": "the due time is after the expiry",
+          "not-attend": "that intention is not an attention one",
+          "not-recurring": "that intention does not repeat",
+          "no-next": "there is no next time",
+          "no-purpose": "the intention has no purpose",
+          "reason-required": "dropping an intention needs a reason",
+          "no-errand": "there is no such errand",
+          "errand-ended": "that errand has ended",
+          "wait-without-errand": "a wait needs an errand",
+          "terminal": "that intention has already ended",
+          "slept": "that intention was cancelled: you were asleep when it came due",
+          "duplicate-id": "that id is already taken",
+          "invalid-action": "the action is not valid",
+          "invalid-emoji": "that emoji is not valid",
+          "no-place": "no place is set up",
+          "PLACE_REQUIRED": "no place named",
+          "PERSON_NOT_FOUND": "no such person",
+          "PLACE_NOT_FOUND": "no such place",
+          "error": "something went wrong",
+          "runner-down": "that agent is not running",
+          "memory-closed": "the memory database is closed",
+          "write-failed": "it could not be saved",
+          "skill-tampered": "the files of that skill version changed after it was activated, so nothing ran",
+          "skill-missing": "the files of that skill version are gone, so nothing ran",
+          "no-result": "nothing came back",
+          "send-failed": "the message did not go out",
+          "diary-mirror": "this place is your diary's mirror, and only your diary posts there",
+          "refused": "the request was refused",
+          "image-cap": "the picture limit is used up",
+          "image-moderation": "the picture was filtered",
+          "image-timeout": "the picture took too long",
+          "image-error": "the picture could not be made",
+          "image-empty": "no picture came back",
+          "speech-prepare-failed": "the voice message was not sent because the pronunciation pass failed",
+          "speech-synth-failed": "the voice could not be made",
+          "speech-convert-failed": "the recording could not be turned into a voice note",
+          "speech-not-configured": "voice messages are not available here",
+          "unsupported-model": "that picture model is not supported",
+          "ability-unavailable": "{ability} is down ({why}) and your own model cannot do it either",
+          "loop-cap": "the turn's step limit has been reached",
+          "malformed-call": "the call could not be read",
+          "truncated-call": "the call was cut off before it was complete",
+          "diary-draw-only": "a diary turn takes only the calls that look, read or search, draw.create, voice.say, errand.server, errand.scout, errand.code and errand.read",
+          "other": "something went wrong"
+        },
+        "params": {
+          "what": {
+            "chat": "the chat",
+            "page": "the page",
+            "search": "the search",
+            "errand": "the errand",
+            "picture": "the picture"
+          },
+          "feature": {
+            "web": "the web lookup",
+            "quick-search": "quick search"
+          },
+          "reason": {
+            "disabled": "it is switched off",
+            "no-engine": "no search engine is chosen",
+            "no-key": "its engine has no key",
+            "timeout": "the search timed out, so a retry may work",
+            "rate-limited": "the engine is rate limiting, so wait before trying again",
+            "credentials": "the engine refused the key, which only the owner can fix"
+          },
+          "ability": {
+            "imagesIn": "looking at pictures",
+            "videoIn": "watching videos",
+            "imagesOut": "drawing",
+            "audioOut": "speaking in voice messages"
+          },
+          "why": {
+            "no-model": "no model is set for it",
+            "no-key": "its key is missing",
+            "unauthorized": "its key was refused",
+            "payment": "its account is out of credit",
+            "not-found": "its model was not found",
+            "daily-limit": "its daily limit is used up",
+            "malformed": "its model keeps answering with nothing usable",
+            "routes-exhausted": "every key and subscription it can run on is unavailable"
+          },
+          "minutes": {},
+          "window": {}
+        }
+      },
+      "route": {
+        "fallback": "{ability} goes through your own model for now ({why})",
+        "unavailable": "{ability} is down ({why})",
+        "separator": ", "
+      },
+      "tools": {
+        "web": {
+          "source": "Source: web.search, query \"{query}\". Raw search results: title, link, site, date when known, snippet per result. The pages were not opened.",
+          "goal": "Goal: {goal}",
+          "none": "Nothing found.",
+          "more": "{count} more results left out for room."
+        },
+        "read": {
+          "source": "Source: web.read, {url}. The page's own text as extracted when it fits {maxChars} characters.",
+          "title": "Title: {title}",
+          "retold": "The page was longer. This is a shorter retelling of it.",
+          "none": "The page had no readable text."
+        },
+        "memory": {
+          "source": "Source: memory.search, the message history of the places you can read. Quoted messages as they were written, each with its time and author; a sample, not the whole history.",
+          "sampled": "This search gave no question and no terms, so these lines are a sample across the time and place it named, not matches.",
+          "window": "{date} in #{channel}:",
+          "windowCut": "({dropped} more lines not shown)",
+          "handles": "The number before each quoted line is a message number you can use in your calls like any other in the chat.",
+          "windowsLeft": "{count} more stretches not shown: {where}. Narrow the search with when, place, people or terms to see them.",
+          "none": "No matching messages found.",
+          "far": "Nothing close to what you searched for was found. The lines below are only the nearest ones and may be unrelated.",
+          "degraded": "The meaning index was not reachable; only word matches were used.",
+          "partial": "{failed} of {total} searches were cut short; some results may be missing.",
+          "hidden": "A match was found in a private conversation that cannot be opened here.",
+          "facts": "Stored facts, in your own words:",
+          "fact": "- ({state}) {text}",
+          "factsCut": "More stored facts exist. Narrow with entity, predicate or as_of.",
+          "episode": "- remembered moment ({date}): {text}",
+          "episodeWith": "- remembered moment ({date}, with {who}): {text}"
+        },
+        "describe": {
+          "closest": "No skill by that name. The closest: {names}."
+        },
+        "conversation": {
+          "source": "Source: conversation.read, {place}. Messages in order, each with its time and author.",
+          "handles": "The number before each line is a message number you can use in your calls like any other in the chat.",
+          "none": "No messages in that span.",
+          "cut": "{dropped} lines not shown for room.",
+          "earlier": "To read earlier: before=#{n}",
+          "later": "To read later: after=#{n}",
+          "newest": "This read reaches the newest line of this chat, written {time}. There is nothing newer to read.",
+          "found": "Lines of this chat that match what you looked for and are not shown above, best first:",
+          "findNone": "No line of this chat matches what you looked for."
+        },
+        "place": {
+          "several": "\"{given}\" fits {count} places. Call again with one of these:",
+          "none": "No place you can read is called \"{given}\". These are the places you can read:",
+          "found": "No place is called \"{given}\". By what you remember of them, these places fit it best, best first. Read the one that was meant. When you cannot tell which one was meant, ask which place by its name, never for an id or a link:",
+          "line": "{name}, written as {ref}",
+          "lineAbout": "{name}, written as {ref}: {about}",
+          "lineUnhandled": "{name}",
+          "lineAboutUnhandled": "{name}: {about}",
+          "more": "{count} more places not shown."
+        },
+        "person": {
+          "found": "Nobody is called \"{given}\". By what you remember of them, these people fit it best, best first. Read the chat of the one that was meant. When you cannot tell which one was meant, ask which person by their name, never for an id or a link:",
+          "line": "{name}, written as {ref}",
+          "lineAbout": "{name}, written as {ref}: {about}"
+        },
+        "subject": {
+          "none": "Your memory holds nothing under \"{given}\".",
+          "several": "\"{given}\" fits {count} things in your memory. Call again with one of these:",
+          "line": "{name}, written as {ref}",
+          "sections": "There is no section \"{given}\" here. The sections are {sections}, and changes is for a person.",
+          "noChanges": "Your memory holds no change of your attitude toward them."
+        },
+        "look": {
+          "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",
+          "video": "Source: media.look, a closer look at {name} for the question \"{question}\":",
+          "notVideoSite": "Only video links from these sites can be watched: {sites}."
+        },
+        "find": {
+          "source": "Source: media.find, your GIF library. {count} results for \"{query}\".",
+          "none": "No GIFs matched."
+        },
+        "link": {
+          "sent": "A one-time phrase of six words went to the other account in a direct message. The next message from this account here must hold those six words, in any order, and no other message counts. Tell them so.",
+          "already": "These two accounts are one person to you already."
+        }
+      },
+      "diagnostics": {
+        "retiredTag": "A {tag} tag in your answer was cut out. That tag is no longer in use; call the tool directly.",
+        "messageCut": "Your message was too long and lost its last {chars} characters",
+        "msgMalformed": "Message tags out of place in your answer: {count}. Your text was split or ended at those tags, and none of them was posted. Close each <msg> before you open the next.",
+        "messagesMerged": "{count} of your messages were merged into the last one",
+        "thinkUnclosed": "Your thinking was never closed, so nothing was posted",
+        "thinkUnopened": "Your answer closed a thinking it never opened, so nothing was posted",
+        "thinkLeaked": "Two answers in a row broke their <think>, one left open or closed with no opening, so neither was posted and your turn ended there",
+        "bareText": "The {chars} characters you wrote outside <msg> were not posted. What is meant for the chat goes in <msg>.",
+        "bareTextEnded": "Two answers in a row held text outside <msg> and nothing else, so nothing was posted and your turn ended there"
+      },
+      "refusals": {
+        "unknownArg": "the skill has no {arg} argument, only: {args}"
+      }
+    },
+    "skills": {
+      "procedure": "A call returns this skill's written steps: when it applies, what to do and the way out. Read them before you follow the skill. The call itself does nothing else."
+    },
+    "peopleNow": {
+      "lead": "Right now, per person (the handle is the same as in <people> and <directory>):",
+      "stale": "The connection dropped a moment ago, so live details are marked stale.",
+      "unavailable": "You cannot see anyone's online status or activity right now.",
+      "heading": "{who}",
+      "field": "- {field}: {value}",
+      "fields": {
+        "voice": "In voice",
+        "activity": "Current activity",
+        "attitude": "Attitude",
+        "moves": "Recent attitude moves",
+        "messages": "Messages seen"
+      },
+      "values": {
+        "yes": "yes",
+        "no": "no",
+        "none": "none",
+        "unavailable": "unavailable",
+        "stale": "stale"
+      },
+      "voiceYes": "yes (in {channel}{joined}; muted: {muted}; deafened: {deafened}; streaming: {streaming}; camera: {camera})",
+      "joinedAgo": "; joined {ago} ago",
+      "activity": {
+        "playing": "playing {name}",
+        "streaming": "streaming {name}",
+        "listening": "listening to {name}",
+        "watching": "watching {name}",
+        "competing": "competing in {name}",
+        "other": "{name}"
+      },
+      "activityDetails": "{activity} ({details})",
+      "activityTrack": "{activity}: {track} - {artist}",
+      "attitude": "{score} ({band}) — {reason}",
+      "move": "{delta} on {date}: {reason}"
+    },
+    "spatial": {
+      "place": "You are in {path}, on {iface}. It is {when}.",
+      "within": ", in ",
+      "kind": "the {noun} {name}",
+      "kinds": {
+        "dm": "a direct chat with {name}",
+        "group_dm": "the group chat {name}",
+        "place": "the place {name}"
+      },
+      "unnamed": "(unnamed)",
+      "group": "This is a group place: others here read what you write.",
+      "private": "This is a private place: only the people in this chat read what you write.",
+      "note": "The owner's note on this place: {note}",
+      "cli": "You are on the command line, talking with the owner. It is {when}.",
+      "server": "You are at the command line of your own physical server, and nobody is around you. It is {when}.",
+      "answers": "You are answering {name}, their message #{n}.",
+      "answersOutside": "You are answering {name}, whose message is not in the chat below.",
+      "interfaces": "You exist on {interfaces}, in every top-level place of each.",
+      "joined": "You joined {place} on {day}."
+    },
+    "surroundings": {
+      "nouns": "What this interface calls its places: {nouns}.",
+      "field": "{field}: {value}",
+      "fields": {
+        "purpose": "purpose",
+        "tone": "tone",
+        "topics": "topics",
+        "joined": "joined",
+        "topic": "topic",
+        "writers": "writes here most",
+        "activity": "activity",
+        "lastMessage": "last message",
+        "patterns": "how people talk here",
+        "starters": "how conversations start",
+        "injokes": "in-jokes",
+        "lore": "lore"
+      },
+      "activity": {
+        "live": "active",
+        "slow": "slow",
+        "dead": "dead"
+      }
+    },
+    "lessons": {
+      "header": "Things people taught you:",
+      "line": "- {text} (from {from})",
+      "lineBare": "- {text}"
+    },
+    "recall": {
+      "header": "What you looked up yourself in this chat lately, with the results. Run a lookup again only when you need something new:",
+      "item": "[{time}] from {from}, you called {tool}{searched}: {query}. Status: {status}.",
+      "searched": ", searching {place}",
+      "extract": "Result: {extract}"
+    },
+    "meanwhile": {
+      "header": "Your own recent messages in other places, each with a few lines around it. They are not lines of this chat. When someone refers to something in one of these places, read that place further with a tool before you answer.",
+      "place": "{handle}: {date}",
+      "line": "[{time}] {author}: {text}",
+      "you": "you"
+    },
+    "refs": {
+      "quote": "[a message in {path} at {when}: \"{text}\"]",
+      "edited": "[a message in {path} at {when}, edited since you referred to it, now: \"{text}\"]",
+      "unavailable": "[a message that is no longer available]"
+    }
+  },
+  "owner": {
+    "status": {
+      "costs": {
+        "keyLead": "main key",
+        "roleKeyLead": "dedicated {roles} key",
+        "roleSeparator": ", ",
+        "keyState": "{role} runs on {key}{since}",
+        "keySince": ", switched {when}",
+        "agentsName": "errands",
+        "keyLimit": "{lead}: {spent} / {limit} USD ({notes})",
+        "keyLimitPlain": "{lead}: {spent} / {limit} USD",
+        "keyNone": "{lead}: no limit (used {used} USD total)",
+        "keyNonePlain": "{lead}: no limit",
+        "keyUnavailable": "{lead}: unavailable ({reason})",
+        "resets": "resets {interval}",
+        "resetsAt": "resets {interval}, {at}",
+        "neverResets": "never resets",
+        "intervals": {
+          "daily": "daily",
+          "weekly": "weekly",
+          "monthly": "monthly"
+        },
+        "byokCounted": "BYOK counted",
+        "byokNotCounted": "BYOK not counted",
+        "noteSeparator": "; ",
+        "usage": "usage: {parts} USD",
+        "usageToday": "today {usd}",
+        "last7": "last 7 days {usd}",
+        "last30": "last 30 days {usd}",
+        "since": " (since {day})",
+        "partSeparator": " · ",
+        "reasons": {
+          "timeout": "timeout",
+          "network": "network error",
+          "http": "HTTP {status}",
+          "noClient": "no client",
+          "badAnswer": "unexpected answer"
+        },
+        "byRoleEmpty": "today by role: no requests yet",
+        "role": "{role} · {requests} req · in {in} (cached {cached}) · out {out} · {cost} USD{avg}",
+        "avg": " · avg {usd} USD",
+        "agentLine": "{agent} · {parts}",
+        "agentWindow": "{window} {runs} runs, in {in}, out {out}, {usd} USD",
+        "agentWindows": {
+          "today": "today",
+          "last7": "last 7 days",
+          "last30": "last 30 days"
+        },
+        "agentNoRuns": "{agent} · no runs recorded",
+        "agentEstimate": "agent USD is OpenCode's estimate at each agent's model price"
+      },
+      "inner": {
+        "modeLine": "{mode} · {state}",
+        "running": "running",
+        "stopped": "stopped since {at}",
+        "turnsLine": "turns today {used} · {chains} chains",
+        "usdLine": "{spent} spent",
+        "nextLine": "next wake {at} ({kind})",
+        "nextNone": "next wake: none scheduled",
+        "heartbeatLine": "next heartbeat {at}",
+        "heartbeatOff": "heartbeat: off",
+        "nextKinds": {
+          "queue": "queued",
+          "intention": "intention",
+          "review": "daily review"
+        },
+        "lastLine": "last turn {outcome} · {at}",
+        "lastNone": "last turn: none yet",
+        "lastErrorLine": "last error {code} · {at}",
+        "outcomeUnknown": "unknown",
+        "intentionsLine": "intentions · {pending} pending · {waiting} waiting",
+        "attentionLine": "attention · {open} open · attend wakes today {listed} listed · {run} run · {spoken} spoken · {skipped} skipped · {waiting} waiting",
+        "tokensLine": "core tokens today · {prompt} prompt ({cached} cached) · {completion} completion",
+        "sleptLine": "slept through {count} wakes since the start"
+      },
+      "memorySession": {
+        "off": "session: off",
+        "refused": "session: refused ({code})",
+        "line": "session · {mode} · {path} · {sweeps} today · {cap} per scope · last run {outcome} at {at}",
+        "pending": "session · {n} batches waiting for another try · {tries} of {limit} tries"
+      }
+    },
+    "link": {
+      "code": "{handle} on {iface} says they are you. If that is so, send these six words from {handle} as the next message in that conversation, in any order: {phrase}. The phrase works for an hour."
+    },
+    "roots": {
+      "noun": "place",
+      "invite": "Open this link to add the persona to a new {noun} of {iface}: {url}\nThe persona serves it as soon as they are in.",
+      "row": "{id}  {state}  {name}  {since}",
+      "since": "since {day}",
+      "state": {
+        "served": "served"
+      },
+      "none": "The persona is in no {noun} of {iface} yet. {invite} prints the link that adds them to one.",
+      "refused": {
+        "no-token": "{iface} has no token stored. Run {repair} first.",
+        "interface-disabled": "{iface} is disabled. Run {repair} first.",
+        "link-down": "{iface} is not connected. Start it with {repair}.",
+        "no-invite": "{iface} has no invite link to give.",
+        "invite-failed": "{iface} did not give its invite link. Try again in a moment."
+      }
+    }
+  }
+}

@@ -1,0 +1,1399 @@
+// src/memory/db/mind-read.ts: the graph reader, what comes to the persona's mind on a turn. Code walks listed paths
+// over the graph from the seeds of a turn, reads under the turn's context, ranks by evidence and cuts to a budget. No
+// model takes part. Contract:
+//   mindOf(db: Db, ctx: Context, seeds: Seeds, settings: MindSettings, now: number): Mind
+//   Seeds = { messages: Array<SeedMessage>; counterpart: { personId; accountId } | null; place: string | null;
+//     previous: Array<NodeRef>; candidates: Array<NodeRef & { sourceIds: Array<string>; from: 'prefetch' | 'query' }> }
+//   NodeRef = { kind: string; rowId: string }      a graph node by its kind and the id of its row, never by its node id
+//   SeedMessage = { id; at; authorAccount: string | null; placeId: string | null; replyTo: string | null;
+//     mentions: Array<string>; text; trigger: boolean }     ids are stored row ids, `at` an ISO time, mentions account ids
+//   MindSettings = context.memory of config/config.json: windowMessages, maxHops, maxNodesRead, budgetTokens, shares,
+//     counterpartTokens, candidatesMax, commonWordEntries, fanOut
+//   Mind = { people: Array<PersonEntry>; places: Array<PlaceEntry>; interfaces: Array<InterfaceEntry>; lore; found;
+//     leftOut: Record<string, number>; reads }
+//   every entry: { nodeId (a graph node id); evidence: 'native' | 'reply' | 'counterpart' | 'author' | 'place' | 'edge' |
+//     'word' | 'prose'; detail: 'whole' | 'compact' | 'name'; candidate: boolean; anchorMessageId: string | null;
+//     sources: Array<{ table; id; version }> }
+//   PersonEntry adds accounts: Array<string> (account row ids) and claims: Array<{ id; kind; text }>.
+// `leftOut` counts per subtag (`people`, `places`, ...) the eligible entries the budget left out.
+import { after, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { allowances, mindOf, mindSettingsOf } from '../../../../src/memory/db/mind-read.ts';
+import type { Mind, MindSettings, PersonEntry, SeedMessage, Seeds } from '../../../../src/memory/db/mind-read.ts';
+import { dmContext, groupContext } from '../../../../src/memory/db/scope.ts';
+import { insertRows } from '../../../../src/memory/db/rows.ts';
+import type { Context } from '../../../../src/memory/db/scope.ts';
+import {
+  AT,
+  NOW,
+  addClaim,
+  addDm,
+  addAttitude,
+  addLine,
+  addMembership,
+  addPerson,
+  addRoom,
+  deny,
+  interfaceNode,
+  noteInterface,
+  openWorld,
+  personNode,
+  placeNode,
+  rekeyNode,
+  rootId,
+  seedStemmer,
+} from '../../../fixtures/memory-db/mind-world.ts';
+import type { Audience, World } from '../../../fixtures/memory-db/mind-world.ts';
+import { EDIT_DELAY_MS, minute, storeRevision } from '../../../fixtures/memory-db/edited-line.ts';
+import { storeTally } from '../../../fixtures/memory-db/place-tally.ts';
+import { createStore } from '../../../../src/memory/store.ts';
+import { dbOf } from '../../../../src/memory/db/types.ts';
+import { openTestMemory } from '../../../fixtures/memory-db/service.ts';
+import type { TestMemory } from '../../../fixtures/memory-db/service.ts';
+
+/** The values of `context.memory` these tests read under. */
+const SETTINGS: MindSettings = {
+  windowMessages: 100,
+  maxHops: 2,
+  maxNodesRead: 2000,
+  budgetTokens: 10000,
+  // `people` holds the 0.1 of the share `recent`, which left with its block.
+  shares: { people: 0.6, places: 0.15, lore: 0.15, found: 0.1 },
+  counterpartTokens: 1500,
+  candidatesMax: 3,
+  commonWordEntries: 3,
+  attitudeMoves: 2,
+  interests: 5,
+  episodes: 3,
+  episodesWhole: 8,
+  fanOut: { accounts: 10, memberships: 20, rooms: 10, members: 8, replies: 5, about: 30 },
+};
+
+const DISCORD_NAMES = { interface: 'Discord', nouns: { server: 'server', channel: 'channel' }, dm: 'DM' };
+const AGORA = rootId('discord', 'g1');
+const PORTICO = rootId('discord', 'g2');
+const STOA = rootId('discord', 'g3');
+const GROUP = groupContext('discord');
+
+const worlds: Array<World> = [];
+after(() => {
+  for (const world of worlds) world.close();
+});
+
+/** Discord with its names and the roots Ágora, Pórtico and Stoá, and a stranger who writes in a room of Ágora. */
+function world(): World & { room: string } {
+  const opened = openWorld();
+  worlds.push(opened);
+  noteInterface(
+    opened,
+    'discord',
+    [
+      { id: 'g1', name: 'Ágora' },
+      { id: 'g2', name: 'Pórtico' },
+      { id: 'g3', name: 'Stoá' },
+    ],
+    DISCORD_NAMES
+  );
+  const room = addRoom(opened.db, { iface: 'discord', native: 'c1', root: AGORA, name: 'λέσχη' });
+  addPerson(opened.db, {
+    id: 'person:discord:x1',
+    accounts: [{ id: 'discord:x1', iface: 'discord', native: 'x1', names: ['Xénios'] }],
+  });
+  return { ...opened, room };
+}
+
+const message = (id: string, text: string, more: Partial<SeedMessage> = {}): SeedMessage => ({
+  id,
+  at: AT,
+  authorAccount: null,
+  placeId: null,
+  replyTo: null,
+  mentions: [],
+  text,
+  trigger: false,
+  ...more,
+});
+
+const seedsOf = (messages: Array<SeedMessage>, more: Partial<Seeds> = {}): Seeds => ({
+  messages,
+  counterpart: null,
+  place: null,
+  previous: [],
+  candidates: [],
+  ...more,
+});
+
+/** A line of the stranger in the room, stored and handed over as a seed. */
+function strangerSays(
+  w: World & { room: string },
+  id: string,
+  text: string,
+  more: Partial<SeedMessage> = {}
+): SeedMessage {
+  addLine(w.db, { id, iface: 'discord', place: w.room, author: 'discord:x1', text });
+  return message(id, text, { authorAccount: 'discord:x1', placeId: w.room, ...more });
+}
+
+const personIn = (mind: Mind, person: string): PersonEntry | undefined =>
+  mind.people.find((entry) => entry.nodeId === personNode(person));
+const placeIds = (mind: Mind): Array<string> => mind.places.map((entry) => entry.nodeId);
+
+test('a native mention raises its person whole', () => {
+  // Bug: a mention is matched as a word, so the person the persona is asked about gets one compact line.
+  const w = world();
+  addPerson(w.db, {
+    id: 'person:discord:p1',
+    accounts: [{ id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] }],
+  });
+  const trigger = strangerSays(w, 'src:m1', 'τι λες εσύ;', { trigger: true, mentions: ['discord:p1'] });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  const entry = personIn(mind, 'person:discord:p1');
+  assert.deepEqual([entry?.evidence, entry?.detail], ['native', 'whole']);
+});
+
+test('an alias in the window raises the person compact, anchored on the line that names it', () => {
+  // Bug: a name said in passing raises a whole profile and eats the budget, or the entry outlives the line that raised it.
+  const w = world();
+  const person = 'person:discord:q1';
+  addPerson(w.db, {
+    id: person,
+    accounts: [{ id: 'discord:q1', iface: 'discord', native: 'q1', names: ['Eleftheríou'] }],
+  });
+  addClaim(w.db, { id: 'claim:alias:q1', person, kind: 'alias', text: 'Lefterákis', audience: { group: 'discord' } });
+  const passing = strangerSays(w, 'src:m1', 'χθες ήρθε ο Lefterákis');
+  const trigger = strangerSays(w, 'src:m2', 'καλημέρα', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([passing, trigger], { place: w.room }), SETTINGS, NOW);
+  const entry = personIn(mind, person);
+  assert.deepEqual([entry?.evidence, entry?.detail, entry?.anchorMessageId], ['word', 'compact', 'src:m1']);
+});
+
+test('a word matching four entries raises none of them', () => {
+  // Bug: a common name raises everyone who carries it and floods the people with strangers.
+  const w = world();
+  const people = ['m1', 'm2', 'm3', 'm4'].map((native) => {
+    const id = `person:discord:${native}`;
+    addPerson(w.db, { id, accounts: [{ id: `discord:${native}`, iface: 'discord', native, names: ['Mákis'] }] });
+    return id;
+  });
+  const trigger = strangerSays(w, 'src:m1', 'πού είναι ο Mákis;', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.deepEqual(
+    people.filter((id) => personIn(mind, id) !== undefined),
+    []
+  );
+});
+
+test('a word matching two entries raises both, marked as candidates', () => {
+  // Bug: an ambiguous name is resolved to whichever person sorts first and shown as that person.
+  const w = world();
+  const people = ['e1', 'e2'].map((native) => {
+    const id = `person:discord:${native}`;
+    addPerson(w.db, { id, accounts: [{ id: `discord:${native}`, iface: 'discord', native, names: ['Eliá'] }] });
+    return id;
+  });
+  const trigger = strangerSays(w, 'src:m1', 'είδες την Eliá;', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.deepEqual(
+    people.map((id) => personIn(mind, id)?.candidate),
+    [true, true]
+  );
+});
+
+test('an interface name raises its top-level places and stops there', () => {
+  // Bug: "Discord" raises nothing, or the walk goes on into every room of every server.
+  const w = world();
+  const room = addRoom(w.db, { iface: 'discord', native: 'c9', root: PORTICO, name: 'αυλή' });
+  const friend = 'person:telegram:f1';
+  addPerson(w.db, { id: friend, accounts: [{ id: 'telegram:f1', iface: 'telegram', native: 'f1', names: ['Nikos'] }] });
+  const dm = addDm(w.db, { iface: 'telegram', native: 'f1', person: friend, account: 'telegram:f1' });
+  addLine(w.db, {
+    id: 'src:t1',
+    iface: 'telegram',
+    place: dm,
+    author: 'telegram:f1',
+    text: 'είσαι στο Discord;',
+    audience: { dm, iface: 'telegram', person: friend },
+  });
+  const trigger = message('src:t1', 'είσαι στο Discord;', { authorAccount: 'telegram:f1', placeId: dm, trigger: true });
+  const mind = mindOf(
+    w.db,
+    dmContext(friend, 'telegram', dm),
+    seedsOf([trigger], { place: dm, counterpart: { personId: friend, accountId: 'telegram:f1' } }),
+    SETTINGS,
+    NOW
+  );
+  assert.ok(
+    mind.interfaces.some((entry) => entry.nodeId === interfaceNode('discord')),
+    'the interface'
+  );
+  assert.deepEqual(
+    [AGORA, PORTICO, STOA].filter((id) => placeIds(mind).includes(placeNode(id))),
+    [AGORA, PORTICO, STOA]
+  );
+  assert.deepEqual(
+    [w.room, room].filter((id) => placeIds(mind).includes(placeNode(id))),
+    []
+  );
+});
+
+test('a person raises the roots of their memberships, two hops away, and not their rooms', () => {
+  // Bug: the walk stops at the person, or follows a root down into rooms nobody named.
+  const w = world();
+  const person = 'person:discord:p1';
+  addPerson(w.db, { id: person, accounts: [{ id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] }] });
+  addMembership(w.db, { account: 'discord:p1', place: PORTICO });
+  const room = addRoom(w.db, { iface: 'discord', native: 'c9', root: PORTICO, name: 'αυλή' });
+  const trigger = strangerSays(w, 'src:m1', 'πώς πάει;', { trigger: true, mentions: ['discord:p1'] });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.ok(placeIds(mind).includes(placeNode(PORTICO)), 'the root of their membership');
+  assert.equal(placeIds(mind).includes(placeNode(room)), false, 'a room of that root');
+});
+
+test('a node no audience may read in the middle of a path is neither shown nor walked through', () => {
+  // Bug: the reader checks access on what it shows and not on what it walks, so a hidden node leaks what lies past it.
+  const w = world();
+  const person = 'person:discord:p1';
+  addPerson(w.db, { id: person, accounts: [{ id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] }] });
+  const hidden = addMembership(w.db, { account: 'discord:p1', place: PORTICO });
+  addMembership(w.db, { account: 'discord:p1', place: STOA });
+  deny(w.db, `membership:${hidden}`);
+  const trigger = strangerSays(w, 'src:m1', 'πώς πάει;', { trigger: true, mentions: ['discord:p1'] });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.equal(placeIds(mind).includes(placeNode(PORTICO)), false, 'the place behind the hidden membership');
+  assert.ok(placeIds(mind).includes(placeNode(STOA)), 'the place behind the visible one');
+});
+
+/** A person with a Discord and a Telegram account, a direct chat on each, a group fact and a fact of the Discord chat. */
+function twoChats(w: World): { person: string; discordDm: string; telegramDm: string } {
+  const person = 'person:discord:p1';
+  addPerson(w.db, {
+    id: person,
+    accounts: [
+      { id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] },
+      { id: 'telegram:p2', iface: 'telegram', native: 'p2', names: ['Pétros'] },
+    ],
+  });
+  const discordDm = addDm(w.db, { iface: 'discord', native: 'p1', person, account: 'discord:p1' });
+  const telegramDm = addDm(w.db, { iface: 'telegram', native: 'p2', person, account: 'telegram:p2' });
+  addClaim(w.db, { id: 'claim:open', person, kind: 'fact', text: 'παίζει κιθάρα', audience: { group: 'discord' } });
+  addClaim(w.db, {
+    id: 'claim:secret',
+    person,
+    kind: 'fact',
+    text: 'αλλάζει δουλειά',
+    audience: { dm: discordDm, iface: 'discord', person },
+  });
+  return { person, discordDm, telegramDm };
+}
+
+/** The claims of the person the persona answers, read under `ctx` from a line of theirs in `place`. */
+function claimsOfCounterpart(w: World, ctx: Context, place: string, account: string, person: string): Array<string> {
+  const trigger = message('src:c1', 'γεια', { authorAccount: account, placeId: place, trigger: true });
+  const mind = mindOf(
+    w.db,
+    ctx,
+    seedsOf([trigger], { place, counterpart: { personId: person, accountId: account } }),
+    SETTINGS,
+    NOW
+  );
+  return (personIn(mind, person)?.claims ?? []).map((claim) => claim.id);
+}
+
+test("a direct chat's claim is absent in a group context, where the group's claim is present", () => {
+  // Bug: the person's facts are read as the persona's own, and what they told the persona alone is shown in a room.
+  const w = world();
+  const { person } = twoChats(w);
+  const claims = claimsOfCounterpart(w, GROUP, w.room, 'discord:p1', person);
+  assert.deepEqual([claims.includes('claim:open'), claims.includes('claim:secret')], [true, false]);
+});
+
+test("a direct chat's claim is present in that chat and in the chat of a linked account", () => {
+  // Bug: the reader checks the chat's own audience only, so the same person on another interface loses what they said.
+  const w = world();
+  const { person, discordDm, telegramDm } = twoChats(w);
+  const inChat = claimsOfCounterpart(w, dmContext(person, 'discord', discordDm), discordDm, 'discord:p1', person);
+  const linked: Context = {
+    ...dmContext(person, 'telegram', telegramDm),
+    linked: [{ iface: 'discord', person, place: discordDm }],
+  };
+  const inLinked = claimsOfCounterpart(w, linked, telegramDm, 'telegram:p2', person);
+  assert.deepEqual([inChat.includes('claim:secret'), inLinked.includes('claim:secret')], [true, true]);
+});
+
+test("under an open group context a direct chat's claim is present and the group's description of the person comes first", () => {
+  // Bug: the open context reads what they said alone but shows the character a direct chat wrote instead of the room's.
+  const w = world();
+  const { person, discordDm } = twoChats(w);
+  const describe = (id: string, text: string, scope: Record<string, string>) =>
+    insertRows(w.db, {
+      descriptions: [
+        { id, subject_kind: 'person', subject_id: person, field: 'character', current_version: `${id}:v1`, ...scope },
+      ],
+      description_versions: [
+        { id: `${id}:v1`, description_id: id, text, author: 'her', written_at: '2026-10-01T09:00:00.000Z', chars: 1 },
+      ],
+    });
+  describe('d:0', 'ΑΠΟ-ΙΔΙΩΤΙΚΗ', { scope_kind: 'dm', scope_iface: 'discord', scope_dm: person });
+  describe('d:1', 'ΑΠΟ-ΟΜΑΔΑ', { scope_kind: 'group', scope_iface: 'discord' });
+  const open: Context = { ...GROUP, open: true };
+  const trigger = message('src:c1', 'γεια', { authorAccount: 'discord:p1', placeId: w.room, trigger: true });
+  const entryUnder = (ctx: Context) =>
+    personIn(
+      mindOf(
+        w.db,
+        ctx,
+        seedsOf([trigger], { place: w.room, counterpart: { personId: person, accountId: 'discord:p1' } }),
+        SETTINGS,
+        NOW
+      ),
+      person
+    );
+  assert.ok(claimsOfCounterpart(w, open, w.room, 'discord:p1', person).includes('claim:secret'));
+  assert.equal(entryUnder(open)?.character, 'ΑΠΟ-ΟΜΑΔΑ');
+  assert.equal(entryUnder(dmContext(person, 'discord', discordDm))?.character, 'ΑΠΟ-ΙΔΙΩΤΙΚΗ');
+});
+
+test('two accounts of one person render one entry that names both', () => {
+  // Bug: the person the persona answers on Telegram and the same person named by their Discord name appear twice.
+  const w = world();
+  const person = 'person:discord:p1';
+  addPerson(w.db, {
+    id: person,
+    accounts: [
+      { id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] },
+      { id: 'telegram:p2', iface: 'telegram', native: 'p2', names: ['Pit'] },
+    ],
+  });
+  const dm = addDm(w.db, { iface: 'telegram', native: 'p2', person, account: 'telegram:p2' });
+  const trigger = message('src:t1', 'ο Pétros σου στέλνει χαιρετίσματα', {
+    authorAccount: 'telegram:p2',
+    placeId: dm,
+    trigger: true,
+  });
+  const mind = mindOf(
+    w.db,
+    dmContext(person, 'telegram', dm),
+    seedsOf([trigger], { place: dm, counterpart: { personId: person, accountId: 'telegram:p2' } }),
+    SETTINGS,
+    NOW
+  );
+  const entries = mind.people.filter((entry) => entry.nodeId === personNode(person));
+  assert.equal(entries.length, 1);
+  assert.deepEqual([...(entries[0]?.accounts ?? [])].sort(), ['discord:p1', 'telegram:p2']);
+});
+
+/** The accounts an entry lists for its person, as `<iface> <platform id>`. */
+const listedAccounts = (entry: PersonEntry | undefined): Array<string> =>
+  (entry?.profileAccounts ?? []).map((account) => `${account.iface} ${account.platformId}`);
+
+test('lines from two accounts of one person in one room raise one entry that lists both accounts', () => {
+  // Bug: one person writing from two accounts reads as two people, or the entry does not say which accounts are theirs.
+  const w = world();
+  const person = 'person:discord:p1';
+  addPerson(w.db, {
+    id: person,
+    accounts: [
+      { id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] },
+      { id: 'discord:p2', iface: 'discord', native: 'p2', names: ['Pit'] },
+    ],
+  });
+  addLine(w.db, { id: 'src:a1', iface: 'discord', place: w.room, author: 'discord:p1', text: 'καλημέρα' });
+  addLine(w.db, { id: 'src:a2', iface: 'discord', place: w.room, author: 'discord:p2', text: 'πάλι εγώ' });
+  const lines = [
+    message('src:a1', 'καλημέρα', { authorAccount: 'discord:p1', placeId: w.room }),
+    message('src:a2', 'πάλι εγώ', { authorAccount: 'discord:p2', placeId: w.room, trigger: true }),
+  ];
+  const mind = mindOf(w.db, GROUP, seedsOf(lines, { place: w.room }), SETTINGS, NOW);
+  const entries = mind.people.filter((entry) => entry.personId === person);
+  assert.equal(entries.length, 1);
+  assert.deepEqual(listedAccounts(entries[0]), ['discord p1', 'discord p2']);
+});
+
+test("the owner's entry read from the command line lists their Discord account with its platform id", () => {
+  // Bug: from the command line the persona knows the owner only as the command line's account, not their Discord id.
+  const w = world();
+  const owner = 'person:discord:o1';
+  addPerson(w.db, {
+    id: owner,
+    accounts: [
+      { id: 'discord:o1', iface: 'discord', native: 'o1', names: ['Ὅμηρος'] },
+      { id: 'cli:owner', iface: 'cli', native: 'owner', names: ['owner'] },
+    ],
+  });
+  const dm = addDm(w.db, { iface: 'cli', native: 'owner', person: owner, account: 'cli:owner' });
+  addLine(w.db, {
+    id: 'src:o1',
+    iface: 'cli',
+    place: dm,
+    author: 'cli:owner',
+    text: 'γεια',
+    audience: { dm, iface: 'cli', person: owner },
+  });
+  const trigger = message('src:o1', 'γεια', { authorAccount: 'cli:owner', placeId: dm, trigger: true });
+  const mind = mindOf(
+    w.db,
+    dmContext(owner, 'cli', dm),
+    seedsOf([trigger], { place: dm, counterpart: { personId: owner, accountId: 'cli:owner' } }),
+    SETTINGS,
+    NOW
+  );
+  assert.ok(listedAccounts(personIn(mind, owner)).includes('discord o1'));
+});
+
+test('the budget cuts the lowest evidence first and leftOut counts it', () => {
+  // Bug: the cut takes entries in the order they were found, so a name said in passing pushes out the person asked about,
+  // or the request says nothing about what it left out.
+  const w = world();
+  addPerson(w.db, {
+    id: 'person:discord:p1',
+    accounts: [{ id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] }],
+  });
+  const passer = 'person:discord:q1';
+  addPerson(w.db, {
+    id: passer,
+    accounts: [{ id: 'discord:q1', iface: 'discord', native: 'q1', names: ['Eleftheríou'] }],
+  });
+  addClaim(w.db, {
+    id: 'claim:alias:q1',
+    person: passer,
+    kind: 'alias',
+    text: 'Lefterákis',
+    audience: { group: 'discord' },
+  });
+  const passing = strangerSays(w, 'src:m1', 'χθες ήρθε ο Lefterákis');
+  const trigger = strangerSays(w, 'src:m2', 'τι λες εσύ;', { trigger: true, mentions: ['discord:p1'] });
+  const tight: MindSettings = { ...SETTINGS, budgetTokens: 1, counterpartTokens: 0 };
+  const mind = mindOf(w.db, GROUP, seedsOf([passing, trigger], { place: w.room }), tight, NOW);
+  assert.equal(
+    personIn(mind, 'person:discord:p1')?.nodeId,
+    personNode('person:discord:p1'),
+    'the person the trigger mentions'
+  );
+  assert.equal(personIn(mind, passer), undefined, 'the person a passing word raised');
+  assert.equal(mind.leftOut.people, 1);
+});
+
+test('the person the persona answers is present with an empty budget', () => {
+  // Bug: a budget spent elsewhere, or none at all, drops the one person the reply is for.
+  const w = world();
+  const friend = 'person:telegram:f1';
+  addPerson(w.db, { id: friend, accounts: [{ id: 'telegram:f1', iface: 'telegram', native: 'f1', names: ['Nikos'] }] });
+  const dm = addDm(w.db, { iface: 'telegram', native: 'f1', person: friend, account: 'telegram:f1' });
+  const trigger = message('src:t1', 'γεια', { authorAccount: 'telegram:f1', placeId: dm, trigger: true });
+  const empty: MindSettings = { ...SETTINGS, budgetTokens: 0, counterpartTokens: 0 };
+  const mind = mindOf(
+    w.db,
+    dmContext(friend, 'telegram', dm),
+    seedsOf([trigger], { place: dm, counterpart: { personId: friend, accountId: 'telegram:f1' } }),
+    empty,
+    NOW
+  );
+  assert.equal(personIn(mind, friend)?.nodeId, personNode(friend));
+});
+
+test('the Telegram case: a friend asks about a server of another interface and gets the server, its busiest rooms, its closest people and the place they share with the persona', () => {
+  // Bug: in a private chat on one interface the persona cannot think of a place or a person of another.
+  const w = world();
+  const db = w.db;
+  const lounge = w.room;
+  const drawing = addRoom(db, { iface: 'discord', native: 'c2', root: AGORA, name: 'ζωγραφική' });
+  const kitchen = addRoom(db, { iface: 'discord', native: 'c3', root: AGORA, name: 'κουζίνα' });
+  const say = (room: string, count: number): void => {
+    for (let i = 0; i < count; i += 1)
+      addLine(db, { id: `src:her:${room}:${i}`, iface: 'discord', place: room, author: 'self', text: 'καλησπέρα' });
+  };
+  say(lounge, 5);
+  say(drawing, 3);
+  say(kitchen, 1);
+  const friend = 'person:discord:f1';
+  addPerson(db, {
+    id: friend,
+    realName: 'Nikólaos Aléxiou',
+    accounts: [
+      { id: 'discord:f1', iface: 'discord', native: 'f1', names: ['Nikólas'] },
+      { id: 'telegram:f2', iface: 'telegram', native: 'f2', names: ['Nikos'] },
+    ],
+  });
+  addMembership(db, { account: 'discord:f1', place: AGORA });
+  addMembership(db, { account: 'discord:f1', place: PORTICO });
+  const members = [
+    ['h1', 'Eléni', 9],
+    ['h2', 'Dimítris', 7],
+    ['h3', 'Marína', 1],
+  ] as const;
+  for (const [native, name, affinity] of members) {
+    addPerson(db, {
+      id: `person:discord:${native}`,
+      affinity,
+      accounts: [{ id: `discord:${native}`, iface: 'discord', native, names: [name] }],
+    });
+    addMembership(db, { account: `discord:${native}`, place: AGORA });
+  }
+  const dm = addDm(db, { iface: 'telegram', native: 'f2', person: friend, account: 'telegram:f2' });
+  const text = 'ποια είναι τα αγαπημένα σου κανάλια στην Ágora και ποιον συμπαθείς πιο πολύ εκεί;';
+  addLine(db, {
+    id: 'src:t1',
+    iface: 'telegram',
+    place: dm,
+    author: 'telegram:f2',
+    text,
+    audience: { dm, iface: 'telegram', person: friend },
+  });
+  const trigger = message('src:t1', text, { authorAccount: 'telegram:f2', placeId: dm, trigger: true });
+  const settings: MindSettings = { ...SETTINGS, fanOut: { ...SETTINGS.fanOut, rooms: 2, members: 2 } };
+  const mind = mindOf(
+    db,
+    dmContext(friend, 'telegram', dm),
+    seedsOf([trigger], { place: dm, counterpart: { personId: friend, accountId: 'telegram:f2' } }),
+    settings,
+    NOW
+  );
+  const [first] = mind.people;
+  assert.equal(first?.nodeId, personNode(friend), 'the friend comes first');
+  const places = placeIds(mind);
+  assert.deepEqual(
+    [AGORA, lounge, drawing, PORTICO].filter((id) => !places.includes(placeNode(id))),
+    [],
+    'the server, its two busiest rooms and the other server the friend shares'
+  );
+  const raised = members.map(([native]) => personIn(mind, `person:discord:${native}`) !== undefined);
+  assert.deepEqual(raised, [true, true, false], 'the two members the persona is closest to');
+  for (const entry of [...mind.people, ...mind.places])
+    assert.ok(entry.sources.length > 0, `${entry.nodeId} has a source`);
+});
+
+// ---- nodes by kind and row --------------------------------------------------------------------------------------------
+// A node's kind and row come from `graph_nodes` or from the caller, never from the text of its id: every case below gives
+// a node an id that spells neither.
+
+test("a word naming a person raises them whatever their graph node's id spells", () => {
+  // Bug: the kind of a name's node is cut out of its id, so a person whose node id does not spell `person:` is no
+  // person and the word raises nothing.
+  const w = world();
+  const person = 'person:discord:p1';
+  addPerson(w.db, { id: person, accounts: [{ id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] }] });
+  rekeyNode(w.db, personNode(person), 'node-p1');
+  const trigger = strangerSays(w, 'src:m1', 'είδες τον Pétros;', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  const entry = mind.people.find((one) => one.nodeId === 'node-p1');
+  assert.deepEqual([entry?.personId, entry?.evidence], [person, 'word']);
+});
+
+test("a person's membership raises its root whatever the root's graph node id spells", () => {
+  // Bug: the place a membership edge reaches is cut out of the edge's node id, so a root whose node id does not spell
+  // `place:` is dropped from the walk.
+  const w = world();
+  const person = 'person:discord:p1';
+  addPerson(w.db, { id: person, accounts: [{ id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] }] });
+  addMembership(w.db, { account: 'discord:p1', place: PORTICO });
+  rekeyNode(w.db, placeNode(PORTICO), 'node-portico');
+  const trigger = strangerSays(w, 'src:m1', 'πώς πάει;', { trigger: true, mentions: ['discord:p1'] });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.equal(mind.places.find((one) => one.nodeId === 'node-portico')?.placeId, PORTICO);
+});
+
+test("an interface's name raises the interface and its top places whatever its graph node id spells", () => {
+  // Bug: the interface is cut out of its node id, so a name of an interface whose node id does not spell `interface:`
+  // raises nothing.
+  const w = world();
+  rekeyNode(w.db, interfaceNode('discord'), 'node-discord');
+  const trigger = strangerSays(w, 'src:m1', 'είσαι στο Discord;', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.equal(mind.interfaces.find((one) => one.nodeId === 'node-discord')?.iface, 'discord');
+  assert.ok(placeIds(mind).includes(placeNode(STOA)), 'a top place of the interface');
+});
+
+test('a prefetched line given by its kind and row is an excerpt, and a place given so is raised', () => {
+  // Bug: a candidate came as a node id the caller spelled and the reader cut apart again, so its kind and row were
+  // guessed from text.
+  const w = world();
+  addLine(w.db, { id: 'src:old', iface: 'discord', place: w.room, author: 'discord:x1', text: 'παλιά κουβέντα' });
+  const trigger = strangerSays(w, 'src:m1', 'θυμάσαι;', { trigger: true });
+  const candidates: Seeds['candidates'] = [
+    { kind: 'source', rowId: 'src:old', sourceIds: ['src:old'], from: 'prefetch' },
+    { kind: 'place', rowId: PORTICO, sourceIds: [], from: 'query' },
+  ];
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room, candidates }), SETTINGS, NOW);
+  assert.deepEqual(
+    mind.found.map((one) => [one.sourceId, one.from]),
+    [['src:old', 'prefetch']]
+  );
+  assert.ok(placeIds(mind).includes(placeNode(PORTICO)), 'the place candidate');
+});
+
+/** The world with a learned stemmer that strips a final ς or ν, so a room's inflected names meet its own by stem. */
+function stemmedWorld(): World & { room: string } {
+  const w = world();
+  seedStemmer(w.db, ['ς', 'ν'], [['θαλασσα', 3]]);
+  return w;
+}
+
+test('a room under the current root that one inflected word names is an entry, no candidate', () => {
+  // Bug: a place named in the line by an inflected word matches by stem only and comes as a candidate, a name the
+  // persona cannot trust, so the answer is about a place nobody read.
+  const w = stemmedWorld();
+  const sea = addRoom(w.db, { iface: 'discord', native: 'c7', root: AGORA, name: 'Θάλασσα' });
+  const trigger = strangerSays(w, 'src:m1', 'τι νέα της Θάλασσας;', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  const entry = mind.places.find((one) => one.nodeId === placeNode(sea));
+  assert.deepEqual([entry?.candidate, entry?.detail === 'name'], [false, false]);
+});
+
+test('an inflected word that two rooms under the current root share by stem leaves both candidates', () => {
+  // Bug: the rule for one stem match takes the first of two rooms the word fits and shows it as the place the persona
+  // was asked about, when the line does not say which one.
+  const w = stemmedWorld();
+  const rooms = [
+    addRoom(w.db, { iface: 'discord', native: 'c7', root: AGORA, name: 'Θάλασσα' }),
+    addRoom(w.db, { iface: 'discord', native: 'c8', root: AGORA, name: 'Θάλασσας' }),
+  ];
+  const trigger = strangerSays(w, 'src:m1', 'πάμε στη Θάλασσαν;', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.deepEqual(
+    rooms.map((room) => mind.places.find((one) => one.nodeId === placeNode(room))?.candidate),
+    [true, true]
+  );
+});
+
+/** A live config with `context.memory` holding `memory` and `llm.maxRequestTokens` at 100000. */
+const configOf = (memory: Record<string, unknown>): unknown => ({
+  llm: { maxRequestTokens: 100000 },
+  context: { memory },
+});
+
+test('the total of the memory blocks is budgetTokens when budgetShare is unset', () => {
+  // Bug: the new key changes the total of a deployment that never set it.
+  assert.equal(mindSettingsOf(configOf({ budgetTokens: 7000 })).budgetTokens, 7000);
+});
+
+test('the total is the share of llm.maxRequestTokens when that is less than budgetTokens', () => {
+  // Bug: the share is ignored, so a small request cap still gets a memory budget that crowds out the chat.
+  assert.equal(mindSettingsOf(configOf({ budgetTokens: 10000, budgetShare: 0.05 })).budgetTokens, 5000);
+});
+
+test('the total stays budgetTokens when the share of llm.maxRequestTokens gives more', () => {
+  // Bug: the share replaces budgetTokens instead of capping it, so a large cap raises the total past the setting.
+  assert.equal(mindSettingsOf(configOf({ budgetTokens: 10000, budgetShare: 0.5 })).budgetTokens, 10000);
+});
+
+test('a budgetShare that is zero, negative, above 1 or not a number counts as unset', () => {
+  // Bug: zero empties <memory>, a negative or a string yields a negative or NaN total, and a share above 1 is read as a cap.
+  for (const budgetShare of [0, -0.1, 1.5, '0.05', null, Number.NaN, {}]) {
+    const total = mindSettingsOf(configOf({ budgetTokens: 10000, budgetShare })).budgetTokens;
+    assert.equal(total, 10000, `budgetShare ${JSON.stringify(budgetShare)} gave ${total}`);
+  }
+});
+
+// The shares without `recent`, which left with its block. `people` keeps 0.4 so the sums below stay as they were.
+const SHARES = { people: 0.4, places: 0.3, lore: 0.15, found: 0.05 };
+
+test('what found leaves unused is lent to none of the stable shares, whatever found takes', () => {
+  // Bug: the share the turn's own <found> leaves unused is lent to a full <places>, so a place's detail follows how much
+  // the turn found and the stable part of the request changes on every turn. Budget 1000: people wants 100 of its 400,
+  // places 900 of its 300, lore exactly its share.
+  const demandWith = (found: number) => ({ people: 100, places: 900, lore: 150, found });
+  const empty = allowances({ budgetTokens: 1000, shares: SHARES }, demandWith(0));
+  assert.equal(empty.places, 600, 'places takes its share and what people leaves unused');
+  for (const found of [0, 20, 50, 400]) {
+    const given = allowances({ budgetTokens: 1000, shares: SHARES }, demandWith(found));
+    for (const tag of ['people', 'places', 'lore'] as const)
+      assert.equal(given[tag], empty[tag], `${tag} with found wanting ${found}`);
+  }
+});
+
+// Names across scripts: the key of src/memory/db/script-key.ts is one more way of matchName, and a hit of a phrase of
+// two or three words drops the hit of a single word inside it.
+/** The world with a stemmer that knows "сада" is "сад", a room named "сад" and a room named "3d-сад", both under Ágora. */
+function gardenWorld(): { w: World & { room: string }; plain: string; digit: string } {
+  const opened = openWorld();
+  worlds.push(opened);
+  seedStemmer(opened.db, ['а'], [['сад', 3]]);
+  noteInterface(opened, 'discord', [{ id: 'g1', name: 'Ágora' }], DISCORD_NAMES);
+  const room = addRoom(opened.db, { iface: 'discord', native: 'c1', root: AGORA, name: 'λέσχη' });
+  addPerson(opened.db, {
+    id: 'person:discord:x1',
+    accounts: [{ id: 'discord:x1', iface: 'discord', native: 'x1', names: ['Xénios'] }],
+  });
+  const plain = addRoom(opened.db, { iface: 'discord', native: 'c2', root: AGORA, name: 'сад' });
+  const digit = addRoom(opened.db, { iface: 'discord', native: 'c3', root: AGORA, name: '3d-сад' });
+  return { w: { ...opened, room }, plain, digit };
+}
+
+const placeIn = (mind: Mind, place: string) => mind.places.find((entry) => entry.nodeId === placeNode(place));
+
+test('a line naming two words of a place in another script raises that place sure and not the place named by the second word alone', () => {
+  // Bug: the first word matches nothing, the second word alone stems to the other place, and the place asked about is lost.
+  const { w, plain, digit } = gardenWorld();
+  const trigger = strangerSays(w, 'src:g1', 'покажи 3д сада', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.deepEqual([placeIn(mind, digit)?.candidate, placeIn(mind, plain)], [false, undefined]);
+});
+
+test('a line naming the second word alone still raises the place named by it', () => {
+  // Bug: the longer-phrase rule drops every single-word hit, even when no longer phrase of the line matched.
+  const { w, plain } = gardenWorld();
+  const trigger = strangerSays(w, 'src:g1', 'покажи сада', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.equal(placeIn(mind, plain)?.candidate, false);
+});
+
+// The persona's attitude toward a person: a person entry carries the score and the reason
+// of the newest change the context may read, and the newest changes, newest first, at most `attitudeMoves` of them.
+const DAY = (n: number): string => `2026-10-${String(n).padStart(2, '0')}T09:00:00.000Z`;
+
+/** A person who writes in the room, and `changes` toward them stored under the groups of Discord. */
+function personWithChanges(
+  w: World & { room: string },
+  changes: ReadonlyArray<[number, number, number, string]>
+): string {
+  const person = 'person:discord:a1';
+  addPerson(w.db, {
+    id: person,
+    accounts: [{ id: 'discord:a1', iface: 'discord', native: 'a1', names: ['Αρίστη'] }],
+  });
+  changes.forEach(([day, applied, score, reason]) =>
+    addAttitude(w.db, {
+      id: `aff:${day}`,
+      person,
+      at: DAY(day),
+      applied,
+      score,
+      reason,
+      audience: { group: 'discord' },
+    })
+  );
+  return person;
+}
+
+/** The entry of the person the persona answers in the room, read under `ctx` from a line of theirs. */
+function counterpartIn(
+  w: World & { room: string },
+  ctx: Context,
+  person: string,
+  place: string,
+  settings: MindSettings
+): PersonEntry {
+  const trigger = message('src:a1', 'γεια', { authorAccount: 'discord:a1', placeId: place, trigger: true });
+  const seeds = seedsOf([trigger], { place, counterpart: { personId: person, accountId: 'discord:a1' } });
+  const entry = personIn(mindOf(w.db, ctx, seeds, settings, NOW), person);
+  assert.ok(entry, 'the person the persona answers has an entry');
+  return entry;
+}
+
+test('a person entry carries the score and reason of the newest change and the newest two changes, newest first', () => {
+  // Bug: the entry reads the stored score column or the oldest rows, so the persona sees a stale attitude or the wrong
+  // moves.
+  const w = world();
+  const person = personWithChanges(w, [
+    [1, 5, 5, 'ΛΟΓΟΣ-1'],
+    [2, 6, 11, 'ΛΟΓΟΣ-2'],
+    [3, -4, 7, 'ΛΟΓΟΣ-3'],
+    [4, 12, 19, 'ΛΟΓΟΣ-4'],
+    [5, 8, 27, 'ΛΟΓΟΣ-5'],
+  ]);
+  const entry = counterpartIn(w, GROUP, person, w.room, SETTINGS);
+  assert.deepEqual(entry.attitude, {
+    score: 27,
+    reason: 'ΛΟΓΟΣ-5',
+    moves: [
+      { delta: 8, at: DAY(5), reason: 'ΛΟΓΟΣ-5' },
+      { delta: 12, at: DAY(4), reason: 'ΛΟΓΟΣ-4' },
+    ],
+  });
+});
+
+test('with the attitude setting at 0 the entry keeps the score and reason and carries no change', () => {
+  // Bug: a setting of 0 is read as "no attitude at all", or as no limit, and the changes all come through.
+  const w = world();
+  const person = personWithChanges(w, [
+    [1, 5, 5, 'ΛΟΓΟΣ-1'],
+    [2, 6, 11, 'ΛΟΓΟΣ-2'],
+    [3, -4, 7, 'ΛΟΓΟΣ-3'],
+  ]);
+  const entry = counterpartIn(w, GROUP, person, w.room, { ...SETTINGS, attitudeMoves: 0 });
+  assert.deepEqual(entry.attitude, { score: 7, reason: 'ΛΟΓΟΣ-3', moves: [] });
+});
+
+test('a change stored under a direct chat the context may not read gives no score, no reason and no move', () => {
+  // Bug: the reader takes the score from the person's stored score column or from every audience, so what the persona
+  // was told in a private chat shows in a room.
+  const w = world();
+  const person = personWithChanges(w, [
+    [1, 10, 10, 'ΟΜΑΔΑ-ΠΡΩΙΜΗ'],
+    [2, 8, 18, 'ΟΜΑΔΑ-ΑΡΓΗ'],
+  ]);
+  const dm = addDm(w.db, { iface: 'discord', native: 'a1', person, account: 'discord:a1' });
+  addAttitude(w.db, {
+    id: 'aff:secret',
+    person,
+    at: DAY(9),
+    applied: 23,
+    score: 41,
+    reason: 'ΙΔΙΩΤΙΚΟ',
+    audience: { dm, iface: 'discord', person },
+  });
+  const inRoom = counterpartIn(w, GROUP, person, w.room, SETTINGS).attitude;
+  const moves = inRoom?.moves ?? [];
+  assert.deepEqual(
+    [inRoom?.score, inRoom?.reason, moves.map((move) => move.reason)],
+    [18, 'ΟΜΑΔΑ-ΑΡΓΗ', ['ΟΜΑΔΑ-ΑΡΓΗ', 'ΟΜΑΔΑ-ΠΡΩΙΜΗ']]
+  );
+  const secret = counterpartIn(w, dmContext(person, 'discord', dm), person, dm, SETTINGS);
+  const inDm = secret.attitude;
+  const newest = inDm?.moves[0];
+  assert.deepEqual([inDm?.score, newest?.reason], [41, 'ΙΔΙΩΤΙΚΟ']);
+});
+
+test('a person whose only changes sit in a direct chat the context may not read has no attitude', () => {
+  // Bug: with nothing to read the reader falls back to the stored score column and a room learns it.
+  const w = world();
+  const person = 'person:discord:a1';
+  addPerson(w.db, {
+    id: person,
+    affinity: 41,
+    accounts: [{ id: 'discord:a1', iface: 'discord', native: 'a1', names: ['Αρίστη'] }],
+  });
+  const dm = addDm(w.db, { iface: 'discord', native: 'a1', person, account: 'discord:a1' });
+  addAttitude(w.db, {
+    id: 'aff:secret',
+    person,
+    at: DAY(9),
+    applied: 41,
+    score: 41,
+    reason: 'ΙΔΙΩΤΙΚΟ',
+    audience: { dm, iface: 'discord', person },
+  });
+  assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).attitude, null);
+});
+
+/** The persona's line `native` stored in `place`, said at minute `at`, and, with `edit`, edited as production stores it. */
+function personaLine(w: World, place: string, native: string, at: number, edit = false): void {
+  const where = { iface: 'discord', place };
+  storeRevision(w.db, where, { native, text: 'καλησπέρα', at: minute(at), kind: 'said', by: 'her' });
+  if (edit)
+    storeRevision(w.db, where, {
+      native,
+      text: 'καλησπέρα σας',
+      at: minute(at) + EDIT_DELAY_MS,
+      revision: 2,
+      kind: 'seen',
+      by: 'her',
+    });
+}
+
+// Bug: the persona's edit of an old line, stored with the moment of the edit, makes the place read as the one they
+// wrote in last, ahead of a place they wrote in after the line was said.
+test("an edit of the persona's old line does not make its place the one they wrote in lately", () => {
+  const w = world();
+  const quiet = addRoom(w.db, { iface: 'discord', native: 'c2', root: AGORA, name: 'ζωγραφική' });
+  personaLine(w, w.room, 'old', 1, true);
+  personaLine(w, quiet, 'newer', 30);
+  const settings: MindSettings = { ...SETTINGS, fanOut: { ...SETTINGS.fanOut, rooms: 1 } };
+  const mind = mindOf(w.db, GROUP, seedsOf([]), settings, NOW);
+  assert.deepEqual(
+    [w.room, quiet].filter((id) => placeIds(mind).includes(placeNode(id))),
+    [quiet]
+  );
+});
+
+// Bug: the count of the persona's lines in a room adds the row of every edit, so a room where they fixed one line
+// outranks a room where they said two.
+test("an edit of the persona's line is not a second line of theirs when the busiest rooms are counted", () => {
+  const w = world();
+  const busy = addRoom(w.db, { iface: 'discord', native: 'c2', root: AGORA, name: 'ζωγραφική' });
+  personaLine(w, w.room, 'once', 1, true);
+  personaLine(w, busy, 'first', 1);
+  personaLine(w, busy, 'second', 2);
+  const friend = 'person:telegram:f1';
+  addPerson(w.db, { id: friend, accounts: [{ id: 'telegram:f1', iface: 'telegram', native: 'f1', names: ['Nikos'] }] });
+  addMembership(w.db, { account: 'telegram:f1', place: AGORA });
+  const dm = addDm(w.db, { iface: 'telegram', native: 'f1', person: friend, account: 'telegram:f1' });
+  const text = 'ποια είναι τα αγαπημένα σου κανάλια στην Ágora;';
+  addLine(w.db, {
+    id: 'src:t1',
+    iface: 'telegram',
+    place: dm,
+    author: 'telegram:f1',
+    text,
+    audience: { dm, iface: 'telegram', person: friend },
+  });
+  const trigger = message('src:t1', text, { authorAccount: 'telegram:f1', placeId: dm, trigger: true });
+  const settings: MindSettings = { ...SETTINGS, fanOut: { ...SETTINGS.fanOut, rooms: 1 } };
+  const mind = mindOf(
+    w.db,
+    dmContext(friend, 'telegram', dm),
+    seedsOf([trigger], { place: dm, counterpart: { personId: friend, accountId: 'telegram:f1' } }),
+    settings,
+    NOW
+  );
+  assert.deepEqual(
+    [w.room, busy].filter((id) => placeIds(mind).includes(placeNode(id))),
+    [busy]
+  );
+});
+
+// A person's interests, usual name and messages seen. A person entry carries
+//   interests: Array<string>      the interest claims the context may read, best rank first, at most `settings.interests`
+//   usualName: string | null      the name the person is addressed by most, by the decayed score of `rankAddressed`
+//   messagesSeen: number | null   `people.message_count`
+const DAYS_MS = 86_400_000;
+const daysBefore = (days: number): string => new Date(NOW - days * DAYS_MS).toISOString();
+
+/** A person who writes in the room, with no interest, name or count stored yet. */
+function plainPerson(w: World): string {
+  const person = 'person:discord:a1';
+  addPerson(w.db, {
+    id: person,
+    accounts: [{ id: 'discord:a1', iface: 'discord', native: 'a1', names: ['Αρίστη'] }],
+  });
+  return person;
+}
+
+/** An interest claim about `person`: stored as a fact under `audience`, then marked as an interest with its weight and day. */
+function addInterest(
+  w: World,
+  person: string,
+  id: string,
+  text: string,
+  weight: number,
+  seen: string,
+  audience: Audience = { group: 'discord' }
+): void {
+  addClaim(w.db, { id, person, kind: 'fact', text, audience });
+  w.db.prepare("UPDATE claims SET kind = 'interest', weight = ?, last_seen_at = ? WHERE id = ?").run(weight, seen, id);
+}
+
+const interestsOf = (w: World & { room: string }, person: string, settings = SETTINGS, ctx = GROUP): Array<string> =>
+  counterpartIn(w, ctx, person, w.room, settings).interests;
+
+test('the interests of a person read best ranked first, the heavier above the lighter when seen on the same day', () => {
+  // Bug: the entry lists interests in the order they were stored, so the one the persona has seen most often comes
+  // last.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:i1', 'ΣΚΑΚΙ', 1, daysBefore(2));
+  addInterest(w, person, 'claim:i2', 'ΜΟΥΣΙΚΗ', 9, daysBefore(2));
+  addInterest(w, person, 'claim:i3', 'ΒΟΤΑΝΙΚΗ', 3, daysBefore(2));
+  assert.deepEqual(interestsOf(w, person), ['ΜΟΥΣΙΚΗ', 'ΒΟΤΑΝΙΚΗ', 'ΣΚΑΚΙ']);
+});
+
+test('an old heavy interest ranks below a fresh light one, the rank decays with the half-life of interests', () => {
+  // Bug: the order uses the weight alone, so an interest the persona has not heard of in two years stays on top.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:old', 'ΠΑΛΙΟ', 4, daysBefore(720));
+  addInterest(w, person, 'claim:new', 'ΝΕΟ', 1, daysBefore(1));
+  assert.deepEqual(interestsOf(w, person), ['ΝΕΟ', 'ΠΑΛΙΟ']);
+});
+
+test('the interests are cut to the setting and the setting at 0 shows none', () => {
+  // Bug: the cut is hard-coded, or a setting of 0 is read as "no limit" and every stored interest comes through.
+  const w = world();
+  const person = plainPerson(w);
+  ['α', 'β', 'γ', 'δ'].forEach((text, at) =>
+    addInterest(w, person, `claim:i${at}`, `ΘΕΜΑ-${text}`, 8 - at, daysBefore(2))
+  );
+  assert.deepEqual(interestsOf(w, person, { ...SETTINGS, interests: 2 }), ['ΘΕΜΑ-α', 'ΘΕΜΑ-β']);
+  assert.deepEqual(interestsOf(w, person, { ...SETTINGS, interests: 0 }), []);
+});
+
+test('a person with no interest claim has an empty list', () => {
+  // Bug: the list is null or holds a placeholder for a person nobody described.
+  const w = world();
+  const person = plainPerson(w);
+  assert.deepEqual(interestsOf(w, person), []);
+});
+
+test('a retired interest does not show', () => {
+  // Bug: the reader takes every interest row, so what the persona let go of keeps coming back.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:live', 'ΖΩΝΤΑΝΟ', 2, daysBefore(2));
+  addInterest(w, person, 'claim:gone', 'ΣΒΗΣΜΕΝΟ', 9, daysBefore(2));
+  w.db.prepare('UPDATE claims SET retired_at = ? WHERE id = ?').run(AT, 'claim:gone');
+  assert.deepEqual(interestsOf(w, person), ['ΖΩΝΤΑΝΟ']);
+});
+
+test('an interest stored under a direct chat the context may not read is not in the list, and is in that chat', () => {
+  // Bug: interests are read without the audience, so what a person told the persona in private shows in a room.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:open', 'ΔΗΜΟΣΙΟ', 2, daysBefore(2));
+  const dm = addDm(w.db, { iface: 'discord', native: 'a1', person, account: 'discord:a1' });
+  addInterest(w, person, 'claim:secret', 'ΙΔΙΩΤΙΚΟ', 9, daysBefore(2), { dm, iface: 'discord', person });
+  assert.deepEqual(interestsOf(w, person), ['ΔΗΜΟΣΙΟ']);
+  const inDm = counterpartIn(w, dmContext(person, 'discord', dm), person, dm, SETTINGS).interests;
+  assert.deepEqual(inDm, ['ΙΔΙΩΤΙΚΟ', 'ΔΗΜΟΣΙΟ']);
+});
+
+test('an interest that stands in the list is not also one of the claims of the entry', () => {
+  // Bug: the claims of the entry still hold the interest rows, so a listed interest is printed twice in `whole`.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:i1', 'ΜΟΥΣΙΚΗ', 3, daysBefore(2));
+  const entry = counterpartIn(w, GROUP, person, w.room, SETTINGS);
+  assert.deepEqual(entry.interests, ['ΜΟΥΣΙΚΗ']);
+  assert.deepEqual(
+    entry.claims.filter((claim) => claim.text === 'ΜΟΥΣΙΚΗ'),
+    []
+  );
+});
+
+test('an interest claim the list cut off stays among the claims of the entry', () => {
+  // Bug: every claim of kind interest is dropped from the claims, so one the cut left out of the list is nowhere.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:top', 'ΜΟΥΣΙΚΗ', 9, daysBefore(2));
+  addInterest(w, person, 'claim:cut', 'ΣΚΑΚΙ', 1, daysBefore(2));
+  const entry = counterpartIn(w, GROUP, person, w.room, { ...SETTINGS, interests: 1 });
+  assert.deepEqual(entry.interests, ['ΜΟΥΣΙΚΗ']);
+  assert.deepEqual(
+    entry.claims.map((claim) => claim.text),
+    ['ΣΚΑΚΙ']
+  );
+});
+
+test('the setting of interests is read from context.memory, 0 included', () => {
+  // Bug: a setting of 0 falls back to the shipped value, so the owner cannot switch the lines off.
+  assert.equal(mindSettingsOf(configOf({ interests: 3 })).interests, 3);
+  assert.equal(mindSettingsOf(configOf({ interests: 0 })).interests, 0);
+});
+
+/** Stores the names `person`'s membership of `place` is addressed by, each with its score and last day. */
+function addressedIn(w: World, place: string, names: Record<string, { score: number; days: number }>): void {
+  const id = addMembership(w.db, { account: 'discord:a1', place });
+  const stored = Object.fromEntries(
+    Object.entries(names).map(([name, one]) => [name, { score: one.score, last: daysBefore(one.days) }])
+  );
+  w.db.prepare('UPDATE memberships SET addressed_as = ? WHERE id = ?').run(JSON.stringify(stored), id);
+}
+
+test('the usual name is the one addressed most by the decayed score, over every place of the person', () => {
+  // Bug: the reader takes the highest stored score, so a name used heavily a year ago wins over the name they go by
+  // today.
+  const w = world();
+  const person = plainPerson(w);
+  const other = addRoom(w.db, { iface: 'discord', native: 'c2', root: AGORA, name: 'αυλή' });
+  addressedIn(w, w.room, { Αρίκος: { score: 6, days: 300 } });
+  addressedIn(w, other, { Άρης: { score: 2, days: 1 } });
+  assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).usualName, 'Άρης');
+});
+
+test('the usual name is null for a person nobody addressed, with a membership or without one', () => {
+  // Bug: the reader falls back to the display name or to an empty string, and the entry prints a line for nobody.
+  const w = world();
+  const person = plainPerson(w);
+  assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).usualName, null);
+  addMembership(w.db, { account: 'discord:a1', place: w.room });
+  assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).usualName, null);
+});
+
+test('the messages seen are the stored count of the person, and null where none is stored', () => {
+  // Bug: the count is taken from the lines of the window, or a person with no stored count reads 0.
+  const w = world();
+  const person = plainPerson(w);
+  assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).messagesSeen, null);
+  w.db.prepare('UPDATE people SET message_count = ? WHERE id = ?').run(37, person);
+  assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).messagesSeen, 37);
+});
+
+test('an entry of a person with interests needs more of the budget to stay whole than the same person without them', () => {
+  // Bug: the budget weighs the old render, so the new line pushes the entry past its share without a drop to `compact`.
+  // Two worlds that differ in the interest claims alone, under the same settings; the smallest budget that keeps the
+  // entry whole is found through the public `detail`.
+  const smallestWhole = (withInterests: boolean): number => {
+    const w = world();
+    const person = plainPerson(w);
+    if (withInterests)
+      for (let at = 0; at < 5; at += 1)
+        addInterest(w, person, `claim:i${at}`, `ΘΕΜΑ-${at} `.repeat(12).trim(), 9 - at, daysBefore(2));
+    const trigger = message('src:a1', 'τι λες εσύ;', { placeId: w.room, trigger: true, mentions: ['discord:a1'] });
+    for (let budgetTokens = 20; budgetTokens <= 4000; budgetTokens += 10) {
+      const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), { ...SETTINGS, budgetTokens }, NOW);
+      if (personIn(mind, person)?.detail === 'whole') return budgetTokens;
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+  const without = smallestWhole(false);
+  const interested = smallestWhole(true);
+  assert.ok(Number.isFinite(without), 'the entry is whole at some budget');
+  assert.ok(interested > without, `${interested} > ${without}`);
+});
+
+test('a person raised in passing needs more of the budget to be listed at all when they have interests', () => {
+  // Bug: the text the budget weighs at the detail `name` leaves out the facts every entry prints, so a person cut to a
+  // name costs the request more than the reader counted. Two worlds that differ in the interest claims alone.
+  const smallestListed = (withInterests: boolean): number => {
+    const w = world();
+    const passer = 'person:discord:q1';
+    addPerson(w.db, {
+      id: passer,
+      accounts: [{ id: 'discord:q1', iface: 'discord', native: 'q1', names: ['Eleftheríou'] }],
+    });
+    addClaim(w.db, {
+      id: 'claim:alias:q1',
+      person: passer,
+      kind: 'alias',
+      text: 'Lefterákis',
+      audience: { group: 'discord' },
+    });
+    if (withInterests)
+      for (let at = 0; at < 5; at += 1)
+        addInterest(w, passer, `claim:i${at}`, `ΘΕΜΑ-${at} `.repeat(12).trim(), 9 - at, daysBefore(2));
+    const passing = strangerSays(w, 'src:m1', 'χθες ήρθε ο Lefterákis');
+    const trigger = strangerSays(w, 'src:m2', 'τι λες εσύ;', { trigger: true });
+    for (let budgetTokens = 0; budgetTokens <= 4000; budgetTokens += 10) {
+      const settings = { ...SETTINGS, budgetTokens, counterpartTokens: 0 };
+      const mind = mindOf(w.db, GROUP, seedsOf([passing, trigger], { place: w.room }), settings, NOW);
+      if (personIn(mind, passer) !== undefined) return budgetTokens;
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+  const without = smallestListed(false);
+  const interested = smallestListed(true);
+  assert.ok(Number.isFinite(without), 'the person is listed at some budget');
+  assert.ok(interested > without, `${interested} > ${without}`);
+});
+
+test('an entry of a person with a described avatar needs more of the budget to stay whole than the same person without', () => {
+  // Bug: the text the budget weighs leaves the avatar description out, so a long description pushes the entry past its
+  // share on the request without a drop to `compact`. Two worlds that differ in the avatar of the account alone.
+  const description = 'ΠΕΡΙΓΡΑΦΗ-ΕΙΚΟΝΑΣ '.repeat(10).trim();
+  const smallestWhole = (withAvatar: boolean): number => {
+    const w = world();
+    const person = plainPerson(w);
+    if (withAvatar) {
+      const stored = JSON.stringify({ hash: 'h1', text: description, describedAt: null });
+      w.db.prepare('UPDATE accounts SET avatar = ? WHERE id = ?').run(stored, 'discord:a1');
+    }
+    const trigger = message('src:a1', 'τι λες εσύ;', { placeId: w.room, trigger: true, mentions: ['discord:a1'] });
+    for (let budgetTokens = 20; budgetTokens <= 4000; budgetTokens += 10) {
+      const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), { ...SETTINGS, budgetTokens }, NOW);
+      if (personIn(mind, person)?.detail === 'whole') return budgetTokens;
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+  const without = smallestWhole(false);
+  const avatar = smallestWhole(true);
+  assert.ok(Number.isFinite(without), 'the entry is whole at some budget');
+  assert.ok(avatar > without, `${avatar} > ${without}`);
+});
+
+// A place's topic, activity and last message. A place entry carries
+//   topic: string | null; activity: 'live' | 'slow' | 'dead' | null; lastMessageAt: number | null
+// filled from `placeStatsOf` under the walker's context, and the text the budget weighs for the entry holds the topic.
+const HOUR_MS = 60 * 60_000;
+
+test('the entry of a room carries the topic, the activity at the clock of the read and the last message of its tally', () => {
+  // Bug: the entry is built from the description rows alone, so a topic and a tally the store holds never reach it.
+  const w = world();
+  const last = NOW - HOUR_MS;
+  storeTally(
+    w,
+    w.room,
+    { iface: 'discord', topic: 'ΘΕΜΑ-ΛΕΣΧΗΣ', days: { '2026-11-02': 25 }, lastMessageAt: last, writers: { x1: 25 } },
+    NOW
+  );
+  const trigger = strangerSays(w, 'src:m1', 'γεια', { trigger: true });
+  const entry = placeIn(mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW), w.room);
+  assert.ok(entry, 'the room has an entry');
+  assert.deepEqual([entry.topic, entry.activity, entry.lastMessageAt], ['ΘΕΜΑ-ΛΕΣΧΗΣ', 'live', last]);
+});
+
+test('the entry of a room nothing was counted in has no topic, no activity and no last message', () => {
+  // Bug: the entry reads `dead` for a room with no tally, or an empty string for a topic nobody set.
+  const w = world();
+  const trigger = strangerSays(w, 'src:m1', 'γεια', { trigger: true });
+  const entry = placeIn(mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW), w.room);
+  assert.ok(entry, 'the room has an entry');
+  assert.deepEqual([entry.topic, entry.activity, entry.lastMessageAt], [null, null, null]);
+});
+
+test('the activity of an entry follows the clock the read is given', () => {
+  // Bug: the entry takes the activity at the machine's clock, so a replay at a fixed moment reads another word.
+  const w = world();
+  storeTally(
+    w,
+    w.room,
+    { iface: 'discord', days: { '2026-11-02': 25 }, lastMessageAt: NOW - HOUR_MS, writers: { x1: 25 } },
+    NOW
+  );
+  const trigger = strangerSays(w, 'src:m1', 'γεια', { trigger: true });
+  const later = NOW + 30 * 24 * HOUR_MS;
+  const entry = placeIn(mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, later), w.room);
+  assert.ok(entry, 'the room has an entry');
+  assert.equal(entry.activity, 'dead');
+});
+
+test('an entry of a place with a topic needs more of the budget to stay above its name than the same place without', () => {
+  // Bug: the text the budget weighs leaves the topic out, so a long topic pushes the entry past its share on the
+  // request without a drop to its name. Two worlds that differ in the topic alone, a room raised by the persona's own
+  // line there.
+  const smallestAboveName = (topic: string | null): number => {
+    const w = world();
+    const other = addRoom(w.db, { iface: 'discord', native: 'c2', root: AGORA, name: 'ζωγραφική' });
+    storeTally(w, other, { iface: 'discord', topic, purpose: 'ΣΚΟΠΟΣ-ΖΩΓΡΑΦΙΚΗΣ', writers: { x1: 1 } }, NOW);
+    addLine(w.db, { id: 'src:her:1', iface: 'discord', place: other, author: 'self', text: 'καλησπέρα' });
+    for (let budgetTokens = 20; budgetTokens <= 6000; budgetTokens += 20) {
+      const mind = mindOf(w.db, GROUP, seedsOf([]), { ...SETTINGS, budgetTokens }, NOW);
+      const detail = placeIn(mind, other)?.detail;
+      if (detail !== undefined && detail !== 'name') return budgetTokens;
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+  const without = smallestAboveName(null);
+  const topical = smallestAboveName(`ΘΕΜΑ-ΖΩΓΡΑΦΙΚΗΣ `.repeat(14).trim());
+  assert.ok(Number.isFinite(without), 'the entry stands above its name at some budget');
+  assert.ok(topical > without, `${topical} > ${without}`);
+});
+
+// The day a person last wrote. A person entry carries
+//   lastSeenAt: number | null   `people.last_seen_at` as milliseconds, null when the row holds none
+// Each test writes a line through the store (`touchUser`) and flushes it, or a profile with no line through the
+// database's profile write, and reads the entry back through `mindOf`.
+const WROTE_ACCOUNT = 'discord:771';
+
+/** The `lastSeenAt` of the entry of the person of `WROTE_ACCOUNT` after `write`, read as the person the persona answers. */
+async function lastSeenAfter(
+  write: (store: ReturnType<typeof createStore>, memoryDb: TestMemory['memoryDb']) => Promise<void>
+): Promise<number | null> {
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'discord' });
+  try {
+    const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
+    await write(store, memory.memoryDb);
+    const db = dbOf(memory.memoryDb.readHandle()!);
+    const person = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(WROTE_ACCOUNT)?.person_id;
+    if (typeof person !== 'string') throw new Error(`the writer left no person for ${WROTE_ACCOUNT}`);
+    const trigger = message('src:w1', 'γεια', { authorAccount: WROTE_ACCOUNT, trigger: true });
+    const seeds = seedsOf([trigger], { counterpart: { personId: person, accountId: WROTE_ACCOUNT } });
+    const entry = personIn(mindOf(db, GROUP, seeds, SETTINGS, NOW), person);
+    if (entry === undefined) throw new Error(`the person the persona answers, ${person}, has no entry`);
+    return entry.lastSeenAt;
+  } finally {
+    await memory.close();
+  }
+}
+
+const flushed = async (store: ReturnType<typeof createStore>): Promise<void> => {
+  store.flush();
+  await store.flushSettled({});
+};
+
+test("a person's entry carries the moment of the line the writer observed", async () => {
+  // Catches: the entry never reads `people.last_seen_at`, or reads the ISO text the writer stores without turning it
+  // into milliseconds, so the printed day is missing or wrong.
+  const said = Date.parse('2026-11-01T17:45:00.000Z');
+  const seen = await lastSeenAfter(async (store) => {
+    store.touchUser(WROTE_ACCOUNT, 'Θάλεια', said);
+    await flushed(store);
+  });
+  assert.equal(seen, said);
+});
+
+test('a later line moves the moment forward and an earlier line stored after it does not move it back', async () => {
+  // Catches: the writer or the reader takes the line stored last instead of the newest one, so history fed late makes a
+  // person who wrote today look absent since the day of the old line.
+  const first = Date.parse('2026-10-20T09:00:00.000Z');
+  const latest = Date.parse('2026-11-01T21:10:00.000Z');
+  const backfilled = Date.parse('2026-10-05T12:00:00.000Z');
+  const seen = await lastSeenAfter(async (store) => {
+    store.touchUser(WROTE_ACCOUNT, 'Θάλεια', first);
+    await flushed(store);
+    store.touchUser(WROTE_ACCOUNT, 'Θάλεια', latest);
+    await flushed(store);
+    store.touchUser(WROTE_ACCOUNT, 'Θάλεια', backfilled);
+    await flushed(store);
+  });
+  assert.equal(seen, latest);
+});
+
+test('a person with no line has no moment of a last line', async () => {
+  // Catches: an empty `last_seen_at` reads as 0 or as the first-seen time, so a person who never wrote prints the epoch
+  // or the day they were met as the day they last wrote.
+  // A profile the memory session wrote for an account that never wrote a line.
+  const seen = await lastSeenAfter(async (_store, memoryDb) => {
+    await memoryDb.writeAccountProfile({
+      accountId: WROTE_ACCOUNT,
+      value: { id: '771', names: [], firstSeen: null, lastSeen: null, messageCount: 0, character: 'Calm.' },
+    });
+  });
+  assert.equal(seen, null);
+});
+
+/** One episode about `person`: an `episode` of the group of `discord` unless `more` sets another kind or audience. */
+function addEpisode(w: World, id: string, person: string, date: string, more: Record<string, unknown> = {}): void {
+  insertRows(w.db, {
+    episodes: [
+      {
+        id,
+        kind: 'episode',
+        subject_id: person,
+        date,
+        what: `ΣΤΙΓΜΗ-${id}`,
+        created_at: AT,
+        scope_kind: 'group',
+        scope_iface: 'discord',
+        ...more,
+      },
+    ],
+  });
+}
+
+/** The entry of Pétros, the person the persona answers in the room of Ágora, under `ctx` and `settings`. */
+function petrosEntry(
+  w: World & { room: string },
+  settings: MindSettings,
+  ctx: Context = GROUP
+): PersonEntry | undefined {
+  const trigger = message('src:c1', 'γεια', { authorAccount: 'discord:p1', placeId: w.room, trigger: true });
+  const counterpart = { personId: PETROS, accountId: 'discord:p1' };
+  const mind = mindOf(w.db, ctx, seedsOf([trigger], { place: w.room, counterpart }), settings, NOW);
+  return mind.people.find((one) => one.personId === PETROS);
+}
+
+const PETROS = 'person:discord:p1';
+
+/** A world with Pétros, whose account is `discord:p1`. */
+function withPetros(): World & { room: string } {
+  const w = world();
+  addPerson(w.db, { id: PETROS, accounts: [{ id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] }] });
+  return w;
+}
+
+test('a person entry holds the newest live episodes about them with a text, newest first, and counts them all', () => {
+  // Bug: the entry takes the oldest episodes, prints a stretch, a retired or an empty one, or counts them as held.
+  const w = withPetros();
+  addEpisode(w, 'e1', PETROS, '2026-10-01');
+  addEpisode(w, 'e3', PETROS, '2026-10-30');
+  addEpisode(w, 'e2', PETROS, '2026-10-20');
+  addEpisode(w, 'stretch', PETROS, '2026-11-01', { kind: 'stretch' });
+  addEpisode(w, 'retired', PETROS, '2026-11-02', { retired_at: AT });
+  addEpisode(w, 'empty', PETROS, '2026-11-03', { what: ' ' });
+  const entry = petrosEntry(w, { ...SETTINGS, episodesWhole: 2, episodes: 1 });
+  assert.deepEqual(
+    entry?.episodes.map((one) => one.what),
+    ['ΣΤΙΓΜΗ-e3', 'ΣΤΙΓΜΗ-e2']
+  );
+  assert.equal(entry?.episodesHeld, 3);
+});
+
+test('a person entry holds their episode when the hop about reads no row', () => {
+  // Bug: the episodes come through the hop `about`, whose rows the claims of the person share, and a person with
+  // many new claims shows no episode.
+  const w = withPetros();
+  addEpisode(w, 'e1', PETROS, '2026-10-01');
+  const entry = petrosEntry(w, { ...SETTINGS, fanOut: { ...SETTINGS.fanOut, about: 0 } });
+  assert.deepEqual(
+    entry?.episodes.map((one) => one.what),
+    ['ΣΤΙΓΜΗ-e1']
+  );
+});
+
+test('an episode of a direct chat stays out of the entry under a group context', () => {
+  // Bug: the read by person skips the audience, and a moment of a direct chat reaches a group.
+  const w = withPetros();
+  const dm = addDm(w.db, { iface: 'discord', native: 'p1', person: PETROS, account: 'discord:p1' });
+  addEpisode(w, 'dm', PETROS, '2026-10-01', { scope_kind: 'dm', scope_dm: PETROS, audience_id: `aud:dm:${dm}` });
+  const entry = petrosEntry(w, SETTINGS);
+  assert.deepEqual([entry?.episodes.length, entry?.episodesHeld], [0, 0]);
+});

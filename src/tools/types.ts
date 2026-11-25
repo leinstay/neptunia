@@ -1,0 +1,155 @@
+// The shapes the tools share: a record read from a config, a result or a model's arguments, and the small functions that
+// narrow an `unknown` to one without a cast. Every module of src/tools/ reads untrusted data (the persona's arguments, the
+// deployment's config, a label file) through these, so a wrong shape is an empty value and never an exception.
+
+import type { PublicationBoundary } from './publication.ts';
+import type { Env } from './operations/env.ts';
+import type { EffectClass } from './definitions.ts';
+import type { Given, Schema } from './definitions.ts';
+
+/**
+ * A subsystem that is still JavaScript (the store, the journal, the language model client and the like): its shape is not
+ * written down until its module moves to TypeScript, so the operations read it without a type.
+ */
+export type Untyped = ReturnType<typeof JSON.parse>;
+
+/** A record of unknown values: what a config section, a result or the model's arguments are before they are read. */
+export type Obj = Record<string, unknown>;
+
+/** Whether `value` is a plain record: an object that is not null and not an array. */
+export function isObj(value: unknown): value is Obj {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** `value` as a record, or an empty one when it is not a record. */
+export function objOf(value: unknown): Obj {
+  return isObj(value) ? value : {};
+}
+
+/** `value` as a list, or an empty one when it is not a list. */
+export function listOf(value: unknown): Array<unknown> {
+  return Array.isArray(value) ? value : [];
+}
+
+/** What `receiver.name(...args)` answers, or undefined when `receiver` has no such method: a typed call into an untyped store. */
+export function callMethod(receiver: unknown, name: string, ...args: Array<unknown>): unknown {
+  const method = objOf(receiver)[name];
+  return typeof method === 'function' ? (Reflect.apply(method, receiver, args) as unknown) : undefined;
+}
+
+/** `value` when it is a string, else the empty string. */
+export function textOf(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/** What an operation declares about itself (src/tools/operations/registry.ts#defineOp): whether it only reads or writes. */
+export type Rights = { kind: 'read' | 'write' };
+
+/** A grant of one operation to the persona: the user ids it holds, and (`via`) the group or `*` each id came from. */
+export type GrantEntry = {
+  users: Array<unknown>;
+  via: Record<string, unknown>;
+};
+
+/** The one id a grant adds or takes away: the persona's user id. */
+export type GrantTarget = { accountId?: string | number };
+
+/** The stored grants (`bot.access`): an operation name to its grant, as the config file holds them. */
+export type Access = Record<string, unknown>;
+
+/** Whether `value` is a finite number (a number that is not NaN or infinite). */
+export function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** Whether `value` is a finite number above zero. */
+export function isPositive(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+/** The `code` of a thrown value when it is a string (a system error, an error of ours), else null. */
+export function errorCode(error: unknown): string | null {
+  const code = objOf(error).code;
+  return typeof code === 'string' ? code : null;
+}
+
+/** `value` written out when it is a string, a number, a boolean or a bigint, else the empty string (never an object's `[object Object]`). */
+export function scalarText(value: unknown): string {
+  return typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+    ? String(value)
+    : '';
+}
+
+/** An id as text: a string or a number, nothing else (an object or a missing value is the empty string). */
+export function idText(value: unknown): string {
+  return typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
+}
+
+/**
+ * The context an operation runs in, as `runOp` hands it: the environment, who asked and where, and what the persona's own
+ * calls add (`actor`, `ownInitiative`, the lines of the persona's turn). Every field is optional but `env`; a caller may carry more
+ * than these.
+ */
+export type OpContext = {
+  publicationBoundary?: PublicationBoundary;
+  env: Env;
+  /**
+   * The place the operation runs in: a channel, a thread, a group or a DM, or a server for an operation of a whole
+   * server. A shared collection is read under its top (`env.resolvedPlaceId`), a post goes to its native chat
+   * (`env.chatOf`).
+   */
+  placeId?: string | null;
+  accountId?: string | null;
+  roleIds?: ReadonlyArray<string>;
+  /** `persona` for the persona's own call, else the kind of caller (`owner`, `member`). */
+  actor?: string;
+  /** The owner's console: set by the command desk for the `cli` principal alone, it passes as an owner whatever
+   * the owner check says (src/tools/operations/grants.ts#isOwnerCaller). */
+  asOwner?: boolean;
+  dmChat?: boolean;
+  mentionAccountIds?: ReadonlyArray<string>;
+  ownInitiative?: boolean;
+  wakeKind?: string;
+  /** How long an errand the persona's call starts waits for its end: the time left in a heartbeat or a diary turn. */
+  waitMs?: number;
+  [key: string]: unknown;
+};
+
+/** The skills' own check of a call before its arguments are looked at, and the refusal a wake envelope gives. */
+export type SkillVerdict = { allowed: boolean; reason: string; detail?: string };
+
+/** How the persona's call reaches the operation of a skill: the options their arguments are read by, and `toOp`, which maps them. */
+export type Dispatch = Readonly<{
+  op: string;
+  body: string | null;
+  options: ReadonlyArray<Readonly<{ name: string; kind: string }>>;
+  toOp(given: Given): { op: string; args: Obj | null };
+}>;
+
+/** One skill of the registry (src/tools/registry.ts): a definition with the `kind` of its operation. */
+export type Skill = Readonly<{
+  name: string;
+  family: string;
+  op: string | null;
+  kind: 'read' | 'write';
+  argsSchema: Schema;
+  effects: EffectClass;
+  sharedState: boolean;
+  costClass: 'free' | 'paid';
+  targets: string | null;
+  interfaceCapability: string | null;
+  api?: string;
+  feature?: string | null;
+  result?: 'effect' | 'job' | 'data';
+  opBacked?: true;
+  dispatch?: Dispatch;
+}>;
+
+/** The skills by name. */
+export type SkillMap = Map<string, Skill>;
+
+/** A skill with the wording the tool texts give it (`title`, `whenToUse`, `whenNotToUse`), each empty when missing. */
+export type DescribedSkill = Skill & { title: string; whenToUse: string; whenNotToUse: string };

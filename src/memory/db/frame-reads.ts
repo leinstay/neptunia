@@ -1,0 +1,906 @@
+// The reads of a request built on the turn frame beside the graph reader (src/memory/db/mind-read.ts): the persona's
+// own last lines in other places and the lines around one line for `<meanwhile>`, each with its media, the descriptions
+// of the media of a place's lines for a read of lines the platform gives, one stored line by its identity for a
+// reference in a stored text, whether a lookup's source is retired, the stored fields of a place for `<surroundings>`
+// with a root's in-jokes, their lessons for `<lessons>`, the people they feel most strongly about for `<attitudes>`,
+// a place as its interface knows it (its interface, kind and native ids, for a call that speaks to the interface),
+// an interface's name and nouns and their past diary entries for a diary request's `<diary>`.
+// Each read applies the turn's context (`whereFor`), so nothing a scope may not read leaves here. Read only.
+
+import { directChatsOf } from './direct-chats.ts';
+import type { DirectChats } from './direct-chats.ts';
+import { findSettingsOf, peopleFound, placesFound } from './graph-find.ts';
+import type { FindMeaning, FoundPerson, FoundPlace } from './graph-find.ts';
+import { mindOf, mindSettingsOf } from './mind-read.ts';
+import { mirrorPlaces } from './mirrors.ts';
+import type { Mind, Seeds } from './mind-read.ts';
+import { lineMedia, lineMediaItems } from './media-store.ts';
+import { interfaceTakes, routeMessageSql } from './message-locator.ts';
+import type { LineMediaItem } from './media-store.ts';
+import { personNamesOf, personOfAccount as personOfMeta } from './meta-person.ts';
+import { interfaceDmWord, interfaceNouns, placesNamed } from './names.ts';
+import { ownerAccountOfPlace } from './person-links.ts';
+import { placeChainInDb } from './place-tree.ts';
+import type { PlaceChainLink } from './place-tree.ts';
+import type { InterfaceNames } from '../../protocol/serve.ts';
+import { allowedAudience, audienceWhere, ownAudienceFirst, scopeWhere, whereFor } from './scope.ts';
+import { placeAudience } from './graph.ts';
+import { placeStatsOf } from './place-stats.ts';
+import type { PlaceStats } from './place-stats.ts';
+import { MEMORY_LIMITS } from '../text-limits.ts';
+import { affinityBand } from '../affinity.ts';
+import { sortRanked } from '../ranking.ts';
+import { readDiary } from './diary-past.ts';
+import { subjectOf } from './subject.ts';
+import type { Subject, SubjectHere } from './subject.ts';
+import { affinityChangesOf } from '../affinity-changes.ts';
+import type { AffinityChange } from '../affinity-changes.ts';
+import type { PastEntry } from './diary-past.ts';
+import type { Context } from './scope.ts';
+import type { Db, Row } from './types.ts';
+import { placeLineNumbers } from './chat-lines.ts';
+import { serviceListsOf } from './service-lists.ts';
+import type { ServiceLists } from './service-lists.ts';
+import { firstLinesOf, ownIntentionsOf, pastActsOf } from './past-acts.ts';
+import { opensPrivate } from '../open-private.ts';
+import type { FirstLines, OwnIntention, PastAct } from './past-acts.ts';
+import { LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND } from './source-current.ts';
+import type { PlaceLineNumbers } from './chat-lines.ts';
+
+/**
+ * A stored chat line as a request reads it: its message id, the id of its source row, its place, epoch ms, the author's
+ * platform id and stored name, its text and its media in position order. The message id is the platform's from the row's
+ * message route, else the row's `native_id`, else its source id. `platformId` says whether its interface takes that id
+ * as an anchor (message-locator.ts#interfaceTakes): the route gave it, or `native_id` holds no uuid the core made.
+ */
+export type FrameLine = {
+  id: string;
+  platformId: boolean;
+  sourceId: string;
+  placeId: string;
+  at: number;
+  authorId: string | null;
+  /** The first name of the author's person, from the account that holds the person's profile, else the account's own. */
+  authorName: string | null;
+  /**
+   * What the author's handle is cut from: the person of the author's account (`person_accounts`, else its verified link),
+   * else the account row id; null for the persona's own line and a line with no account.
+   */
+  authorKey: string | null;
+  /** The interface of the author's account, null without one. */
+  authorIface: string | null;
+  self: boolean;
+  text: string;
+  media: ReadonlyArray<LineMediaItem>;
+};
+
+const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+
+/**
+ * A place as a request names it: its interface's id, its chain innermost first with kinds, the names its interface
+ * declared in its hello (absent when the memory holds none), whether it is a one-to-one chat, that chat's partner person
+ * and what the partner's handle is cut from (the person, else the partner account), null for any other place.
+ */
+export type PlacePath = {
+  iface: string;
+  chain: Array<PlaceChainLink>;
+  names?: InterfaceNames;
+  dm: boolean;
+  partner: string | null;
+  partnerKey?: string | null;
+};
+
+/** An interface's names in the shape its hello declared them; absent for an interface the memory holds no name of. */
+function namesOf(db: Db, iface: string): InterfaceNames | undefined {
+  const row = db.prepare('SELECT name, extra FROM interfaces WHERE id = ?').get(iface);
+  const name = text(row?.name);
+  return name === null
+    ? undefined
+    : { interface: name, nouns: interfaceNouns(row?.extra), dm: interfaceDmWord(row?.extra) ?? '' };
+}
+
+/**
+ * A place by its interface and its chain, innermost first. A one-to-one chat is one link of kind `dm` with no name, with
+ * its partner by `partner` and `partnerKey`; the place id stands in for a place no row holds.
+ */
+export function placePathOf(db: Db, placeId: string): PlacePath {
+  const row = db.prepare('SELECT iface, kind, partner_person, partner_account FROM places WHERE id = ?').get(placeId);
+  const iface = text(row?.iface) ?? '';
+  const names = namesOf(db, iface);
+  const shown = names === undefined ? {} : { names };
+  if (row === undefined)
+    return { iface, chain: [{ id: placeId, kind: null, name: null }], ...shown, dm: false, partner: null };
+  if (row.kind === 'dm') {
+    const partner = text(row.partner_person);
+    const account = text(row.partner_account);
+    const partnerKey = partner ?? (account === null ? null : (personOfMeta(db, account) ?? account));
+    return { iface, chain: [{ id: placeId, kind: 'dm', name: null }], ...shown, dm: true, partner, partnerKey };
+  }
+  return { iface, chain: placeChainInDb(db, placeId), ...shown, dm: false, partner: null };
+}
+
+/** A stored place as a request names it (placePathOf), null for a place no row holds. */
+export function placeViewOf(db: Db, placeId: string): PlacePath | null {
+  const row = db.prepare('SELECT 1 AS known FROM places WHERE id = ?').get(placeId);
+  return row === undefined ? null : placePathOf(db, placeId);
+}
+
+/** The message id of a line row: its route's (`route_message`), else its `native_id`, else its source id. */
+const messageIdOf = (row: Row): string => String(text(row.route_message) ?? row.native_id ?? row.id);
+
+/**
+ * One row per key, the one of the newest revision, at the position of the key's first row. Every revision of a message
+ * is stored at the moment of its first (observe.ts), so the rows of one message sit together whatever order they came in.
+ */
+function newestOf(rows: ReadonlyArray<Row>, keyOf: (row: Row) => string): Array<Row> {
+  const newest = new Map<string, Row>();
+  for (const row of rows) {
+    const held = newest.get(keyOf(row));
+    if (held === undefined || Number(row.revision ?? 1) > Number(held.revision ?? 1)) newest.set(keyOf(row), row);
+  }
+  return [...newest.values()];
+}
+
+const lineOf = (row: Row, media: ReadonlyArray<LineMediaItem> = []): FrameLine => ({
+  id: messageIdOf(row),
+  platformId: interfaceTakes(row.route_message, row.native_id),
+  sourceId: String(row.id),
+  placeId: text(row.place_id) ?? '',
+  at: Date.parse(text(row.occurred_at) ?? ''),
+  authorId: text(row.author_native),
+  authorName: text(row.author_name),
+  authorKey: row.author_kind === 'self' ? null : (text(row.author_person) ?? text(row.author_account)),
+  authorIface: text(row.author_iface),
+  self: row.author_kind === 'self',
+  text: text(row.text) ?? '',
+  media,
+});
+
+/** Each row as its line, with the media the context reads of every row in one read (media-store.ts#lineMedia). */
+function linesOf(db: Db, ctx: Context, rows: ReadonlyArray<Row>): Array<FrameLine> {
+  const media = lineMedia(
+    db,
+    rows.map((row) => String(row.id)),
+    ctx
+  );
+  return rows.map((row) => lineOf(row, lineMediaItems(media.get(String(row.id)) ?? [])));
+}
+
+/** The first stored name of a line's author: its person's profile account's, else its own account's (`aa`). */
+const AUTHOR_NAME = `COALESCE(
+  (SELECT json_extract(pa.names, '$[0]') FROM accounts a JOIN people p ON p.id = a.person_id
+     JOIN accounts pa ON pa.id = p.holder_id
+   WHERE a.id = ${LINE_AUTHOR_ACCOUNT} AND p.writer = 'profile'),
+  json_extract(aa.names, '$[0]')) AS author_name`;
+/** Lines with their author's account row, whose `native_id` is the author's platform id. */
+const LINE_FROM = `sources s LEFT JOIN accounts aa ON aa.id = ${LINE_AUTHOR_ACCOUNT}`;
+/** The person of a line's author's account: its meta-person, else its verified link (meta-person.ts#personOfAccount). */
+const AUTHOR_PERSON = `COALESCE(
+  (SELECT pm.person_id FROM person_accounts pm WHERE pm.id = ${LINE_AUTHOR_ACCOUNT}),
+  CASE WHEN aa.link = 'verified' THEN aa.person_id END) AS author_person`;
+const LINE_COLUMNS = `s.id, s.native_id, ${routeMessageSql('s')} AS route_message, s.place_id, s.occurred_at AS occurred_at,
+  ${LINE_AUTHOR_ACCOUNT} AS author_account, ${LINE_AUTHOR_KIND} AS author_kind, s.revision, s.text,
+  aa.native_id AS author_native, aa.iface AS author_iface, ${AUTHOR_NAME}, ${AUTHOR_PERSON}`;
+/** A line that says something: its text, or a media item linked to it, as a post of a picture alone. */
+const LIVE_LINE = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND (length(COALESCE(s.text, '')) > 0
+  OR EXISTS (SELECT 1 FROM media_links ml WHERE ml.owner_kind = 'source' AND ml.owner_id = s.id))`;
+
+/**
+ * The persona's newest lines the context reads outside `exceptPlace` and the mirrors of their diary, newest first,
+ * at most `limit`, one per message (its newest revision), each with its place's path and whether that place is a
+ * one-to-one chat.
+ */
+export function ownLinesOf(
+  db: Db,
+  ctx: Context,
+  exceptPlace: string | null,
+  limit: number
+): Array<FrameLine & PlacePath> {
+  const where = whereFor(ctx, 's');
+  // A mirror's copy of a diary entry is stored as the persona's line in the mirror's place. It is their diary, not a
+  // line they wrote.
+  const mirrors = JSON.stringify(mirrorPlaces(db).map((one) => one.placeId));
+  const rows = db
+    .prepare(
+      `SELECT ${LINE_COLUMNS} FROM ${LINE_FROM}
+       WHERE ${LINE_AUTHOR_KIND} = 'self' AND ${LIVE_LINE} AND s.place_id IS NOT ?
+         AND s.place_id NOT IN (SELECT value FROM json_each(?)) AND ${where.sql}
+       ORDER BY s.occurred_at DESC, s.revision DESC LIMIT ?`
+    )
+    .all(exceptPlace, mirrors, ...where.params, Math.max(0, limit) * 2);
+  const paths = new Map<string, PlacePath>();
+  const out: Array<FrameLine & PlacePath> = [];
+  const kept = newestOf(rows, (row) => `${text(row.place_id) ?? ''}\u0000${messageIdOf(row)}`);
+  for (const line of linesOf(db, ctx, kept.slice(0, Math.max(0, limit)))) {
+    if (!paths.has(line.placeId)) paths.set(line.placeId, placePathOf(db, line.placeId));
+    out.push({ ...line, ...(paths.get(line.placeId) ?? { iface: '', chain: [], dm: false, partner: null }) });
+  }
+  return out;
+}
+
+/** A window of a place's lines: `before` lines at or before the ISO moment `at`, `after` lines past it (at it too when `inclusive`). */
+type WindowAsk = { at: string; before: number; after: number; inclusive: boolean };
+
+/** A moment later than every stored ISO moment: the upper bound of a range that reaches the end of a place. */
+const END_OF_PLACE = '9999';
+
+/**
+ * The rows of `placeId` the context reads whose own moment lies from the `reach`-th stored row at or before `first` to
+ * the `reach`-th after `last`, and the other revisions of their messages, in one statement that `sources_place_time`
+ * bounds. `lo` and `hi` are the bounds it used, '' and END_OF_PLACE where the range reached an end of the place.
+ */
+function rowsNear(
+  db: Db,
+  ctx: Context,
+  placeId: string,
+  first: string,
+  last: string,
+  reach: number
+): { rows: Array<Row>; lo: string; hi: string } {
+  const where = whereFor(ctx, 's');
+  const read = db
+    .prepare(
+      `WITH bounds AS (SELECT
+         COALESCE((SELECT b.occurred_at FROM sources b WHERE b.place_id = ? AND b.occurred_at <= ?
+           ORDER BY b.occurred_at DESC LIMIT 1 OFFSET ?), '') AS lo,
+         COALESCE((SELECT b.occurred_at FROM sources b WHERE b.place_id = ? AND b.occurred_at > ?
+           ORDER BY b.occurred_at LIMIT 1 OFFSET ?), '${END_OF_PLACE}') AS hi),
+       hits AS (
+         SELECT ${LINE_COLUMNS}, s.rowid AS row_order FROM bounds CROSS JOIN ${LINE_FROM}
+         WHERE s.place_id = ? AND s.occurred_at >= bounds.lo AND s.occurred_at <= bounds.hi AND ${LIVE_LINE} AND ${where.sql}
+         UNION ALL
+         -- The unary plus keeps \`sources_place_time\` out of this half: a range open to an end of the place walks it.
+         SELECT ${LINE_COLUMNS}, s.rowid AS row_order FROM bounds CROSS JOIN ${LINE_FROM}
+         WHERE s.native_id IN (SELECT w.native_id FROM sources w
+             WHERE w.place_id = ? AND w.occurred_at >= bounds.lo AND w.occurred_at <= bounds.hi)
+           AND +s.place_id = ? AND (+s.occurred_at < bounds.lo OR +s.occurred_at > bounds.hi) AND ${LIVE_LINE} AND ${where.sql})
+       SELECT bounds.lo AS lo, bounds.hi AS hi, hits.* FROM bounds LEFT JOIN hits ON 1`
+    )
+    .all(placeId, first, reach, placeId, last, reach, placeId, ...where.params, placeId, placeId, ...where.params);
+  // The bounds row stands alone when no line lies between them; its `id` is then null.
+  return {
+    rows: read.filter((row) => row.id !== null),
+    lo: text(read[0]?.lo) ?? '',
+    hi: text(read[0]?.hi) ?? END_OF_PLACE,
+  };
+}
+
+/** The order of two ISO moments as SQLite compares text: -1, 0 or 1. */
+const compareText = (a: unknown, b: unknown): number => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0);
+
+/** Rows by their line's moment, `sign` 1 oldest first, -1 newest first; a message's newest revision first; then stored order. */
+const byMoment =
+  (sign: 1 | -1) =>
+  (a: Row, b: Row): number =>
+    sign * compareText(a.occurred_at, b.occurred_at) ||
+    Number(b.revision ?? 1) - Number(a.revision ?? 1) ||
+    Number(a.row_order) - Number(b.row_order);
+
+/**
+ * The rows of each window of `placeId`, as one read takes them: the window's lines ordered by their first revision's
+ * moment and cut at its count, each revision a row (newestOf keeps a message once). One statement as a rule: a read
+ * whose range held too few lines for a window is read again over a range four times as wide.
+ */
+function windowRows(db: Db, ctx: Context, placeId: string, asks: ReadonlyArray<WindowAsk>): Array<Array<Row>> {
+  if (asks.length === 0) return [];
+  const moments = asks.map((ask) => ask.at).sort();
+  const first = moments[0] ?? '';
+  const last = moments.at(-1) ?? '';
+  let reach = 4 * Math.max(1, ...asks.map((ask) => Math.max(ask.before, ask.after)));
+  for (;;) {
+    const { rows, lo, hi } = rowsNear(db, ctx, placeId, first, last, reach);
+    // A row of a message written before `lo` or after `hi` is a later edit read in the range; its window lies elsewhere.
+    const inside = rows.filter((row) => String(row.occurred_at) >= lo && String(row.occurred_at) <= hi);
+    const windows = asks.map((ask) => {
+      const before = inside
+        .filter((row) => String(row.occurred_at) <= ask.at)
+        .sort(byMoment(-1))
+        .slice(0, ask.before);
+      const after = inside
+        .filter((row) => (ask.inclusive ? String(row.occurred_at) >= ask.at : String(row.occurred_at) > ask.at))
+        .sort(byMoment(1))
+        .slice(0, ask.after);
+      const enough = (before.length === ask.before || lo === '') && (after.length === ask.after || hi === END_OF_PLACE);
+      return { rows: [...before.reverse(), ...after], enough };
+    });
+    if (windows.every((window) => window.enough)) return windows.map((window) => window.rows);
+    reach *= 4;
+  }
+}
+
+/**
+ * For each epoch ms of `ats`, the lines of `placeId` the context reads from `count` before it to `count` after it,
+ * oldest first: one read of the rows and one of their media.
+ */
+export function linesAroundEachOf(
+  db: Db,
+  ctx: Context,
+  placeId: string,
+  ats: ReadonlyArray<number>,
+  count: number
+): Array<Array<FrameLine>> {
+  const asks = ats.map((at) => ({ at: new Date(at).toISOString(), before: count + 1, after: count, inclusive: false }));
+  const windows = windowRows(db, ctx, placeId, asks).map((rows) => newestOf(rows, messageIdOf));
+  const lines = new Map(linesOf(db, ctx, windows.flat()).map((line) => [line.sourceId, line]));
+  return windows.map((rows) => rows.flatMap((row) => lines.get(String(row.id)) ?? []));
+}
+
+/** The lines of `placeId` the context reads from `count` before epoch ms `at` to `count` after it, oldest first. */
+export function linesAroundOf(db: Db, ctx: Context, placeId: string, at: number, count: number): Array<FrameLine> {
+  return linesAroundEachOf(db, ctx, placeId, [at], count)[0] ?? [];
+}
+
+/** The first `count` lines of `placeId` the context reads at or after epoch ms `from`, oldest first. */
+export function linesSinceOf(db: Db, ctx: Context, placeId: string, from: number, count: number): Array<FrameLine> {
+  const limit = Math.max(0, Math.floor(count));
+  // Twice the count: an edited message holds a row per revision, and only its newest one stays.
+  const ask = { at: new Date(from).toISOString(), before: 0, after: limit * 2, inclusive: true };
+  const rows = windowRows(db, ctx, placeId, [ask])[0] ?? [];
+  return linesOf(db, ctx, newestOf(rows, messageIdOf).slice(0, limit));
+}
+
+/**
+ * The first stored name of the account an interface names by the platform id `native`, on `iface` first, else on any
+ * interface where one account alone holds that id: its person's profile account's first name, else its own. Null when
+ * no account row holds a name.
+ */
+export function accountNameOf(db: Db, iface: string, native: string): string | null {
+  const rows = db
+    .prepare(
+      `SELECT aa.iface, COALESCE(
+         (SELECT json_extract(pa.names, '$[0]') FROM people p JOIN accounts pa ON pa.id = p.holder_id
+          WHERE p.id = aa.person_id AND p.writer = 'profile'),
+         json_extract(aa.names, '$[0]')) AS name
+       FROM accounts aa WHERE aa.native_id = ? ORDER BY aa.iface = ? DESC, aa.generation DESC`
+    )
+    .all(native, iface);
+  const here = rows.find((row) => row.iface === iface);
+  if (here) return text(here.name);
+  return new Set(rows.map((row) => row.iface)).size === 1 ? text(rows[0]?.name) : null;
+}
+
+/**
+ * What the handle of the member an interface names by the platform id `native` is cut from: the person of the account
+ * (meta-person.ts#personOfAccount), else the account row id. The account is the one on `iface`, else the one account
+ * that holds the id on any interface. Null when no account row holds it.
+ */
+export function memberKeyOf(db: Db, iface: string, native: string): string | null {
+  const rows = db
+    .prepare('SELECT id, iface FROM accounts WHERE native_id = ? ORDER BY iface = ? DESC, generation DESC, id')
+    .all(native, iface);
+  const here = rows.find((row) => row.iface === iface);
+  const account = text(here?.id) ?? (new Set(rows.map((row) => row.iface)).size === 1 ? text(rows[0]?.id) : null);
+  return account === null ? null : (personOfMeta(db, account) ?? account);
+}
+
+/**
+ * The text forms of the media of the stored lines of `placeId` with these message ids (a message's route id and its
+ * family key count as its id), by the item's platform reference: what a read of lines the platform gives renders for a picture the memory
+ * has described. One read; a media item is read only through a line the context reads.
+ */
+export function mediaTextsOf(
+  db: Db,
+  ctx: Context,
+  placeId: string,
+  messageIds: ReadonlyArray<string>
+): Map<string, string> {
+  const found = new Map<string, string>();
+  if (messageIds.length === 0) return found;
+  const where = whereFor(ctx, 's');
+  const ids = JSON.stringify(messageIds);
+  const rows = db
+    .prepare(
+      `SELECT m.native_ref AS ref, m.description AS description
+       FROM sources s JOIN media_links l ON l.owner_kind = 'source' AND l.owner_id = s.id
+         JOIN media m ON m.id = l.media_id
+       WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND ${where.sql}
+         AND (s.native_id IN (SELECT value FROM json_each(?))
+           OR ${routeMessageSql('s')} IN (SELECT value FROM json_each(?))
+           OR s.native_id IN (SELECT f.native_key FROM message_families f
+             WHERE f.iface = s.iface AND f.message_id IN (SELECT value FROM json_each(?))))
+         AND m.retired_at IS NULL AND m.native_ref IS NOT NULL AND m.description IS NOT NULL
+       ORDER BY s.revision`
+    )
+    .all(placeId, ...where.params, ids, ids, ids);
+  for (const row of rows) {
+    const ref = text(row.ref);
+    const description = text(row.description);
+    if (ref !== null && description !== null) found.set(ref, description);
+  }
+  return found;
+}
+
+/** Whether the context reads the stored place `placeId`, retired or live: a gone room keeps its read handle. */
+export function placeReadableOf(db: Db, ctx: Context, placeId: string): boolean {
+  const place = db.prepare('SELECT id, iface, kind, chat FROM places WHERE id = ?').get(placeId);
+  return place !== undefined && allowedAudience({ audience_id: placeAudience(place) }, ctx);
+}
+
+/** Every stored chat of every interface (a channel, a thread, a direct chat), retired or live, with its native id: the places a `#handle` may name. */
+export function chatPlacesOf(db: Db): Array<{ id: string; nativeId: string | null }> {
+  return db
+    .prepare("SELECT id, native_id FROM places WHERE kind IN ('channel', 'thread', 'dm') ORDER BY id")
+    .all()
+    .flatMap((row) => (typeof row.id === 'string' ? [{ id: row.id, nativeId: text(row.native_id) }] : []));
+}
+
+/** What an interface knows a stored place by: its interface, its kind, its own native id and its DM partner's. */
+export type PlaceRef = { iface: string; kind: string; nativeId: string | null; partnerNativeId: string | null };
+
+/** The stored place `placeId` as its interface knows it, in one read of its row and its partner's account; null without a row. */
+export function placeRefOf(db: Db, placeId: string): PlaceRef | null {
+  const row = db
+    .prepare(
+      `SELECT p.iface, p.kind, p.native_id, a.native_id AS partner_native FROM places p
+       LEFT JOIN accounts a ON a.id = p.partner_account WHERE p.id = ?`
+    )
+    .get(placeId);
+  if (row === undefined) return null;
+  return {
+    iface: text(row.iface) ?? '',
+    kind: text(row.kind) ?? '',
+    nativeId: text(row.native_id),
+    partnerNativeId: text(row.partner_native),
+  };
+}
+
+/** The stored name of a place, null for a one-to-one chat and a place that holds none. */
+export function placeNameOf(db: Db, placeId: string): string | null {
+  const row = db.prepare('SELECT kind, name FROM places WHERE id = ?').get(placeId);
+  return row === undefined || row.kind === 'dm' ? null : text(row.name);
+}
+
+/**
+ * The chat an interface speaks to for a place: the address the place holds, the chat id its interface gave, for a direct
+ * chat as for a channel; null when it holds none (src/interface/place-chat.ts opens a direct chat that holds none).
+ */
+export function nativeChatOf(ref: PlaceRef): string | null {
+  return ref.nativeId;
+}
+
+/** A stored line by its identity without the revision, as a reference names it, with its place in words. */
+export type IdentityLine = FrameLine & {
+  /** The place by names from its interface down, for a reader that holds no more than names. */
+  path: Array<string>;
+  /** The place in words: its interface, its chain innermost first and the interface's own names. */
+  place: { iface: string; chain: Array<PlaceChainLink>; names?: InterfaceNames };
+  revision: number;
+  deleted: boolean;
+  /** True when its place is a one-to-one chat. */
+  dm: boolean;
+};
+
+/**
+ * The line `src:<iface>:<message id>` names, at its newest revision the context reads; `deleted` when the message was
+ * deleted. Null for an identity of another shape and for a line the context cannot read.
+ */
+export function lineOfIdentity(db: Db, ctx: Context, key: string): IdentityLine | null {
+  const match = /^src:([^:]+):(.+)$/.exec(key);
+  if (!match) return null;
+  const [, iface, native] = match;
+  const where = whereFor(ctx, 's');
+  const rows = db
+    .prepare(
+      `SELECT ${LINE_COLUMNS}, s.kind FROM ${LINE_FROM}
+       WHERE s.iface = ? AND s.native_id = ? AND s.kind IN ('seen', 'said', 'deleted') AND s.retired_at IS NULL
+         AND ${where.sql}
+       ORDER BY s.revision DESC, s.rowid DESC`
+    )
+    .all(iface, native, ...where.params);
+  const line = rows.find((row) => row.kind !== 'deleted');
+  if (!line) return null;
+  const placeId = text(line.place_id) ?? '';
+  const located = placePathOf(db, placeId);
+  return {
+    ...lineOf(line),
+    path: [located.iface, ...located.chain.map((link) => link.name ?? link.id).reverse()],
+    place: {
+      iface: located.iface,
+      chain: located.chain,
+      ...(located.names === undefined ? {} : { names: located.names }),
+    },
+    dm: located.dm,
+    revision: Number(line.revision ?? 1) || 1,
+    deleted: rows.some((row) => row.kind === 'deleted'),
+  };
+}
+
+/**
+ * The stored line of an interface's message id as the context reads it (lineOfIdentity), found by its family's native
+ * key, else by the id itself; null when the context reads none, and `deleted` for a deleted message.
+ */
+export function lineOfMessage(db: Db, ctx: Context, iface: string, messageId: string): IdentityLine | null {
+  const family = db
+    .prepare(
+      'SELECT native_key FROM message_families WHERE iface = ? AND message_id = ? ORDER BY generation DESC LIMIT 1'
+    )
+    .get(iface, messageId);
+  return lineOfIdentity(db, ctx, `src:${iface}:${text(family?.native_key) ?? messageId}`);
+}
+
+/**
+ * Whether the line of the message a source row holds is gone, found by the row's `iface` and `native_id` in one query:
+ * true when the context reads no live revision of it or reads its deletion, and for a source id no row holds. The same
+ * verdict as a null or deleted lineOfIdentity, without reading the line itself.
+ */
+export function sourceRetiredOf(db: Db, ctx: Context, sourceId: string): boolean {
+  const where = whereFor(ctx, 's');
+  const row = db
+    .prepare(
+      `SELECT MAX(s.kind = 'deleted') AS gone, MAX(s.kind <> 'deleted') AS live
+       FROM sources r JOIN sources s ON s.iface = r.iface AND s.native_id = r.native_id
+       WHERE r.id = ? AND s.kind IN ('seen', 'said', 'deleted') AND s.retired_at IS NULL AND ${where.sql}`
+    )
+    .get(sourceId, ...where.params);
+  return row?.live !== 1 || row.gone === 1;
+}
+
+/** The live claims of a kind about places, as the notes writer stores them, one query for both readers below. */
+const PLACE_CLAIMS = `SELECT c.id, c.subject_id, c.text, c.weight, c.first_seen_at, c.last_seen_at, c.from_person
+  FROM claims c
+  WHERE c.subject_kind = 'place' AND c.kind = ? AND c.retired_at IS NULL AND COALESCE(c.truth, 'current') <> 'historical'`;
+
+/**
+ * The current stored fields of a place the context reads, by field name, the context's own audience first
+ * (scope.ts#ownAudienceFirst). The key `injokes` holds the place's live in-jokes the context reads, in the order the notes stored them, joined with `; `.
+ */
+export function placeFieldsOf(db: Db, ctx: Context, placeId: string): Record<string, string> {
+  const where = whereFor(ctx, 'd');
+  const first = ownAudienceFirst(ctx, 'd');
+  const rows = db
+    .prepare(
+      `SELECT d.field, v.text FROM descriptions d JOIN description_versions v ON v.id = d.current_version
+       WHERE d.subject_kind = 'place' AND d.subject_id = ? AND d.retired_at IS NULL AND ${where.sql}
+       ORDER BY d.field, ${first.sql} DESC, d.id`
+    )
+    .all(placeId, ...where.params, ...first.params);
+  const fields: Record<string, string> = {};
+  for (const row of rows) {
+    const field = text(row.field);
+    const value = text(row.text);
+    if (field !== null && value !== null && !Object.hasOwn(fields, field)) fields[field] = value;
+  }
+  const readable = scopeWhere(ctx, 'c');
+  const jokes = db
+    .prepare(`${PLACE_CLAIMS} AND c.subject_id = ? AND ${readable.sql} ORDER BY c.position, c.id`)
+    .all('injoke', placeId, ...readable.params)
+    .flatMap((row) => text(row.text) ?? []);
+  if (jokes.length > 0) fields.injokes = jokes.join('; ');
+  return fields;
+}
+
+export { placeStatsOf, personNamesOf };
+export type { PlaceStats };
+
+/** One thing people taught the persona: its text and the person id of the teacher, null when the row names nobody. */
+export type Lesson = { text: string; teacher: string | null };
+
+/**
+ * The persona's live lessons, those stored about a place and those about themselves, that the context reads (a direct
+ * chat reads its own and the groups', never another direct chat's), best first. A lesson with no weight ranks as the
+ * weight 1. The rank is the one of `rank` in src/memory/ranking.ts over the claim's `weight` (how often it was
+ * confirmed) and the moment it was `last_seen_at`, else `first_seen_at`, with the half-life of
+ * `MEMORY_LIMITS.learnedHalfLifeDays`. A tie goes to the newer date, then to the larger claim id. The teacher is the
+ * claim's `from_person`, else the author of the first source line, in the claim's source order, whose author is a
+ * person and not the persona and whom the context may read; else null.
+ */
+export function lessonsOf(db: Db, ctx: Context): Array<Lesson> {
+  const readable = scopeWhere(ctx, 'c');
+  const lines = scopeWhere(ctx, 's');
+  const rows = db
+    .prepare(
+      `SELECT c.text, c.weight, c.first_seen_at, c.last_seen_at,
+         COALESCE(c.from_person, (
+           SELECT s.author_person FROM claim_sources cs JOIN sources s ON s.id = cs.source_id
+           WHERE cs.claim_id = c.id AND cs.retired_at IS NULL AND s.retired_at IS NULL AND s.author_kind <> 'self'
+             AND s.author_person IS NOT NULL AND ${lines.sql}
+           ORDER BY cs.position, cs.id LIMIT 1
+         )) AS teacher
+       FROM claims c
+       WHERE c.subject_kind IN ('place', 'self') AND c.kind = 'lesson' AND c.retired_at IS NULL
+         AND COALESCE(c.truth, 'current') <> 'historical' AND ${readable.sql}
+       ORDER BY c.id`
+    )
+    .all(...lines.params, ...readable.params)
+    .flatMap((row) => {
+      const body = text(row.text);
+      if (body === null) return [];
+      return [
+        {
+          text: body,
+          teacher: text(row.teacher),
+          weight: typeof row.weight === 'number' ? row.weight : 1,
+          lastSeen: text(row.last_seen_at),
+          firstSeen: text(row.first_seen_at),
+        },
+      ];
+    });
+  return sortRanked(rows, MEMORY_LIMITS.learnedHalfLifeDays).map(({ text: body, teacher }) => ({
+    text: body,
+    teacher,
+  }));
+}
+
+/**
+ * One person the persona feels strongly about under a context: the person, the score of the newest change the context
+ * reads, and the day of that change.
+ */
+export type StrongAttitude = { person: string; score: number; at: string };
+
+/**
+ * The people with a score outside the band `neutral`, the largest distance from zero first, ties by the person id, at
+ * most `limit`. A person's score is the one of the newest change (`at`, then `id`) of `affinity_events` that is not
+ * retired and whose audience the context reads, as `attitudeOf` in src/memory/db/mind-read.ts picks it; `at` is that
+ * change's stored `at`.
+ */
+export function strongestAttitudesOf(db: Db, ctx: Context, limit: number): Array<StrongAttitude> {
+  if (!(limit > 0)) return [];
+  const audience = audienceWhere(ctx, 'e');
+  const rows = db
+    .prepare(
+      `SELECT person_id, score, at FROM (
+         SELECT e.person_id, e.score, e.at,
+           ROW_NUMBER() OVER (PARTITION BY e.person_id ORDER BY e.at DESC, e.id DESC) AS newest
+         FROM affinity_events e
+         WHERE e.person_id IS NOT NULL AND e.retired_at IS NULL AND ${audience.sql})
+       WHERE newest = 1`
+    )
+    .all(...audience.params);
+  return rows
+    .flatMap((row): Array<StrongAttitude> => {
+      const person = text(row.person_id);
+      const { score } = row;
+      if (person === null || typeof score !== 'number' || !Number.isFinite(score)) return [];
+      if (affinityBand(score) === 'neutral') return [];
+      return [{ person, score, at: text(row.at) ?? '' }];
+    })
+    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score) || (a.person < b.person ? -1 : a.person > b.person ? 1 : 0))
+    .slice(0, Math.floor(limit));
+}
+
+/**
+ * The `current_version` ids of the live descriptions of a place the context reads, sorted: what `placeFieldsOf` renders
+ * changes only with one of them, so a request holds `<surroundings>` per cache bucket under these ids.
+ */
+export function placeVersionsOf(db: Db, ctx: Context, placeId: string): Array<string> {
+  const where = whereFor(ctx, 'd');
+  return db
+    .prepare(
+      `SELECT d.current_version AS version FROM descriptions d
+       WHERE d.subject_kind = 'place' AND d.subject_id = ? AND d.retired_at IS NULL AND d.current_version IS NOT NULL
+         AND ${where.sql}
+       ORDER BY d.current_version`
+    )
+    .all(placeId, ...where.params)
+    .map((row) => text(row.version))
+    .filter((id): id is string => id !== null);
+}
+
+/** The account row of a platform id on an interface, its newest generation first; null when none is stored. */
+export function accountOfNative(db: Db, iface: string, native: string): string | null {
+  const row = db
+    .prepare('SELECT id FROM accounts WHERE iface = ? AND native_id = ? ORDER BY generation DESC')
+    .get(iface, native);
+  return text(row?.id);
+}
+
+/**
+ * The stored line of an interface's message id: its family's native key (`message_families`, the key a line is stored
+ * under), else the id itself, by the line's native id, newest revision first; null when the memory holds no such line.
+ */
+export function sourceOfMessage(db: Db, iface: string, messageId: string): string | null {
+  const family = db
+    .prepare(
+      'SELECT native_key FROM message_families WHERE iface = ? AND message_id = ? ORDER BY generation DESC LIMIT 1'
+    )
+    .get(iface, messageId);
+  const key = text(family?.native_key) ?? messageId;
+  const byKey = db
+    .prepare(
+      'SELECT id FROM sources WHERE iface = ? AND native_id = ? AND retired_at IS NULL ORDER BY revision DESC LIMIT 1'
+    )
+    .get(iface, key);
+  return text(byKey?.id);
+}
+
+/** The stored line of a message id in a stored place, on the place's own interface (sourceOfMessage); null when none. */
+export function sourceInPlace(db: Db, placeId: string, messageId: string): string | null {
+  const iface = text(db.prepare('SELECT iface FROM places WHERE id = ?').get(placeId)?.iface);
+  return iface === null ? null : sourceOfMessage(db, iface, messageId);
+}
+
+/** The person an account row belongs to; null for an unknown account. */
+export function personOfAccount(db: Db, account: string): string | null {
+  return text(db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(account)?.person_id);
+}
+
+/** An interface's name and its nouns for its kinds of place, as its `hello` declared them. */
+export function interfaceNamesOf(
+  db: Db,
+  iface: string
+): { name: string | null; nouns: Record<string, string>; dm: string | null } {
+  const row = db.prepare('SELECT name, extra FROM interfaces WHERE id = ?').get(iface);
+  return { name: text(row?.name), nouns: interfaceNouns(row?.extra), dm: interfaceDmWord(row?.extra) };
+}
+
+/** The interfaces the persona runs on, by id: those the memory holds a place of, the command line's included. */
+export function interfaceIdsOf(db: Db): Array<string> {
+  return db
+    .prepare('SELECT i.id FROM interfaces i WHERE EXISTS (SELECT 1 FROM places p WHERE p.iface = i.id) ORDER BY i.id')
+    .all()
+    .map((row) => text(row.id))
+    .filter((id): id is string => id !== null);
+}
+
+/** The reads of a framed request over the memory while it is open; each gives nothing while it is closed. */
+export type FrameReads = {
+  mind(ctx: Context, seeds: Seeds, now: number): Mind;
+  ownLines(ctx: Context, exceptPlace: string | null, limit: number): Array<FrameLine & PlacePath>;
+  around(ctx: Context, placeId: string, at: number, count: number): Array<FrameLine>;
+  /** The lines around each of several moments of one place, in one read (linesAroundEachOf). */
+  aroundEach(ctx: Context, placeId: string, ats: ReadonlyArray<number>, count: number): Array<Array<FrameLine>>;
+  /** The first `count` lines of a place at or after a moment, oldest first (linesSinceOf). */
+  since?(ctx: Context, placeId: string, from: number, count: number): Array<FrameLine>;
+  /** The stored name of an account by its platform id, its interface first, then any (accountNameOf). */
+  accountName?(iface: string, native: string): string | null;
+  line(ctx: Context, key: string): IdentityLine | null;
+  /** The stored line of an interface's message id under the context, null when it reads none (lineOfMessage). */
+  messageLine?(ctx: Context, iface: string, messageId: string): IdentityLine | null;
+  /** Whether the line of the message a source row holds is gone (sourceRetiredOf). */
+  sourceRetired?(ctx: Context, sourceId: string): boolean;
+  placeFields(ctx: Context, placeId: string): Record<string, string>;
+  /** The persona's live lessons the context reads, best first (lessonsOf). */
+  lessons?(ctx: Context): Array<Lesson>;
+  /**
+   * The people the persona feels most strongly about under the context, each with the name that declares them
+   * (strongestAttitudesOf).
+   */
+  attitudes?(ctx: Context, limit: number): { list: Array<StrongAttitude>; names: Record<string, string> };
+  /** A place's topic, writers, activity and last message under the context, null when it reads none (place-stats.ts#placeStatsOf). */
+  placeStats?(ctx: Context, placeId: string, now: number): PlaceStats | null;
+  /** The description versions `placeFields` renders (placeVersionsOf). */
+  placeVersions?(ctx: Context, placeId: string): Array<string>;
+  interfaceNames(iface: string): { name: string | null; nouns: Record<string, string>; dm?: string | null };
+  /** The ids of the interfaces the persona runs on (interfaceIdsOf). */
+  interfaceIds?(): Array<string>;
+  account(iface: string, native: string): string | null;
+  /** What a member's handle is cut from, by their platform id (memberKeyOf); null when no account row holds it. */
+  memberKey?(iface: string, native: string): string | null;
+  person(account: string): string | null;
+  /** The stored line of an interface's message id, null when none (sourceOfMessage). */
+  source?(iface: string, messageId: string): string | null;
+  /** The stored line of a message id in a stored place of any interface, null when none (sourceInPlace). */
+  sourceInPlace?(placeId: string, messageId: string): string | null;
+  /**
+   * The persona's newest `limit` diary entries the context may read, oldest first, of `kind` alone when given
+   * (readDiary).
+   */
+  diary?(ctx: Context, limit: number, kind?: string | null): Array<PastEntry>;
+  /**
+   * The live places a name the persona wrote names under the context, each once with its stored name
+   * (names.ts#placesNamed).
+   */
+  placesNamed?(ctx: Context, name: string): Array<{ id: string; name: string }>;
+  /**
+   * The places the memory graph ranks for words the persona wrote, best first (graph-find.ts#placesFound,
+   * `context.find`).
+   */
+  placesFound?(ctx: Context, words: string, meaning?: FindMeaning): Array<FoundPlace>;
+  /**
+   * The people the memory graph ranks for words the persona wrote, best first (graph-find.ts#peopleFound,
+   * `context.find`).
+   */
+  peopleFound?(ctx: Context, words: string, meaning?: FindMeaning): Array<FoundPerson>;
+  /** The direct chats of the person a reference names, newest first, or the people its words fit (direct-chats.ts). */
+  directChats?(ctx: Context, reference: string, meaning?: FindMeaning): DirectChats;
+  /** The described media of stored lines of a place by platform reference (mediaTextsOf). */
+  mediaTexts?(ctx: Context, placeId: string, messageIds: ReadonlyArray<string>): Map<string, string>;
+  /** Whether the context reads a stored place (placeReadableOf). */
+  placeReadable?(ctx: Context, placeId: string): boolean;
+  /** Every stored chat with its native id (chatPlacesOf). */
+  chatPlaces?(): Array<{ id: string; nativeId: string | null }>;
+  /** A stored place as its interface knows it, null without a row (placeRefOf). */
+  placeRef?(placeId: string): PlaceRef | null;
+  /** A stored place in words and a direct chat's partner, null without a row (placeViewOf). */
+  placeView?(placeId: string): PlacePath | null;
+  /** The stored name of a place, null for a one-to-one chat (placeNameOf). */
+  placeName?(placeId: string): string | null;
+  /** The owner's account on the interface of a stored place, by `bot.ownerPerson` (person-links.ts#ownerAccountOf). */
+  ownerAccount?(placeId: string): string | null;
+  /** The one thing memory.read's words name under the context, standing in `here` (subject.ts#subjectOf). */
+  subject?(ctx: Context, words: string, here: SubjectHere): Subject;
+  /**
+   * The persona's attitude changes toward one person the context reads, newest first
+   * (affinity-changes.ts#affinityChangesOf).
+   */
+  affinityChanges?(ctx: Context, personId: string, limit: number): Array<AffinityChange>;
+  /** A place's count of lines and the numbers of its newest `newest` lines (chat-lines.ts#placeLineNumbers). */
+  placeLines?(placeId: string, newest: number): PlaceLineNumbers;
+  /** The people and the places a service turn lists under `ctx` (service-lists.ts#serviceListsOf). */
+  serviceLists?(now: number, ctx: Context, firstLineDays: number): ServiceLists;
+  /** The persona's newest intentions, open and archived (past-acts.ts#ownIntentionsOf). */
+  ownIntentions?(limit: number): Array<OwnIntention>;
+  /** The persona's lines and intentions near a purpose's vector (past-acts.ts#pastActsOf). */
+  pastActs?(input: Parameters<typeof pastActsOf>[1]): Array<PastAct>;
+  /** The times the persona wrote first in each direct chat (past-acts.ts#firstLinesOf). */
+  firstLines?(input: Parameters<typeof firstLinesOf>[1]): Map<string, FirstLines>;
+};
+
+const NO_MIND: Mind = {
+  people: [],
+  places: [],
+  interfaces: [],
+  lore: [],
+  found: [],
+  leftOut: {},
+  reads: [],
+};
+
+/** The reads over the connection `dbOf` gives at the moment of use, `context.memory` read from `configOf` then too. */
+export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): FrameReads {
+  const over = <T>(empty: T, read: (db: Db) => T): T => {
+    const db = dbOf();
+    return db === null ? empty : read(db);
+  };
+  return {
+    mind: (ctx, seeds, now) => over(NO_MIND, (db) => mindOf(db, ctx, seeds, mindSettingsOf(configOf()), now)),
+    ownLines: (ctx, exceptPlace, limit) => over([], (db) => ownLinesOf(db, ctx, exceptPlace, limit)),
+    around: (ctx, placeId, at, count) => over([], (db) => linesAroundOf(db, ctx, placeId, at, count)),
+    aroundEach: (ctx, placeId, ats, count) => over([], (db) => linesAroundEachOf(db, ctx, placeId, ats, count)),
+    since: (ctx, placeId, from, count) => over([], (db) => linesSinceOf(db, ctx, placeId, from, count)),
+    accountName: (iface, native) => over(null, (db) => accountNameOf(db, iface, native)),
+    line: (ctx, key) => over(null, (db) => lineOfIdentity(db, ctx, key)),
+    messageLine: (ctx, iface, messageId) => over(null, (db) => lineOfMessage(db, ctx, iface, messageId)),
+    sourceRetired: (ctx, sourceId) => over(true, (db) => sourceRetiredOf(db, ctx, sourceId)),
+    placeFields: (ctx, placeId) => over({}, (db) => placeFieldsOf(db, ctx, placeId)),
+    lessons: (ctx) => over([], (db) => lessonsOf(db, ctx)),
+    attitudes: (ctx, limit) =>
+      over({ list: [], names: {} }, (db) => {
+        const list = strongestAttitudesOf(db, ctx, limit);
+        return {
+          list,
+          names: personNamesOf(
+            db,
+            list.map((one) => one.person)
+          ),
+        };
+      }),
+    placeStats: (ctx, placeId, now) => over(null, (db) => placeStatsOf(db, ctx, placeId, now)),
+    placeVersions: (ctx, placeId) => over([], (db) => placeVersionsOf(db, ctx, placeId)),
+    interfaceNames: (iface) => over({ name: null, nouns: {}, dm: null }, (db) => interfaceNamesOf(db, iface)),
+    interfaceIds: () => over([], (db) => interfaceIdsOf(db)),
+    account: (iface, native) => over(null, (db) => accountOfNative(db, iface, native)),
+    memberKey: (iface, native) => over(null, (db) => memberKeyOf(db, iface, native)),
+    person: (account) => over(null, (db) => personOfAccount(db, account)),
+    source: (iface, messageId) => over(null, (db) => sourceOfMessage(db, iface, messageId)),
+    sourceInPlace: (placeId, messageId) => over(null, (db) => sourceInPlace(db, placeId, messageId)),
+    diary: (ctx, limit, kind = null) => over([], (db) => readDiary(db, ctx, limit, kind)),
+    placesNamed: (ctx, name) => over([], (db) => placesNamed(db, ctx, name)),
+    placesFound: (ctx, words, meaning) =>
+      over([], (db) => placesFound(db, ctx, words, findSettingsOf(configOf()), meaning)),
+    peopleFound: (ctx, words, meaning) =>
+      over([], (db) => peopleFound(db, ctx, words, findSettingsOf(configOf()), meaning)),
+    directChats: (ctx, reference, meaning) =>
+      over<DirectChats>({ kind: 'none' }, (db) =>
+        directChatsOf(db, ctx, reference, findSettingsOf(configOf()), meaning)
+      ),
+    mediaTexts: (ctx, placeId, messageIds) => over(new Map(), (db) => mediaTextsOf(db, ctx, placeId, messageIds)),
+    placeReadable: (ctx, placeId) => over(false, (db) => placeReadableOf(db, ctx, placeId)),
+    chatPlaces: () => over([], (db) => chatPlacesOf(db)),
+    placeRef: (placeId) => over(null, (db) => placeRefOf(db, placeId)),
+    placeView: (placeId) => over(null, (db) => placeViewOf(db, placeId)),
+    placeName: (placeId) => over(null, (db) => placeNameOf(db, placeId)),
+    ownerAccount: (placeId) => over(null, (db) => ownerAccountOfPlace(db, configOf(), placeId)),
+    subject: (ctx, words, here) => over<Subject>({ kind: 'none' }, (db) => subjectOf(db, ctx, words, here)),
+    affinityChanges: (ctx, personId, limit) => over([], (db) => affinityChangesOf(db, ctx, { personId, limit })),
+    placeLines: (placeId, newest) =>
+      over<PlaceLineNumbers>({ count: 0, numbers: new Map() }, (db) => placeLineNumbers(db, placeId, newest)),
+    serviceLists: (now, ctx, firstLineDays) =>
+      over({ people: [], places: [] }, (db) =>
+        serviceListsOf(db, now, ctx, { firstLineDays, episodes: mindSettingsOf(configOf()).episodes })
+      ),
+    firstLines: (input) => over(new Map(), (db) => firstLinesOf(db, input)),
+    ownIntentions: (limit) => over([], (db) => ownIntentionsOf(db, limit)),
+    pastActs: (input) => over([], (db) => pastActsOf(db, { ...input, openPrivate: opensPrivate(configOf()) })),
+  };
+}

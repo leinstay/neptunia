@@ -1,0 +1,198 @@
+// The settings schema of `context` (src/config/schema.ts): one entry per key, in the order of config/config.json.
+
+import type { SchemaEntry } from '../schema.ts';
+
+export const CONTEXT: ReadonlyArray<SchemaEntry> = [
+  {
+    'key': 'context.channelMessages',
+    'types': ['number'],
+    'reader': 'src/turn/tool-round.ts',
+    'default': 100,
+    'text': 'Messages of the current chat in the window',
+  },
+  {
+    'key': 'context.chatHeadStep',
+    'types': ['number'],
+    'reader': 'src/turn/history.ts',
+    'default': 0,
+    'text':
+      'How far the first line of `<chat>` moves at a time, for a prompt cache that reuses the start of the user message between turns. With `L` the number of the newest line, the window starts at the largest multiple of this step not above `L - channelMessages + 1`, line 1 at the least, so it holds from `channelMessages` lines to one step less one more and only gains lines between two moves. `0`, a missing value and a broken one move the first line with every new line, the window of `channelMessages` lines',
+  },
+  {
+    'key': 'context.previousThinks',
+    'types': ['number'],
+    'reader': 'src/turn/journal-notes.ts',
+    'default': 1,
+    'text':
+      "How many of the persona's thinks from earlier turns in the same place a new turn carries in `<previous_think>`, oldest first, each with its age, at most 8. Only turns of the last 30 minutes count, and a failed turn ends the list. A missing value or one that is not a whole number above `0` carries one",
+  },
+  {
+    'key': 'context.chatSteps',
+    'types': ['array'],
+    'reader': 'src/turn/request/reader.ts',
+    'default': [100, 60, 30, 10],
+    'text':
+      'The line counts `<chat>` may be cut to when the budget cannot keep the whole window: the largest step that fits, so two turns with nothing new between them send the same lines. Below the smallest step it keeps what fits. An empty list cuts to whatever fits',
+  },
+  {
+    'key': 'context.reactions.fetchTimeoutMs',
+    'types': ['number'],
+    'reader': 'src/turn/tool-round.ts',
+    'default': 2000,
+    'text': 'How long a turn waits for those fetches',
+  },
+  {
+    'key': 'context.away.minMinutes',
+    'types': ['number'],
+    'reader': 'src/turn/journal-notes.ts',
+    'default': 5,
+    'text':
+      "The shortest off period `<spatial_awareness>` lists under the lead line of the persona's time away, in minutes, measured after neighbouring periods merge. A shorter one, such as a restart, is left out before the newest three are taken. `0` lists every period",
+  },
+  {
+    'key': 'context.myDay.lines',
+    'types': ['number'],
+    'reader': 'src/turn/phases/request/build.ts',
+    'default': 12,
+    'text':
+      "How many events of the persona's day `<my_day>` lists, the newest kept and the header saying how many older ones it leaves out. `0` leaves the block out",
+  },
+  {
+    'key': 'context.calls.lines',
+    'types': ['number'],
+    'reader': 'src/turn/phases/request/build.ts',
+    'default': 12,
+    'text': "How many of the persona's calls of today `<calls>` lists, the newest kept. `0` leaves the block out",
+  },
+  {
+    'key': 'context.lessons.budgetTokens',
+    'types': ['number'],
+    'reader': 'src/turn/request/lessons.ts',
+    'default': 1200,
+    'text':
+      'Token budget of `<lessons>` in `<self>`, what people taught the persona from every place they may read. The lowest ranked lessons leave first. `0` leaves the block out',
+  },
+  {
+    'key': 'context.attitudes.shown',
+    'types': ['number'],
+    'reader': 'src/turn/request/attitudes.ts',
+    'default': 6,
+    'text':
+      'How many people `<attitudes>` in `<self>` lists, the ones the persona feels most strongly about, warm and cool together, the strongest first. A person at the band `neutral` is never listed. `0` leaves the block out',
+  },
+  {
+    'key': 'context.names.emoji',
+    'types': ['boolean'],
+    'reader': 'src/turn/request/text.ts',
+    'default': false,
+    'text':
+      "Whether a request keeps the emoji in the names of places and people. `false` leaves them out and trims the name: the links of a place reference, and a person's heading, account names and aliases. A name of nothing but emoji and a custom emoji written `:name:` stay. The stored name never changes",
+  },
+  {
+    'key': 'context.memory',
+    'types': ['map'],
+    'reader': 'src/memory/db/mind-read.ts',
+    'default': {
+      'windowMessages': 100,
+      'serviceMessages': 100,
+      'maxHops': 2,
+      'maxNodesRead': 2000,
+      'budgetTokens': 10000,
+      'budgetShare': 0.1,
+      'shares': { 'people': 0.5, 'places': 0.3, 'lore': 0.15, 'found': 0.05 },
+      'counterpartTokens': 1500,
+      'candidatesMax': 3,
+      'commonWordEntries': 3,
+      'attitudeMoves': 2,
+      'interests': 5,
+      'episodes': 3,
+      'episodesWhole': 8,
+      'fanOut': { 'accounts': 10, 'memberships': 20, 'rooms': 10, 'members': 8, 'replies': 5, 'about': 30 },
+    },
+    'text':
+      'The graph reader (`mindOf`): the lines of the window that seed it, the persona\'s last lines over the rooms of every group that a service shows in `<meanwhile>` and seeds `<memory>` from (`serviceMessages`, read by `src/turn/request/meanwhile.ts`), the counted hops, the rows read, the token budget (`budgetTokens`, lowered to `budgetShare` of `llm.maxRequestTokens` when that is set) and its shares per kind of entry, the part kept for the person they answer, the candidates of an ambiguous word, the word that names too many entries, how many of their latest attitude changes toward a person an entry carries (`attitudeMoves`, `0` for none), how many interests of a person an entry lists (`interests`, `0` for none), how many episodes about a person an entry shows at `compact` detail and in a service entry (`episodes`) and at `whole` detail (`episodesWhole`), and the rows read per path. Each key is described in `docs/memory.md`, "How a turn remembers". A missing or broken key counts as its default',
+  },
+  {
+    'key': 'context.find',
+    'types': ['map'],
+    'reader': 'src/memory/db/graph-find.ts',
+    'default': { 'candidates': 5, 'lines': 100, 'deadlineMs': 1000 },
+    'text':
+      'The finder of a place or a person named in words that name none (`placesFound`, `peopleFound`): how many candidates a tool result lists at most, how many of a place\'s last lines are read for its people and its words, and how long a call waits for the embedding of words that fit no candidate in full before it answers with the words alone (`deadlineMs`). Described in `docs/memory.md`, "Finding a place or a person". A missing or broken key counts as its default',
+  },
+  {
+    'key': 'context.meanwhile.messages',
+    'types': ['number'],
+    'reader': 'src/turn/request/meanwhile.ts',
+    'default': 8,
+    'text':
+      "How many of the persona's last lines in other places `<meanwhile>` shows on a reply, each with the lines around it. `0` leaves the block out",
+  },
+  {
+    'key': 'context.meanwhile.around',
+    'types': ['number'],
+    'reader': 'src/turn/request/meanwhile.ts',
+    'default': 2,
+    'text':
+      "How many lines before and after each of the persona's lines `<meanwhile>` shows. Windows of one place that overlap merge",
+  },
+  {
+    'key': 'context.recall.extractChars',
+    'types': ['number'],
+    'reader': 'src/turn/skill-calls.ts',
+    'default': 1200,
+    'text': 'The length past which the extract of one lookup is retold once before `<recall>` keeps it (characters)',
+  },
+  {
+    'key': 'context.recall.maxItems',
+    'types': ['number'],
+    'reader': 'src/turn/calls.ts',
+    'default': 6,
+    'text': "How many of the persona's lookups one place keeps for `<recall>`. The one noted earliest leaves first",
+  },
+  {
+    'key': 'context.turnLeaseMs',
+    'types': ['number'],
+    'reader': 'src/behavior/attention.ts',
+    'default': 300000,
+    'text':
+      "How long an inner turn's claim on its wakes lasts (milliseconds). The inner life renews it at every tick while the turn runs; a start takes over a claim a stopped process left",
+  },
+  {
+    'key': 'context.caps.aboutChat',
+    'types': ['number'],
+    'reader': 'src/turn/request/reader.ts',
+    'default': 2500,
+    'text': "Token cap: the persona's facts about themselves in `<self>`",
+  },
+  {
+    'key': 'context.caps.intentions',
+    'types': ['number'],
+    'reader': 'src/turn/inputs.ts',
+    'default': 600,
+    'text': 'Token cap: `<intentions>`',
+  },
+  {
+    'key': 'context.pull.sameAudience',
+    'types': ['boolean'],
+    'reader': 'src/behavior/snapshot.ts',
+    'default': true,
+    'text':
+      'Check that every role allowed to view the place the persona speaks in can also view a place they read. Also governs the windows of a search of the message history',
+  },
+  {
+    'key': 'context.memory.openPrivate',
+    'types': ['boolean'],
+    'reader': 'src/memory/open-private.ts',
+    'default': false,
+    'text':
+      'Let a turn in any place read what the persona remembers from every direct chat, as a heartbeat turn does. What they store keeps the audience of the place it was said in',
+  },
+  {
+    'key': 'context.vision.fetchTimeoutMs',
+    'types': ['number'],
+    'reader': 'src/memory/describe.ts',
+    'default': 10000,
+    'text': 'Download timeout per picture (ms)',
+  },
+];

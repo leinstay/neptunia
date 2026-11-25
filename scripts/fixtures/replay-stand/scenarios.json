@@ -1,0 +1,68 @@
+[
+  {
+    "id": "one-turn",
+    "placeId": "1449732656332800002",
+    "before": "1478721168998400000",
+    "author": "1442484899020800005",
+    "text": "Could you remind me which chapter we are on?",
+    "grants": [],
+    "runs": 1
+  },
+  {
+    "id": "every-grant",
+    "placeId": "1449732656332800002",
+    "before": "1478721168998400000",
+    "author": "1442484899020800006",
+    "text": "What do you remember about our reading circle?",
+    "grants": [
+      "*"
+    ],
+    "runs": 1
+  },
+  {
+    "id": "three-steps",
+    "placeId": "1449732656332800002",
+    "before": "1478721168998400000",
+    "steps": [
+      {
+        "author": "1442484899020800005",
+        "text": "Is the lighthouse book any good?"
+      },
+      {
+        "self": "I liked the first two chapters.",
+        "gapMinutes": 1
+      },
+      {
+        "author": "1442484899020800006",
+        "text": "Then Friday it is.",
+        "gapMinutes": 2,
+        "burst": [
+          {
+            "author": "1442484899020800005",
+            "text": "Agreed."
+          }
+        ]
+      }
+    ],
+    "grants": [
+      "*"
+    ],
+    "runs": 1
+  },
+  {
+    "id": "errand-result",
+    "placeId": "1449732656332800002",
+    "before": "1478721168998400000",
+    "taskResult": {
+      "agent": "scout",
+      "goal": "Find the opening hours of the town library",
+      "state": "done",
+      "text": "The library opens at nine and closes at six.",
+      "asker": "1442484899020800005"
+    },
+    "grants": [
+      "*"
+    ],
+    "runs": 1
+  }
+]

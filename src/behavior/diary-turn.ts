@@ -1,0 +1,284 @@
+// The diary turn's own steps, beside the turn runner (src/behavior/turn.ts, mode `diary`). A diary turn writes the
+// persona's entry and sends nothing: the entry is stored in memory first (`recordEntry`, the store's diary unit),
+// and the diary's mirrors publish it (src/behavior/mirror.ts). The turn runs nowhere, with no chat and no
+// history. `pictureGate` says whether the post may carry a picture, and
+// `diaryVoiceTool` keeps their voice message for the entry instead of posting it. Logs: none.
+
+import { UNRESTRICTED, refusedAudience } from '../tools/publication.ts';
+import type { AudienceChoice, PublicationBoundary } from '../tools/publication.ts';
+import { randomUUID } from 'node:crypto';
+import { DEFAULT_HISTORY_POSTS, DEFAULT_PICTURE_KINDS, gistOf, isPictureKind, setSettings } from './diary.ts';
+import type { DiaryEntry, EntryPicture, EntryVoice } from './mirror.ts';
+import { CODE } from '../tools/codes.ts';
+
+type Config = Record<string, unknown>;
+
+const sectionOf = (config: Config, name: string): Config => {
+  const found = config[name];
+  return typeof found === 'object' && found !== null ? (found as Config) : {};
+};
+
+/** Whether a diary post may carry a picture now, and the cap that closed when not (`limit: null` for the switches). */
+export type PictureGate = { allowed: boolean; limit: { key: string; used: number; cap: number } | null };
+
+/**
+ * Whether a diary post may carry a picture: an image client (`drawing`) and Attach Files in the chat
+ * (`attach`). Pure.
+ */
+export function pictureGate({
+  attach,
+  drawing,
+}: {
+  config?: Config;
+  attach: boolean;
+  drawing: boolean;
+  data?: Record<string, unknown>;
+  now?: number;
+}): PictureGate {
+  return drawing && attach ? { allowed: true, limit: null } : { allowed: false, limit: null };
+}
+
+/**
+ * The refusal of a forced picture kind (`/nep diary post <kind>`) while the post may carry no picture, naming the
+ * gate that closed, or null. Asked before any request.
+ */
+export function forcedPictureRefusal({
+  kind,
+  gate,
+}: {
+  config?: Config;
+  kind: unknown;
+  gate: () => PictureGate;
+}): { outcome: 'refused'; reason: 'pictures'; limit: PictureGate['limit'] } | null {
+  if (typeof kind !== 'string' || !isPictureKind(kind, DEFAULT_PICTURE_KINDS)) return null;
+  const closed = gate();
+  return closed.allowed ? null : { outcome: 'refused', reason: 'pictures', limit: closed.limit };
+}
+
+/**
+ * The voice message of a diary post: what was voiced and its length, and the file when the turn made it (a voice
+ * posted through the persona's operation instead leaves only the text and the length).
+ */
+export type HeldVoice = Partial<EntryVoice> & { text: string; durationSecs: number };
+
+/** What a diary turn holds instead of sending: the persona's messages as written and as they would be sent. */
+export type HeldSpeech = {
+  texts: Array<string>;
+  rendered: Array<string>;
+};
+
+/**
+ * `voice.say` as a diary turn runs it (in the turn, src/tools/executors.ts#executeCall's `inTurn`): the voice file is
+ * made through `speech.say` and kept in `held.diaryVoice` for the entry; nothing is posted. Without a speech client that
+ * can say, there is no such tool and the call takes its usual way.
+ */
+export function diaryVoiceTool({
+  speech,
+  held,
+}: {
+  speech: unknown;
+  held: { diaryVoice?: HeldVoice | null };
+}): Record<string, (args: Record<string, unknown>) => Promise<unknown>> {
+  const say = (speech as { say?: unknown } | null)?.say;
+  if (typeof say !== 'function') return {};
+  return {
+    'voice.say': async (args) => {
+      const text = typeof args.text === 'string' ? args.text.trim() : '';
+      if (!text) return { status: 'invalid', code: CODE.INVALID_ARGS, data: { text: '' } };
+      // src/speech/index.ts#createSpeech answers the file and what was voiced.
+      const made = (await (say as (input: { text: string }) => Promise<unknown>)({ text })) as {
+        ogg: Uint8Array;
+        durationSecs: number;
+        waveform: string;
+        voiced: string;
+      };
+      held.diaryVoice = {
+        ogg: made.ogg,
+        durationSecs: made.durationSecs,
+        waveform: made.waveform,
+        text: made.voiced,
+      };
+      return { status: 'ok', code: CODE.STAGED, data: { text: '' } };
+    },
+  };
+}
+
+/** A staged picture of the post: the generated picture and its scene. */
+export type StagedPicture = EntryPicture & { text: string };
+
+/** The part of the store `recordEntry` uses. */
+export type DiaryStore = {
+  appendDiaryPost?: (post: Record<string, unknown>, opts: { max: number }) => unknown;
+  getDiary?: () => { posts: Array<Record<string, unknown>> };
+  setDiaryPosts?: (posts: Array<Record<string, unknown>>, opts: { max: number }) => unknown;
+  state: { data: Record<string, unknown>; markDirty(): void };
+};
+
+/** A scene of the director an entry was written in: the sets offered, the lines it kept and its text. */
+export type EntrySceneUsed = { sets: Array<Array<string>>; used: Array<string>; scene: string };
+
+/**
+ * The post of the place's diary an entry is (recordEntry): its gist and its first picture's scene on one line, the full
+ * text, the entry's id as its `itemId`, how it is sent (`send`), with a voice message the text as voiced and its length,
+ * and for an entry written in scenes the lines each scene kept (`scenes: [{ used }]`), which the memory database keeps
+ * in the entry's `extra`.
+ */
+function diaryPostOf({
+  config,
+  at,
+  kind,
+  scenes,
+  held,
+  staged,
+  set,
+  voice,
+  id,
+}: {
+  config: Config;
+  at: number;
+  kind: string | null;
+  scenes: ReadonlyArray<EntrySceneUsed>;
+  held: HeldSpeech;
+  staged: ReadonlyArray<StagedPicture>;
+  set: boolean;
+  voice: HeldVoice | null;
+  id: string;
+}): {
+  post: Record<string, unknown>;
+  rendered: { messages: Array<string> };
+  maxMessageBytes: number;
+} {
+  const diaryCfg = sectionOf(config, 'diary');
+  const first = staged[0];
+  const maxMessageBytes = setSettings(diaryCfg).maxMessageBytes;
+  const rendered = {
+    messages: [...held.rendered],
+  };
+  const post = {
+    at,
+    kind,
+    gist: gistOf(held.texts.join(' ')),
+    picture: first ? gistOf(first.text) : null,
+    ...(set ? { pictures: staged.length } : {}),
+    text: held.texts.join('\n'),
+    itemId: id,
+    ...(voice ? { voice: { text: voice.text, durationSec: voice.durationSecs } } : {}),
+    ...(scenes.length > 0 ? { scenes: scenes.map((one) => ({ used: [...one.used] })) } : {}),
+    // How the entry goes out, kept so a publication sent after a restart sends it whole (src/behavior/mirror.ts).
+    send: { ...rendered, maxMessageBytes },
+  };
+  return { post, rendered, maxMessageBytes };
+}
+
+/** What a post keeps of the persona's audience choice: the audience, or for a failed choice one publishing nowhere. */
+const publicationAudienceOf = (choice: AudienceChoice) =>
+  choice.ok ? choice.audience : { kind: 'invalid' as const, code: choice.code };
+
+/**
+ * A diary post recorded before anything is sent: one post in the place's diary (`store.appendDiaryPost`, the newest
+ * `diary.historyPosts` (150) kept) with its gist and its first picture's scene on one line, the persona's
+ * full text, the entry's id as its `itemId`, the lines its scenes kept, how it is sent (`send`: the messages as sent and the
+ * set's byte limit) and, with a voice message, the text as voiced and its length; the day's diary post
+ * counted. Every picture was counted when it was generated. `audience` is what their `<audience>` tags gave: the post
+ * keeps it as `publicationAudience`, and a failed choice is kept as a value that publishes nowhere
+ * (src/memory/db/diary-audience.ts). `turnId`, the turn that wrote it, is kept as the post's `turnId`. Returns
+ * the outcome's `diary` field: the kind, the counts, the audience, the scenes and the entry the mirrors publish.
+ */
+export function recordEntry({
+  store,
+  config,
+  now,
+  kind,
+  scenes,
+  held,
+  staged,
+  set,
+  voice,
+  publicationBoundary,
+  audience = { ok: true, audience: UNRESTRICTED },
+  turnId,
+  newId = () => `diary:${randomUUID()}`,
+}: {
+  store: DiaryStore;
+  config: Config;
+
+  now: number;
+  kind: string | null;
+  scenes: ReadonlyArray<EntrySceneUsed>;
+  held: HeldSpeech;
+  staged: ReadonlyArray<StagedPicture>;
+  set: boolean;
+  voice: HeldVoice | null;
+  publicationBoundary?: PublicationBoundary;
+  audience?: AudienceChoice;
+  turnId?: string;
+  newId?: () => string;
+}): {
+  kind: string | null;
+  picture: boolean;
+  messages: number;
+  pictures: number;
+  audience: AudienceChoice;
+  scenes: ReadonlyArray<EntrySceneUsed>;
+  entry: DiaryEntry;
+} {
+  const id = newId();
+  const { post, rendered, maxMessageBytes } = diaryPostOf({
+    config,
+    at: now,
+    kind,
+    scenes,
+    held,
+    staged,
+    set,
+    voice,
+    id,
+  });
+  if (publicationBoundary !== undefined) post.publicationBoundary = publicationBoundary;
+  post.publicationAudience = publicationAudienceOf(audience);
+  if (turnId !== undefined) post.turnId = turnId;
+  if (typeof store.appendDiaryPost === 'function') store.appendDiaryPost(post, { max: DEFAULT_HISTORY_POSTS });
+  const entry: DiaryEntry = {
+    id,
+    ...(publicationBoundary !== undefined ? { publicationBoundary } : {}),
+    ...rendered,
+    pictures: staged.map((item) => ({
+      buffer: item.buffer,
+      mediaType: item.mediaType,
+      ...(item.made === 'self' ? { made: item.made, depicts: item.depicts ?? [] } : {}),
+    })),
+    voice: voice?.ogg ? { ogg: voice.ogg, durationSecs: voice.durationSecs, waveform: voice.waveform ?? '' } : null,
+    maxMessageBytes,
+  };
+  return {
+    kind,
+    picture: staged.length > 0,
+    messages: held.texts.length,
+    pictures: staged.length,
+    audience,
+    scenes,
+    entry,
+  };
+}
+
+/**
+ * The refusals `posts` showed in a diary request (its `<feedback>`), marked on their posts once the persona answered,
+ * so they hear of each one once. A request that never got an answer marks nothing.
+ */
+export function markRefusalsTold(store: DiaryStore, posts: ReadonlyArray<object>): void {
+  const shown = new Set(
+    posts.flatMap((post) => {
+      const { itemId, publicationAudience } = post as { itemId?: unknown; publicationAudience?: unknown };
+      return refusedAudience(publicationAudience)?.told === false ? [itemId] : [];
+    })
+  );
+  if (shown.size === 0 || !store.getDiary || !store.setDiaryPosts) return;
+  const marked = store
+    .getDiary()
+    .posts.map((post) =>
+      shown.has(post.itemId)
+        ? { ...post, publicationAudience: { ...(post.publicationAudience as object), told: true } }
+        : post
+    );
+  store.setDiaryPosts(marked, { max: DEFAULT_HISTORY_POSTS });
+}

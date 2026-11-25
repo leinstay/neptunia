@@ -1,0 +1,282 @@
+// Deterministic ids for the memory database (spec section 2): the same input gives the same id, so a re-import
+// writes the same rows. Pure, no I/O except `resolveAlias` and `survivorOf`, which read `external_keys` and
+// `people_merges` on a connection they are given.
+//
+// Two families live here (schema v7, spec 2026-10-24-memory-schema-v7 sections 1.2 and 11.3):
+//   - the legacy-shaped ids (`<iface>:<id>`, `<iface>:channel:<id>`, `src:<iface>:...`): every builder takes the
+//     interface as its first argument, so `discord` gives the strings stored today and another interface its own
+//     namespace. They are minted once for a new row and never taken apart;
+//   - the new ids: `nodeId(kind, parts)` (`<kind>:<32 hex of SHA-256 over the canonical key>`) and `newPersonId()`
+//     (`person:<uuid>`). A new id is a stable spelling, never parsed: the tuple it hashes is stored in columns.
+// Schema v8 adds the relation target keys (`externalTargetKey`, `sourceTargetKey`) and `survivorOf` (merged people).
+// Stage 8a adds the legacy spelling of an observed line (`legacySourceIdOf`).
+// Stage 4 adds `interfaceAccountId` and `interfacePlaceOf`, the one spelling the observation and the unit mappers share.
+
+import { createHash, randomUUID } from 'node:crypto';
+import { CORE_AUTHORITY, nativeAuthorityOf } from '../../protocol/identity.ts';
+
+export const SELF_PERSON = 'person:self';
+
+/** The persona's own id as a place id: a turn or a write of theirs that happens nowhere. */
+export const PERSONA_ID = 'persona:local';
+
+type Row = Record<string, unknown>;
+type Db = {
+  prepare(sql: string): { all(...params: Array<string>): Array<Row>; get(...params: Array<string>): Row | undefined };
+};
+
+const text = (value: unknown): string => String(value);
+
+// The interface and the native id are any value an adapter or a legacy file gave: they are written with `String`.
+export const accountId = (iface: unknown, nativeId: unknown): string => `${text(iface)}:${text(nativeId)}`;
+/** The spelled id of the top place an interface names by a native id, when the database holds none for it yet. */
+export const topPlaceSpelled = (iface: unknown, nativeId: unknown): string => `${text(iface)}:server:${text(nativeId)}`;
+export const channelPlaceId = (iface: unknown, placeId: unknown): string => `${text(iface)}:channel:${text(placeId)}`;
+export const dmPlaceId = (iface: unknown, nativeId: unknown): string => `${text(iface)}:dm:${text(nativeId)}`;
+
+export { CORE_AUTHORITY, nativeAuthorityOf };
+
+/**
+ * The native key of a place inside its authority: the place kind and the native id (`channel:<id>`, `server:<id>`,
+ * `dm:<partner native>`), so a server and a channel that share a native id never collide. A DM place with no native id
+ * of its own takes its partner's, which the caller reads from the partner account's row (`partnerNative`).
+ */
+export function placeNativeKey(place: Row | null | undefined, partnerNative: unknown = null): string | null {
+  const kind = typeof place?.kind === 'string' && place.kind ? place.kind : 'place';
+  if (kind === 'dm') {
+    const native = place?.native_id ?? partnerNative;
+    return native === null || native === undefined ? null : `dm:${text(native)}`;
+  }
+  return place?.native_id === null || place?.native_id === undefined ? null : `${kind}:${text(place.native_id)}`;
+}
+
+/** The deterministic id of an account's link to a person (one per pair; a later generation gets its own stage). */
+export const linkId = (account: unknown, person: unknown): string => `link:${text(account)}:${text(person)}`;
+
+/**
+ * The canonical key of a node tuple: JSON of the ordered array `[kind, ...parts]` (an absent part is null, an empty
+ * one ""). A NUL anywhere is refused: it is never part of a native id.
+ */
+export function canonicalKey(kind: unknown, parts: unknown = []): string {
+  const listed: Array<unknown> = Array.isArray(parts) ? parts : [parts];
+  const values = [kind, ...listed].map((part) => (part === undefined ? null : part));
+  for (const value of values) {
+    if (typeof value === 'string' && value.includes('\u0000'))
+      throw Object.assign(new Error('memory db: a NUL in a node key'), { code: 'NUL_IN_KEY' });
+    if (value !== null && typeof value === 'object')
+      throw Object.assign(new Error('memory db: a node key part must be a scalar'), { code: 'BAD_KEY_PART' });
+  }
+  return JSON.stringify(values);
+}
+
+/** A new node id: `<kind>:<first 32 hex of SHA-256 over canonicalKey(kind, parts)>`. Never parsed. */
+export function nodeId(kind: unknown, parts: unknown = []): string {
+  return `${text(kind)}:${createHash('sha256').update(canonicalKey(kind, parts)).digest('hex').slice(0, 32)}`;
+}
+
+/** A new person: `person:<uuid v4>` (`uuid` is injected by tests). */
+export const newPersonId = (uuid: () => string = randomUUID): string => `person:${uuid()}`;
+
+type AliasRow = { node_id: string; generation: number; valid_from_at: string | null; valid_to_at: string | null };
+
+/**
+ * The node a native key of an authority named at `atIso` (an ISO time; null: the open rows, the current aliases).
+ * A row's window is [valid_from_at, valid_to_at), an open end unbounded. Returns the node id when exactly one node's
+ * window holds the time; `{ unresolved: true, candidates }` (the rows' `{ node_id, generation, valid_from_at,
+ * valid_to_at }`) when several do or none does; null when the key was never registered. Never "the latest".
+ */
+export function resolveAlias(
+  db: unknown,
+  authority: unknown,
+  kind: unknown,
+  nativeKey: unknown,
+  at: unknown = null
+): string | { unresolved: true; candidates: Array<AliasRow> } | null {
+  const atIso = typeof at === 'string' ? at : null;
+  const rows = (db as Db)
+    .prepare(
+      'SELECT node_id, generation, valid_from_at, valid_to_at FROM external_keys WHERE authority_id = ? AND object_kind = ? AND native_key = ? ORDER BY generation'
+    )
+    .all(text(authority), text(kind), text(nativeKey))
+    .map((row) => ({ ...row }) as AliasRow);
+  if (rows.length === 0) return null;
+  const holds = (row: AliasRow): boolean =>
+    atIso === null || atIso === undefined
+      ? row.valid_to_at === null
+      : (row.valid_from_at === null || row.valid_from_at <= atIso) &&
+        (row.valid_to_at === null || atIso < row.valid_to_at);
+  const matching = rows.filter(holds);
+  const nodes = [...new Set(matching.map((row) => row.node_id))];
+  if (nodes.length === 1) return nodes[0] ?? null;
+  return { unresolved: true, candidates: matching.length > 0 ? matching : rows };
+}
+
+/**
+ * The person a person id stands for now: the final survivor of its merges (`people_merges`, from -> into, followed to
+ * the end). A person never merged is itself. A loop (refused by the writer, never expected) stops at the first repeat.
+ */
+export function survivorOf(db: unknown, person: unknown): string {
+  const next = (db as Db).prepare('SELECT into_person FROM people_merges WHERE from_person = ?');
+  const seen = new Set<string>();
+  let current = text(person);
+  while (!seen.has(current)) {
+    seen.add(current);
+    const row = next.get(current);
+    if (!row) return current;
+    current = text(row.into_person);
+  }
+  return current;
+}
+
+/**
+ * The interface's native kind of the objects its legacy record lines name (`message` for the legacy namespace: `sources.native_id`
+ * is a message id); null for any other interface (an observation names its own kind).
+ */
+export const legacyNativeKind = (iface: unknown): 'message' | null => (iface === SPELLED_IFACE ? 'message' : null);
+
+/**
+ * The key of a relation's target named by its native tuple (schema v8, `source_relations.target_key`): JSON of the
+ * ordered array `[authority, kind, native key, generation, revision]` (a revision not named is null: any revision).
+ * The same spelling as `canonicalKey`, the same refusals. It never changes once written, whether or not the target
+ * arrives later.
+ */
+export function externalTargetKey({
+  authority,
+  kind,
+  key,
+  generation = 1,
+  revision = null,
+}: {
+  authority: unknown;
+  kind: unknown;
+  key: unknown;
+  generation?: unknown;
+  revision?: unknown;
+}): string {
+  return canonicalKey(text(authority), [
+    text(kind),
+    text(key),
+    Number.isInteger(generation) ? generation : 1,
+    Number.isInteger(revision) ? revision : null,
+  ]);
+}
+/** The key of a relation's target named by our own source id: `source:<id>`. */
+export const sourceTargetKey = (sourceId: unknown): string => `source:${text(sourceId)}`;
+
+// ---------- the readable spelling of a `discord` tuple ----------
+// Every account, place and line of `discord` is stored under a readable id (`discord:<user id>`, `discord:channel:<id>`,
+// `src:discord:<message id>:<revision>:<seen|said>`), and the record and the observation of one line land on that one id.
+// Only a first generation of the global authority has it; anything else (a thread, a later generation, another
+// interface) is a hashed id (`nodeId`).
+
+/** The interface whose tuples keep the readable spelling. */
+const SPELLED_IFACE = `discord`;
+
+const LEGACY_AUTHORITY_OF_IFACE = `${SPELLED_IFACE}/global`;
+/** Place kinds the importer writes under their own id spelling, and the spelling. */
+const LEGACY_PLACE_IDS: Record<string, (iface: unknown, id: unknown) => string> = {
+  server: topPlaceSpelled,
+  channel: channelPlaceId,
+  dm: dmPlaceId,
+};
+
+/** The importer's source id of an observed line (`src:discord:<message id>:<revision>:<seen|said>`), or null. */
+export function legacySourceIdOf({
+  authority,
+  kind,
+  key,
+  generation = 1,
+  revision,
+  subtype,
+}: {
+  authority: unknown;
+  kind: unknown;
+  key: unknown;
+  generation?: unknown;
+  revision: unknown;
+  subtype: unknown;
+}): string | null {
+  if (authority !== LEGACY_AUTHORITY_OF_IFACE || kind !== legacyNativeKind(SPELLED_IFACE) || (generation ?? 1) !== 1)
+    return null;
+  if (
+    typeof revision !== 'number' ||
+    !Number.isInteger(revision) ||
+    revision < 1 ||
+    (subtype !== 'seen' && subtype !== 'said') ||
+    typeof key !== 'string' ||
+    key === ''
+  )
+    return null;
+  return messageSourceId(SPELLED_IFACE, key, revision, subtype);
+}
+
+/** A message source: `src:<iface>:<messageId>:<revision>:<kind>`. */
+export const messageSourceId = (iface: unknown, messageId: unknown, revision: unknown, kind: unknown): string =>
+  `src:${text(iface)}:${text(messageId)}:${text(revision)}:${text(kind)}`;
+/** The persona's answer in a turn: `src:turn:<turnId>:<step>`. */
+export const answerSourceId = (turnId: unknown, step: unknown): string => `src:turn:${text(turnId)}:${text(step)}`;
+/** Any other kind of source: `src:<kind>:<its id>`. */
+/** The kind of the `sources` rows of the persona's own time (own-time.ts), stored so a session write can cite them. */
+export const OWN_TIME_KIND = 'own_time';
+export const otherSourceId = (kind: unknown, id: unknown): string => `src:${text(kind)}:${text(id)}`;
+
+/** The first 16 hex digits of the SHA-1 of the parts joined by a NUL. */
+export function shortHash(...parts: Array<unknown>): string {
+  return createHash('sha1')
+    .update(parts.map((part) => text(part)).join('\u0000'))
+    .digest('hex')
+    .slice(0, 16);
+}
+
+/** A claim, episode or description id: the old `itemId` when the item had one, else `<kind>:<holder>:<hash of stable fields>`. */
+export function itemOrDerivedId(itemId: unknown, kind: unknown, holder: unknown, ...stable: Array<unknown>): string {
+  if (typeof itemId === 'string' && itemId) return itemId;
+  return `${text(kind)}:${text(holder)}:${shortHash(...stable)}`;
+}
+
+/** Makes ids unique inside one mapping: a repeat gets `-2`, `-3`, ... (the first keeps its id). */
+export function uniqueIds(): (id: unknown) => string {
+  const seen = new Map<string, number>();
+  return (value) => {
+    const id = text(value);
+    const n = (seen.get(id) ?? 0) + 1;
+    seen.set(id, n);
+    return n === 1 ? id : `${id}-${n}`;
+  };
+}
+
+// ---------- one id per account and place of an interface ----------
+// The observation (observe.ts) and the store's unit mappers (map/) name a generation-1 account and a channel, server or
+// DM place of the same interface with the same id: the spelling the mappers write (`accountId`, `channelPlaceId`,
+// `topPlaceSpelled`, `dmPlaceId`), so a unit write that brings a row the observation made lands on that row and a reopen
+// replays no conflict. Anything else (a thread, a later generation, the core's own authority) is a node id.
+
+/** The interface of a native authority (`<iface>/global`, `<iface>/local`), or null for the core's. */
+function ifaceOfAuthority(authority: unknown): string | null {
+  const match = /^([^/]+)\/(?:global|local)$/.exec(text(authority ?? ''));
+  const iface = match?.[1] ?? null;
+  return iface === null || authority === CORE_AUTHORITY ? null : iface;
+}
+
+/** The account id the observation and the unit mappers both give member `key` of `authority`. */
+export function interfaceAccountId(authority: unknown, key: unknown, generation: unknown = 1): string {
+  const gen = Number.isInteger(generation) ? generation : 1;
+  const iface = ifaceOfAuthority(authority);
+  if (gen === 1 && iface !== null && typeof key === 'string' && key !== '') return accountId(iface, key);
+  return nodeId('account', [text(authority), text(key), gen]);
+}
+
+/** The place the observation and the unit mappers both give place key `key` (`channel:<id>`, ...) of `authority`. */
+export function interfacePlaceOf(
+  authority: unknown,
+  key: unknown,
+  generation: unknown = 1
+): { id: string; native_id: string | null } {
+  const gen = Number.isInteger(generation) ? generation : 1;
+  const iface = ifaceOfAuthority(authority);
+  const match = /^([a-z_]+):(.+)$/.exec(text(key ?? ''));
+  const spell = match?.[1] ? LEGACY_PLACE_IDS[match[1]] : undefined;
+  if (gen === 1 && iface !== null && match && spell)
+    return { id: spell(iface, match[2] ?? ''), native_id: match[1] === 'dm' ? null : (match[2] ?? null) };
+  return { id: nodeId('place', [text(authority), text(key), gen]), native_id: text(key) };
+}

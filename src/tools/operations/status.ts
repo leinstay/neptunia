@@ -1,0 +1,952 @@
+// Operations: `status.show [field]`: what the bot is doing now, read only. The reply is one
+// card (`cmdStatusCard`, plain card data the interface's command handler wraps for its platform), the
+// most important field first, for a phone; `field` keeps only that field and computes nothing
+// for the others. A member (anyone the owner check refuses) gets the card without the storage line,
+// the keys, costs, memory and speed fields. Every field lists one item per line; the state field ends
+// with the gateway and the uptime. The card keeps two groups, matching the model config: the base
+// (`models.base`, `keys.base`, `costs.base`: the persona's `core` and the other model roles) and the errands (`models.errands`,
+// `costs.errands`: the delegated agents). The models sit in two fields, one line per role or agent: `models.base`
+// (core, memory, then the model roles analyzer, vision, video, embedding, speech, then drawing), `<role> · <model> ...`,
+// and `models.errands` (scout, server), `<agent> · <harness> · <model>`, each agent's route
+// (src/subharness/routing.ts), which its own harness runs, so it is never probed. The owner's card probes on every call: one minimal chat completion per
+// distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
+// against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
+// request for the embedding role, and one free GET of the drawing model's provider listing; a
+// member's card only names the models. Each role shows its own model (never another role's), and
+// each base role's line is followed by the `models.byPurpose` overrides of its purposes. The memory field (the coverage of every kind of
+// memory) is computed at most once a minute: directory listings and the record's month indexes,
+// never its day files. The speed field reads src/tools/operations/metrics.ts (the last 24 h), then today's
+// missed-answer figures from the journal (src/behavior/missed.js). The `keys.base`
+// field reads the limit of each API key of the core (one free GET per key; the errand agents' key
+// is left out: their spend is `costs.errands`) and the rolling 7/30-day sums per key; `costs.base`
+// reads today's per-role accumulator (src/tools/operations/usage.ts, drawing's row included); `costs.errands` the errand records' spend
+// per agent (src/errands/costs.ts through the place's task store). The owner's `inner`
+// field (only while features.wakes is on) is the inner life's own status (src/behavior/inner.ts#status):
+// its mode and switch, the day's turns, chains, dollars, public
+// posts, the next wake, the last turn and the open intentions; its words are `labels.status.inner`.
+
+import { llmCountToday, resolveProvider } from '../../llm/openrouter.ts';
+import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../../llm/images.ts';
+import { SPEECH_ROLE } from '../../speech/synth.ts';
+import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../../time.ts';
+import { ARCHIVE_EVENTS } from '../../memory/index.ts';
+import { clampChars, oneLine } from '../../memory/clamp.ts';
+import { isOwnerCaller } from './grants.ts';
+import { MODEL_ROLES, STATUS_FIELDS } from './catalog.ts';
+import { CORE_ROLE, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';
+import { agentRouteOf } from '../../subharness/routing.ts';
+import { agentNames } from '../../agent-runner/profiles.ts';
+import { routeName } from '../../subharness/route-names.ts';
+import { EMBED_ROLE } from '../../llm/embed.ts';
+import { missedCounts, missedStatusLine } from '../../behavior/missed.ts';
+import { SPEED_METRICS } from './metrics.ts';
+import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.ts';
+import { withKeyLines } from './key-lines.ts';
+import { fill } from '../../format.ts';
+import { log } from '../../log.ts';
+import { defineOp, perEnv } from './registry.ts';
+import { idText, isObj, objOf } from '../types.ts';
+import type { Obj, Untyped } from '../types.ts';
+import type { AccountRead } from './usage.ts';
+
+/** The tokens line of the `inner` field: the core role's tokens today. */
+type InnerTokens = { prompt: number; cached: number; completion: number };
+
+/** The card's field names, in order (src/tools/operations/catalog.ts#STATUS_FIELDS, the `field` option's choices). */
+export { STATUS_FIELDS };
+
+/** The fields a member's card leaves out. */
+const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.errands', 'inner', 'memory', 'speed']);
+
+/** The errand agents and `drawing`, which shares their key: a key only they use is the errands' key, which
+ * `keys.base` leaves out. */
+const errandKeyRoles = (): Set<string> => new Set<string>([...agentNames(), 'drawing']);
+
+/**
+ * The `models.base` field's groups before drawing, in order: one line per role, then the
+ * `models.byPurpose` overrides of the purposes that go out on those roles
+ * (src/llm/roles.ts#PURPOSE_ROLES; a purpose it does not list follows the analyzer).
+ */
+const MODEL_GROUPS = Object.freeze([
+  { name: 'core', roles: [CORE_ROLE] },
+  { name: 'memory', roles: [MEMORY_ROLE] },
+  { name: 'analyzer', roles: ['analyzer'], unlistedPurposes: true },
+  { name: 'vision', roles: ['vision'] },
+  { name: 'video', roles: ['video'] },
+  { name: 'embedding', roles: [EMBED_ROLE] },
+  { name: 'speech', roles: [SPEECH_ROLE] },
+]);
+
+/** The time of `ts` for the inner field (UTC, minutes). */
+function innerStamp(ts: unknown): string {
+  return typeof ts === 'number' && Number.isFinite(ts)
+    ? `${new Date(ts).toISOString().slice(0, 16).replace('T', ' ')} UTC`
+    : '-';
+}
+
+/** A label that is a non-empty string, filled; null otherwise (the line is left out). */
+function labelLine(template: unknown, values: Obj): string | null {
+  return typeof template === 'string' && template ? fill(template, values) : null;
+}
+
+/** The line of the wakes that slept since the start (`labels.status.inner.sleptLine`) from the status; none at 0. */
+function sleptLine(labels: unknown, status: unknown): string | null {
+  const count = objOf(status).slept;
+  return typeof count === 'number' && count > 0 ? labelLine(objOf(labels).sleptLine, { count }) : null;
+}
+
+/**
+ * The `inner` field's lines from the inner life's status `s` (src/behavior/inner.ts#status), words
+ * from `labels.status.inner`; `tokens` (`{ prompt, cached, completion }`, the core role's today from
+ * the usage accumulator) adds the tokens line.
+ */
+export function innerLines(
+  s: Untyped,
+  labels: unknown,
+  { tokens = null }: { tokens?: InnerTokens | null } = {}
+): Array<string> {
+  const raw = objOf(objOf(labels).status).inner;
+  if (!isObj(raw)) return [];
+  const L: Untyped = raw;
+  const state = s.stopped ? labelLine(L.stopped, { at: innerStamp(s.stoppedAt) }) : labelLine(L.running, {});
+  const kinds = objOf(L.nextKinds);
+  const intentions = s.intentions;
+  return [
+    labelLine(L.modeLine, { mode: s.mode, state: state ?? '' }),
+    s.turnsToday != null ? labelLine(L.turnsLine, { used: s.turnsToday, chains: s.chains ?? 0 }) : null,
+    s.turnsToday != null ? labelLine(L.usdLine, { spent: (s.spentUsd ?? 0).toFixed(2) }) : null,
+    s.next
+      ? labelLine(L.nextLine, { at: innerStamp(s.next.at), kind: kinds[s.next.kind] ?? s.next.kind })
+      : labelLine(L.nextNone, {}),
+    s.heartbeat === undefined
+      ? null
+      : s.heartbeat
+        ? Number.isFinite(s.heartbeat.nextAt)
+          ? labelLine(L.heartbeatLine, { at: innerStamp(s.heartbeat.nextAt) })
+          : null
+        : labelLine(L.heartbeatOff, {}),
+    s.lastTurn
+      ? labelLine(L.lastLine, { outcome: s.lastTurn.outcome ?? L.outcomeUnknown ?? '-', at: innerStamp(s.lastTurn.at) })
+      : labelLine(L.lastNone, {}),
+    s.lastError ? labelLine(L.lastErrorLine, { code: s.lastError.code, at: innerStamp(s.lastError.at) }) : null,
+    intentions ? labelLine(L.intentionsLine, intentions) : null,
+    s.attention ? labelLine(L.attentionLine, s.attention) : null,
+    sleptLine(L, s),
+    tokens
+      ? labelLine(L.tokensLine, {
+          prompt: tokens.prompt ?? 0,
+          cached: tokens.cached ?? 0,
+          completion: tokens.completion ?? 0,
+        })
+      : null,
+  ].filter((text): text is string => Boolean(text));
+}
+
+/**
+ * The memory database's line of the memory field from the service's status `s`, words from `labels.status.memoryDb`:
+ * `unavailable` (the database not open), else `ok` with `{rows}`. Null when the
+ * label is missing or blank.
+ */
+export function memoryDbStatusLine(s: Untyped, labels: unknown): string | null {
+  const raw = objOf(objOf(labels).status).memoryDb;
+  if (!isObj(raw) || !isObj(s)) return null;
+  const L: Untyped = raw;
+  return s.open ? labelLine(L.ok, { rows: s.rows ?? 0 }) : labelLine(L.unavailable, {});
+}
+
+/** `<role> · <model>`: each role shows its own model, never another role's. */
+function roleHead(role: string, model: string): string {
+  return `${role} · ${model}`;
+}
+
+/** An errand agent's line: the harness and model of its route (its harness runs it, so it is never probed). */
+function agentLine(agent: string, cfg: Untyped): string {
+  const route = agentRouteOf(cfg, agent);
+  if (route === null) return roleHead(agent, 'no model configured');
+  return roleHead(agent, `${routeName(route.backend)} · ${route.model ?? 'default'}`);
+}
+
+/** The `models.errands` field: each agent's `agentLine`. */
+function agentModels(cfg: Untyped): string {
+  return agentNames()
+    .map((agent) => agentLine(agent, cfg))
+    .join('\n');
+}
+
+/** The `models.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
+ * (with `unlisted`, also those of a purpose PURPOSE_ROLES does not list), one
+ * `byPurpose <purpose> · <model>` line each. */
+function byPurposeLines(cfg: Untyped, roles: ReadonlyArray<string>, unlisted?: boolean): Array<string> {
+  const byPurpose: unknown = cfg?.models?.byPurpose;
+  if (!isObj(byPurpose)) return [];
+  return Object.entries(byPurpose)
+    .filter(([, model]) => typeof model === 'string' && model)
+    .filter(([purpose]) =>
+      Object.hasOwn(PURPOSE_ROLES, purpose)
+        ? roles.includes((PURPOSE_ROLES as Record<string, string>)[purpose] ?? '')
+        : unlisted === true
+    )
+    .map(([purpose, model]) => `byPurpose ${purpose} · ${idText(model)}`);
+}
+
+/** The `models.base` field: `lineOf(role)` per role, each group's per-purpose overrides after its role. */
+function groupedModels(cfg: Untyped, lineOf: (role: string) => string): string {
+  const lines: Array<string> = [];
+  for (const group of MODEL_GROUPS) {
+    for (const role of group.roles) lines.push(lineOf(role));
+    lines.push(...byPurposeLines(cfg, group.roles, group.unlistedPurposes));
+  }
+  return lines.join('\n');
+}
+
+/** `llm.probeTimeoutMs` when config.json lacks it (the same value). */
+const PROBE_TIMEOUT_MS = 30000;
+
+/** How much of a failed probe's error message the card keeps. */
+const PROBE_ERROR_CHARS = 100;
+
+/** The cap on one field's value of a card (1024 characters, the length the persona's status call reads). */
+const FIELD_MAX_CHARS = 1024;
+
+/** `value` within the field cap, cut after its last whole line that fits. */
+function fitField(value: string): string {
+  if (value.length <= FIELD_MAX_CHARS) return value;
+  const cut = value.slice(0, FIELD_MAX_CHARS);
+  const end = cut.lastIndexOf('\n');
+  return end > 0 ? cut.slice(0, end) : cut;
+}
+
+/** `entry.step`/`.name`/`.stage`, or `'step'` when a routing-funnel entry names itself none of those. */
+function funnelStepName(entry: Untyped): string {
+  return entry?.step ?? entry?.name ?? entry?.stage ?? 'step';
+}
+
+/** `entry.endpoint_count` (OpenRouter's key) first, then a few other plausible spellings. */
+function funnelEndpointCount(entry: Untyped): unknown {
+  return entry?.endpoint_count ?? entry?.endpoints ?? entry?.count ?? entry?.remaining ?? entry?.endpointCount;
+}
+
+function describeFunnelStep(entry: Untyped): string {
+  const count = funnelEndpointCount(entry);
+  return count == null ? funnelStepName(entry) : `${funnelStepName(entry)} -> ${idText(count)} endpoints`;
+}
+
+/**
+ * The last `routing_funnel` step out of an OpenRouter error body (`error.metadata.routing_funnel`
+ * first), with the step that first hit 0 endpoints when that is an earlier one: what tells wrong
+ * provider keys apart from an outage. Null for a body that is not JSON or carries no funnel.
+ */
+function extractRoutingFunnel(rawBody: unknown): string | null {
+  if (typeof rawBody !== 'string' || !rawBody) return null;
+  let parsed: Untyped;
+  try {
+    parsed = JSON.parse(rawBody);
+  } catch {
+    return null;
+  }
+  const parsedError = objOf(parsed?.error);
+  const funnel: unknown =
+    objOf(parsedError.metadata).routing_funnel ?? parsed?.routing_funnel ?? parsedError.routing_funnel;
+  if (!Array.isArray(funnel) || funnel.length === 0) return null;
+  const last: Untyped = funnel[funnel.length - 1];
+  if (!last || typeof last !== 'object') return null;
+  const firstZero: Untyped = funnel.find((entry: Untyped) => funnelEndpointCount(entry) === 0);
+  const lastLine = `funnel: ${describeFunnelStep(last)}`;
+  return firstZero && firstZero !== last ? `${lastLine} (first hit 0 at ${describeFunnelStep(firstZero)})` : lastLine;
+}
+
+/** One role's probe line: `<head> · <provider> · ok <ms> ms` (`-` when the answer names no
+ * provider, as an embedding's does not), or `<head> · failed: <short reason>` with the routing
+ * funnel in brackets when the error body has one; `head` is `<role> · <model>` (roleHead). */
+function probeLine(head: string, outcome: Untyped): string {
+  if (!outcome.ok) {
+    const message = clampChars(oneLine(outcome.err?.message ?? outcome.err ?? 'error'), PROBE_ERROR_CHARS);
+    const funnel = extractRoutingFunnel(outcome.err?.body);
+    return `${head} · failed: ${message}${funnel ? ` (${funnel})` : ''}`;
+  }
+  return `${head} · ${outcome.result?.provider || '-'} · ok ${outcome.ms} ms`;
+}
+
+/** `used/cap`, the cap `-` when it is not a number. */
+function usedOf(used: unknown, cap: unknown): string {
+  return `${idText(used)}/${typeof cap === 'number' && Number.isFinite(cap) ? cap : '-'}`;
+}
+
+/** `3d 4h 12m`, `4h 12m` or `12m` for a span in ms. */
+function span(ms: number): string {
+  const safe = Math.max(0, ms);
+  const days = Math.floor(safe / DAY_MS);
+  const hours = Math.floor((safe % DAY_MS) / HOUR_MS);
+  const minutes = Math.floor((safe % HOUR_MS) / MINUTE_MS);
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+/** How long the memory field's coverage is reused before it is computed again. */
+const COVERAGE_CACHE_MS = MINUTE_MS;
+
+/** `embed.catchUpHours` when config.json lacks it (the same value). */
+const CATCH_UP_HOURS = 72;
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The days from `from` to `to` (both `YYYY-MM-DD`), both counted. */
+function daysBetween(from: string, to: string): number {
+  return Math.floor((Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / DAY_MS) + 1;
+}
+
+/** `part` of `whole` as a whole percent, `-` of nothing. */
+function percent(part: number, whole: number): string {
+  return whole > 0 ? `${Math.round((part / whole) * 100)}%` : '-';
+}
+
+/** A duration for the speed field: `N ms` below a second, else `N.N s`. */
+function duration(ms: number): string {
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+}
+
+/** The length of a list, 0 for anything else. */
+function countOf(list: unknown): number {
+  return Array.isArray(list) ? list.length : 0;
+}
+
+/** `<name>: <count> · <oldest>..<newest>`: the oldest of `starts` to the newest of `ends` (epoch
+ * ms, the non-numbers skipped), the count alone when there is no time. */
+function datedLine(name: string, count: number, starts: ReadonlyArray<unknown>, ends: ReadonlyArray<unknown>): string {
+  const from = starts.filter((ms): ms is number => typeof ms === 'number' && Number.isFinite(ms));
+  const to = ends.filter((ms): ms is number => typeof ms === 'number' && Number.isFinite(ms));
+  if (from.length === 0 || to.length === 0) return `${name}: ${count}`;
+  return `${name}: ${count} · ${utcDay(Math.min(...from))}..${utcDay(Math.max(...to))}`;
+}
+
+/** The state field: running, or paused with since when and by whom (`pausedBy`, when known);
+ * the owner's card adds the storage line (storageLine). */
+function stateValue(data: Untyped): string {
+  if (!data.paused) return 'running';
+  const by = typeof data.pausedBy === 'string' && data.pausedBy ? ` by <@${data.pausedBy}>` : '';
+  const reason = objOf(data).pausedReason;
+  const why = typeof reason === 'string' && reason ? ` (${reason})` : '';
+  return `paused since ${utcMinute(data.pausedAt)}${by}${why}`;
+}
+
+/** One field of the status card. */
+type CardField = { name: string; value: string };
+
+/** What the status card asks: for an owner or a member, one field or the whole card. */
+type CardRequest = { owner: boolean; field?: string | null; offline?: boolean };
+
+/** The fields whose work reads the network (the key limits' GETs): the offline card of the owner's console leaves
+ * them out, as it probes no model (`/status full`; the probes are `/doctor live`, the keys `/usage`). */
+const NETWORK_FIELDS = new Set(['keys.base']);
+
+/** `status` of an account read, null when it was read. */
+const statusOfRead = (read: AccountRead): number | null => (read.ok ? null : (read.status ?? null));
+
+// health: allow function-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
+const handlers = perEnv((env) => {
+  const {
+    hot,
+    store,
+    images,
+    archive,
+    journal,
+    record,
+    metrics,
+    lookup,
+    usage,
+    errands,
+    emojiBackfill,
+    gifBackfill,
+    freshenIfPaused,
+    imageModelLabel,
+    llm,
+    embedder,
+    embedQueue,
+    memoryDb,
+  } = env;
+  // The card's clock (the coverage cache, the storage line): the environment's, else the wall clock.
+  const clock = typeof env.now === 'function' ? env.now : Date.now;
+  // placeId -> { at, value }: the memory field, reused for COVERAGE_CACHE_MS.
+  const coverageCache = new Map<string, { at: number; value: string }>();
+
+  /** The connection field: when the interface's link to its platform last came back. */
+  function connectionValue(): string {
+    const last = env.connection?.lastReconnectAt;
+    return `last reconnect ${last ? utcMinute(last) : 'none'}`;
+  }
+
+  /** What the archive's pending queue holds (0 without an archive). */
+  function archivePending(): number {
+    const pending: unknown = archive?.stats?.()?.pending;
+    return typeof pending === 'number' && Number.isFinite(pending) ? pending : 0;
+  }
+
+  /** The long-tasks field: the history backfills running, and what the archive drain still holds; `none` when
+   * nothing runs. */
+  function longTasksValue(): string {
+    const parts: Array<string> = [];
+    for (const [job, name] of [
+      [emojiBackfill, 'emoji backfill'],
+      [gifBackfill, 'GIF backfill'],
+    ]) {
+      if (job?.isRunning?.() === true) parts.push(`${name} running`);
+    }
+    const pending = archivePending();
+    if (pending > 0) parts.push(`archive drain: ${pending} pending`);
+    return parts.length > 0 ? parts.join('\n') : 'none';
+  }
+
+  /** When a journal of `places` was last written (today's lines, else yesterday's: the first hour after midnight), as
+   * epoch ms, or null (no journal, nothing written): the journals' own `stats`. */
+  async function journalLastWrite(places: ReadonlyArray<string>, nowMs: number): Promise<number | null> {
+    if (typeof journal?.stats !== 'function') return null;
+    let last: number | null = null;
+    for (const placeId of places) {
+      const stats = (await journal.stats(placeId, { now: nowMs })) as { lastWriteMs?: number | null } | null;
+      const written = stats?.lastWriteMs;
+      if (typeof written === 'number' && (last === null || written > last)) last = written;
+    }
+    return last;
+  }
+
+  /**
+   * The owner's storage line under the state: `storage ok`, or `storage: <problem>; ...` -- the
+   * journal's append store stalled, archive copies waiting (the count), the journal not written
+   * for over an hour while turns happen (features.journal exactly true, read now; a reply posted
+   * in the last hour per the metrics; nothing is judged without them).
+   */
+  async function storageLine(places: ReadonlyArray<string>): Promise<string> {
+    const problems: Array<string> = [];
+    if (typeof journal?.stalled === 'function' && journal.stalled() === true) problems.push('append store stalled');
+    const pending = archivePending();
+    if (pending > 0) problems.push(`${pending} archive copies pending`);
+    const nowMs = clock();
+    if (places.length > 0 && typeof metrics?.summary === 'function' && metrics.summary('reply', 1).n > 0) {
+      const last = await journalLastWrite(places, nowMs);
+      if (last === null) problems.push('journal not written today while turns happen');
+      else if (nowMs - last > HOUR_MS) problems.push(`journal not written since ${utcMinute(last)} while turns happen`);
+    }
+    return problems.length > 0 ? `storage: ${problems.join('; ')}` : 'storage ok';
+  }
+
+  /** The `models.base` field unprobed (a member's card): every role's own model, the drawing model last. */
+  function modelsValue(cfg: Untyped): string {
+    const image = roleHead(IMAGE_ROLE, roleModel(cfg, 'drawing') ? imageModelLabel(cfg) : 'no model configured');
+    return [groupedModels(cfg, (role) => roleHead(role, roleModel(cfg, role) ?? 'no model configured')), image].join(
+      '\n'
+    );
+  }
+
+  /** The embedding role's probe: one embedding request of one input (the probe label), never
+   * counted against the daily cap. Never rejects. */
+  async function embedProbe(cfg: Untyped, promptText: string, timeoutMs: number): Promise<Untyped> {
+    const start = Date.now();
+    try {
+      const [vector] = await embedder.embed([promptText], {
+        config: cfg,
+        purpose: 'probe',
+        origin: 'status',
+        countAgainstDailyCap: false,
+        timeoutMs,
+      });
+      return { ok: true, ms: Date.now() - start, result: { dimensions: vector?.length } };
+    } catch (err) {
+      return { ok: false, ms: Date.now() - start, err };
+    }
+  }
+
+  /** Whether the provider lists the drawing model and how many endpoints serve it, from its public listing: one free
+   * GET, no generation, no cap counted, no state written. Whether the model draws is checked when it is set. Never
+   * rejects. */
+  async function imageListing(model: string, timeoutMs: number): Promise<string> {
+    if (!(images?.familyOf ?? imageFamilyOf)(model)) return 'unsupported family';
+    if (typeof llm?.modelEndpoints !== 'function') return 'not checked (the llm client has no listing)';
+    const start = Date.now();
+    let listing: Untyped;
+    try {
+      listing = await llm.modelEndpoints(model, { timeoutMs });
+    } catch (err) {
+      const name = objOf(err).name;
+      return `failed: ${name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'network'}`;
+    }
+    if (listing.status === 404) return 'not listed (HTTP 404)';
+    if (!listing.ok) return `failed: HTTP ${listing.status}`;
+    const endpoints = objOf(listing.json?.data).endpoints;
+    return `listed, ${Array.isArray(endpoints) ? endpoints.length : 0} endpoint(s), ${Date.now() - start} ms`;
+  }
+
+  /** The drawing model's line (`drawing · no model configured` when none is set). */
+  async function imageProbeLine(cfg: Untyped, timeoutMs: number): Promise<string> {
+    const model = roleModel(cfg, 'drawing');
+    if (!model) return roleHead(IMAGE_ROLE, 'no model configured');
+    return `${roleHead(IMAGE_ROLE, model)} · ${await imageListing(model, timeoutMs)}`;
+  }
+
+  /**
+   * The owner's `models.base` field: every base role's model, as resolved now, probed in parallel -- the chat
+   * roles with one minimal chat completion, the embedding role with one embedding request of one
+   * input, the drawing model with one free listing read -- one line per role in MODEL_GROUPS order, the
+   * per-purpose overrides (unprobed) after their role, the drawing line last. The memory role is named, never probed. Roles
+   * sharing a model and a provider route share a probe (a role-specific `llm.providerByModel` key
+   * routing one elsewhere makes it a probe of its own); each probe goes out as the first role that
+   * needs it. Never counted against the daily cap, never calibrated, never writes under data/.
+   * Logs `status: probed` with the counts.
+   */
+  async function probedModelsValue(cfg: Untyped): Promise<string> {
+    const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
+    const labels = hot.prompts?.labels;
+    const modelOf = new Map<string, string | undefined>(MODEL_ROLES.map((role) => [role, roleModel(cfg, role)]));
+    // An embedding probe is another kind of request: never shared with a chat probe of the same model.
+    const targetOf = (role: string): string => {
+      const model = modelOf.get(role);
+      const route = resolveProvider(model, { byModel: cfg?.llm?.providerByModel, fallback: cfg?.llm?.provider, role });
+      return `${role === EMBED_ROLE ? 'embed' : 'chat'}\n${model}\n${JSON.stringify(route ?? null)}`;
+    };
+    const promptText = labels?.status?.probe;
+    const canEmbed = typeof embedder?.embed === 'function';
+    const results = new Map<string, Untyped>();
+    if (promptText) {
+      const targets = new Map<string, { model: string; role: string }>();
+      for (const role of MODEL_ROLES) {
+        const model = modelOf.get(role);
+        if (role === EMBED_ROLE && !canEmbed) continue;
+        // The speech role has no chat completion behind it: its model is shown, never probed.
+        if (role === SPEECH_ROLE) continue;
+        if (model && !targets.has(targetOf(role))) targets.set(targetOf(role), { model, role });
+      }
+      await Promise.all(
+        [...targets].map(async ([target, { model, role }]) => {
+          if (role === EMBED_ROLE) {
+            results.set(target, await embedProbe(cfg, promptText, timeoutMs));
+            return;
+          }
+          const start = Date.now();
+          try {
+            const result = await llm.complete([{ role: 'user', content: promptText }], {
+              model,
+              role,
+              maxOutputTokens: 16,
+              countAgainstDailyCap: false,
+              skipCalibration: true,
+              timeoutMs,
+              origin: 'status',
+            });
+            results.set(target, { ok: true, ms: Date.now() - start, result });
+          } catch (err) {
+            results.set(target, { ok: false, ms: Date.now() - start, err });
+          }
+        })
+      );
+    }
+    const outcomes = [...results.values()];
+    log.info('status: probed', {
+      requests: outcomes.length,
+      ok: outcomes.filter((outcome) => outcome.ok).length,
+      failed: outcomes.filter((outcome) => !outcome.ok).length,
+      reason: promptText ? null : 'no-label',
+    });
+    const lineOf = (role: string): string => {
+      const model = modelOf.has(role) ? modelOf.get(role) : roleModel(cfg, role);
+      if (!model) return roleHead(role, 'no model configured');
+      const head = roleHead(role, model);
+      if (!promptText) return `${head} · skipped: label missing`;
+      if (role === EMBED_ROLE && !canEmbed) return `${head} · not checked (no embedding client)`;
+      if (role === SPEECH_ROLE) return `${head} · not checked (speech)`;
+      if (role === MEMORY_ROLE) return `${head} · not checked (memory)`;
+      return probeLine(head, results.get(targetOf(role)));
+    };
+    return [groupedModels(cfg, lineOf), await imageProbeLine(cfg, timeoutMs)].join('\n');
+  }
+
+  /** The limits field: the daily request rail's used/cap, the web search engine, then when it resets. */
+  function limitsValue(cfg: Untyped, data: Untyped): string {
+    const nowMs = Date.now();
+    const parts = [`requests ${usedOf(llmCountToday(data, nowMs), cfg?.llm?.maxRequestsPerDay)}`];
+    // The web search engine, one word: the chosen engine (web.quickSearch.engine) when a search can
+    // run (features.webLookup on, web.quickSearch.enabled not false, the engine ready), else `off`.
+    if (typeof lookup?.searchEngine === 'function') {
+      const on = objOf(cfg?.web?.quickSearch).enabled !== false && lookup.hasSearch();
+      parts.push(`search: ${on ? lookup.searchEngine() : 'off'}`);
+    }
+    return `${parts.join('\n')}\nresets 00:00 UTC`;
+  }
+
+  /**
+   * The owner's `keys.base` field (src/tools/operations/usage.ts#keyCostsLines, every word from
+   * `labels.status.costs`): the main API key's limit and spend and those of
+   * each other key a role's chain is on now (`llm.roleKeys`, read by role, never holding a key
+   * here) but the errand agents' (a key whose roles are all errandKeyRoles: no line, no read), free GETs in parallel (`llm.keyInfo`; `llm.probeTimeoutMs`, never counted against
+   * `llm.maxRequestsPerDay`), with the rolling 7- and 30-day sums of each key's roles from the
+   * usage accumulator. With the management key (the store's `management` key, `env.managementKey`,
+   * used for these GETs only) each key's activity is read alongside (`llm.activity` by its hash,
+   * one GET per key) and its last 7 and 30 days come from there instead; a failed activity read
+   * falls back.
+   * Logs `status: account read` with the outcomes' codes. `-` when the labels give no line.
+   */
+  async function keyCostsValue(cfg: Untyped): Promise<string> {
+    const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
+    const readKey = readAccount(typeof llm?.keyInfo === 'function' ? () => llm.keyInfo({ timeoutMs }) : null);
+    const allGroups: Array<Untyped> =
+      typeof llm?.roleKeys === 'function' && typeof llm?.keyInfo === 'function' ? llm.roleKeys() : [];
+    // The errand agents' key is not the core's: their spend is the costs.errands field.
+    const errandRoles = errandKeyRoles();
+    const agentsOnly = (group: Untyped): boolean =>
+      group.roles.length > 0 && group.roles.every((role: string) => errandRoles.has(role));
+    const agentRoles = allGroups.filter(agentsOnly).flatMap((group) => group.roles);
+    const groups = allGroups.filter((group) => !agentsOnly(group));
+    const readRoleKeys = Promise.all(
+      groups.map((group) => readAccount(() => llm.keyInfo({ timeoutMs, role: group.roles[0] })))
+    );
+    // The management key reads each key's activity by its hash, for these GETs only; never logged.
+    const managementKey = typeof env.managementKey === 'string' && env.managementKey ? env.managementKey : null;
+    const canActivity = managementKey && typeof llm?.activity === 'function' && typeof llm?.keyHash === 'function';
+    const readActivityOf = (hashOf: () => string): Promise<AccountRead> | null =>
+      canActivity ? readActivity(() => llm.activity({ apiKey: managementKey, keyHash: hashOf(), timeoutMs })) : null;
+    const activityReads = Promise.all([
+      readActivityOf(() => llm.keyHash()),
+      ...groups.map((group) => readActivityOf(() => llm.keyHash({ role: group.roles[0] }))),
+    ]);
+    const [key, roleReads, [mainActivity, ...roleActivity]] = await Promise.all([readKey, readRoleKeys, activityReads]);
+    const activityRead = [mainActivity, ...roleActivity].filter((outcome): outcome is AccountRead => outcome !== null);
+    log.info('status: account read', {
+      key: key.ok ? 'ok' : key.reason,
+      roleKeys: roleReads.length,
+      roleKeysOk: roleReads.filter((outcome) => outcome.ok).length,
+      activity: canActivity ? activityRead.length : 'not-set',
+      activityOk: activityRead.filter((outcome) => outcome.ok).length,
+      status: statusOfRead(key),
+    });
+    const today = utcDay(clock());
+    const sumsOf = (outcome: AccountRead | null | undefined) =>
+      outcome?.ok ? activitySums(outcome.data, today) : null;
+    // Rolling sums per key: a role key over its own roles, the main key over every other role.
+    const sums = typeof usage?.sumDays === 'function';
+    const windowsOf = (filter: { only?: ReadonlyArray<string>; except?: ReadonlyArray<string> }) =>
+      sums ? { last7: usage.sumDays(7, filter), last30: usage.sumDays(30, filter) } : null;
+    const taken = [...groups.flatMap((group) => group.roles), ...agentRoles];
+    const roleKeys = groups.map((group, i) => ({
+      roles: group.roles,
+      key: roleReads[i],
+      activity: sumsOf(roleActivity[i]),
+      windows: windowsOf({ only: group.roles }),
+    }));
+    const lines = keyCostsLines({
+      key,
+      activity: sumsOf(mainActivity),
+      labels: hot.prompts?.labels,
+      windows: windowsOf({ except: taken }),
+      roleKeys,
+    });
+    return lines.length > 0 ? withKeyLines(lines, { llm, hot }) : '-';
+  }
+
+  /** The owner's `costs.base` field (src/tools/operations/usage.ts#roleCostsLines): today's requests
+   * per role from the usage accumulator; `-` when the labels give no line. */
+  function roleCostsValue() {
+    const rows = typeof usage?.byRole === 'function' ? usage.byRole() : [];
+    const lines = roleCostsLines({ rows, labels: hot.prompts?.labels });
+    return lines.length > 0 ? lines.join('\n') : '-';
+  }
+
+  /** The owner's `costs.errands` field (src/tools/operations/usage.ts#agentCostsLines): each errand agent's
+   * runs, tokens and estimated dollars today and over the last 7 and 30 days, from the place's
+   * task store (src/errands/store.ts#costs; none without the errands or a place). An agent with
+   * no figures shows no runs. `-` when the labels give no line. */
+  function errandCostsValue(): string {
+    const tasks = typeof errands?.store === 'function' ? errands.store() : null;
+    const agents = agentNames();
+    const totals = typeof tasks?.costs === 'function' ? tasks.costs(agents) : {};
+    const lines = agentCostsLines({ agents, totals, labels: hot.prompts?.labels });
+    return lines.length > 0 ? lines.join('\n') : '-';
+  }
+
+  /** The owner's `inner` field: the inner life's status, `-` without it. */
+  function innerValue(): string {
+    if (typeof env.inner?.status !== 'function') return '-';
+    // The core role's tokens today (prompt, cached, completion), from the same accumulator costs.base reads.
+    const row =
+      typeof usage?.byRole === 'function' ? usage.byRole().find((entry: Untyped) => entry.role === CORE_ROLE) : null;
+    const tokens = row
+      ? { prompt: row.promptTokens, cached: row.cachedTokens, completion: row.completionTokens }
+      : null;
+    const lines = innerLines(env.inner.status(), hot.prompts?.labels, { tokens });
+    return lines.length > 0 ? lines.join('\n') : '-';
+  }
+
+  /** The record line: its messages (the distinct message ids), its first day to today, and the share of those days
+   * with lines: the record's own `stats`. */
+  async function recordLine(placeId: string, today: string): Promise<string> {
+    if (typeof record?.stats !== 'function') return 'record: not available';
+    const { messages, days, first } = await record.stats(placeId);
+    if (first === null) return `record: ${messages} messages`;
+    const since = Math.max(1, daysBetween(first, today));
+    return `record: ${messages} messages · ${first}..${today} · ${percent(days, since)} of days have lines`;
+  }
+
+  /** The meaning index line: `off` unless features.meaningSearch and features.embedIndex are both
+   * exactly true; else its rows (the place's and every private layer's), the share of the record
+   * messages of the last `CATCH_UP_HOURS` it holds and the day of the oldest one missing. */
+  async function indexLine(placeId: string): Promise<string> {
+    if (typeof embedQueue?.indexSummary !== 'function') return 'index: not available';
+    const { rows } = await embedQueue.indexSummary(placeId);
+    const parts = [`index: ${rows} rows`];
+    if (typeof embedQueue.coverage === 'function') {
+      const hours = CATCH_UP_HOURS;
+      const found = await embedQueue.coverage(placeId, { hours });
+      parts.push(`${percent(found.indexed, found.messages)} of record messages indexed (last ${hours} h)`);
+      parts.push(found.oldestMissing ? `oldest missing ${String(found.oldestMissing).slice(0, 10)}` : 'none missing');
+    }
+    return parts.join(' · ');
+  }
+
+  /** The archive line: its entries by event (ARCHIVE_EVENTS order), and the days the oldest and
+   * the newest of them were observed. */
+  async function archiveLine(placeId: string): Promise<string> {
+    if (typeof archive?.iterate !== 'function') return 'archive: not available';
+    const byEvent = new Map<string, number>();
+    let entries = 0;
+    let oldest: string | null = null;
+    let newest: string | null = null;
+    for await (const entry of archive.iterate(placeId)) {
+      entries += 1;
+      const event = typeof entry?.event === 'string' ? entry.event : 'other';
+      byEvent.set(event, (byEvent.get(event) ?? 0) + 1);
+      const day = String(entry?.observedAt?.date ?? '').slice(0, 10);
+      if (!DAY_RE.test(day)) continue;
+      if (oldest === null || day < oldest) oldest = day;
+      if (newest === null || day > newest) newest = day;
+    }
+    const order = (event: string): number =>
+      ARCHIVE_EVENTS.includes(event) ? ARCHIVE_EVENTS.indexOf(event) : ARCHIVE_EVENTS.length;
+    const kinds = [...byEvent].sort(([a], [b]) => order(a) - order(b)).map(([event, count]) => `${event} ${count}`);
+    const parts = [`archive: ${entries} entries`];
+    if (kinds.length > 0) parts.push(kinds.join(', '));
+    if (oldest) parts.push(`observed ${oldest}..${newest}`);
+    return parts.join(' · ');
+  }
+
+  /** The profiles line: their count, the share with a portrait (`character`), their episodes
+   * (total and per profile), details, aliases and real names set. */
+  function profilesLine(): string {
+    const profiles = store.listUserProfiles() ?? [];
+    let portraits = 0;
+    let episodes = 0;
+    let details = 0;
+    let aliases = 0;
+    let realNames = 0;
+    for (const profile of profiles) {
+      if (typeof profile?.character === 'string' && profile.character.trim()) portraits += 1;
+      episodes += countOf(profile?.episodes);
+      details += countOf(profile?.details);
+      aliases += countOf(profile?.aliases);
+      if (typeof profile?.realName?.name === 'string' && profile.realName.name) realNames += 1;
+    }
+    const n = profiles.length;
+    const perProfile = n > 0 ? Math.round((episodes / n) * 10) / 10 : 0;
+    return [
+      `profiles: ${n}`,
+      `${percent(portraits, n)} with a portrait`,
+      `${episodes} episodes (${perProfile} per profile)`,
+      `${details} details`,
+      `${aliases} aliases`,
+      `${realNames} real names set`,
+    ].join(' · ');
+  }
+
+  /** The server notes line: lore entries, lessons (`learned`), self facts and in-jokes. */
+  function serverNotesLine(placeId: string): string {
+    const place = store.getPlace(placeId) ?? {};
+    return `server notes: ${countOf(store.getLore(placeId))} lore entries · ${countOf(place.learned)} lessons · ${countOf(place.self)} self facts · ${countOf(place.injokes)} in-jokes`;
+  }
+
+  /** The channels line: the channels with notes (a purpose, topics or a tone) of those seen. */
+  function channelsLine(placeId: string): string {
+    const channels = store.listChannels(placeId) ?? [];
+    const noted = (channels as Array<Untyped>).filter((channel) =>
+      ['purpose', 'topics', 'tone'].some((key) => typeof channel?.[key] === 'string' && channel[key].trim())
+    ).length;
+    return `channels: ${noted} with notes / ${channels.length} seen (${percent(noted, channels.length)})`;
+  }
+
+  /** The recent lines (from the oldest `at` to the newest) and the participation fragments (from
+   * the first message of the oldest to the last message of the newest). */
+  function recentLine(placeId: string): string {
+    const lines: Array<Untyped> = store.getRecent?.(placeId)?.lines ?? [];
+    const at = lines.map((line: Untyped) => line?.at as unknown);
+    return datedLine('recent lines', lines.length, at, at);
+  }
+
+  function participationLine(placeId: string): string {
+    const episodes: Array<Untyped> = store.getParticipation?.(placeId)?.episodes ?? [];
+    return datedLine(
+      'participation fragments',
+      episodes.length,
+      episodes.map((episode: Untyped) => episode?.startAt as unknown),
+      episodes.map((episode: Untyped) => episode?.lastAt as unknown)
+    );
+  }
+
+  /** One coverage line through `compute`; `<name>: unreadable` (and a warn with the code) when it throws. */
+  async function safeLine(name: string, compute: () => Promise<string> | string): Promise<string> {
+    try {
+      return await compute();
+    } catch (err) {
+      log.warn('status: coverage failed', { name, code: objOf(err).code ?? null });
+      return `${name}: unreadable`;
+    }
+  }
+
+  /** The memory database's one line (words from `labels.status.memoryDb`; a missing or blank label leaves the line out). */
+  function memoryDbLine(): string | null {
+    if (typeof memoryDb?.status !== 'function') return null;
+    return memoryDbStatusLine(memoryDb.status(), hot.prompts?.labels);
+  }
+
+  /** The memory field (the coverage of every kind of memory), one line per kind. */
+  async function computeMemory(placeId: string): Promise<string> {
+    const today = utcDay(clock());
+    return [
+      await safeLine('record', () => recordLine(placeId, today)),
+      await safeLine('index', () => indexLine(placeId)),
+      await safeLine('archive', () => archiveLine(placeId)),
+      await safeLine('profiles', () => profilesLine()),
+      await safeLine('server notes', () => serverNotesLine(placeId)),
+      await safeLine('channels', () => channelsLine(placeId)),
+      await safeLine('recent lines', () => recentLine(placeId)),
+      await safeLine('participation fragments', () => participationLine(placeId)),
+      memoryDbLine(),
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  /** The place's memory field, computed at most once per COVERAGE_CACHE_MS (the cached text in between). */
+  async function memoryValue(placeId: string): Promise<string> {
+    // The chat window is read live (a config edit shows at once), ahead of the cached coverage.
+    const size = hot.config?.context?.channelMessages;
+    const windowLine = Number.isFinite(size) ? `chat window: last ${size} messages in the active channel` : null;
+    const withWindow = (value: string): string => [windowLine, value].filter(Boolean).join('\n');
+    const cached = coverageCache.get(placeId);
+    if (cached && clock() - cached.at < COVERAGE_CACHE_MS) return withWindow(cached.value);
+    const value = await computeMemory(placeId);
+    coverageCache.set(placeId, { at: clock(), value });
+    return withWindow(value);
+  }
+
+  /** The speed field: each metric's median and mean over the last 24 h with the sample count in
+   * brackets, `-` without a sample. */
+  function speedValue(): string {
+    if (typeof metrics?.summary !== 'function') return 'not available';
+    return SPEED_METRICS.map((name) => {
+      const { n, median, mean } = metrics.summary(name, 24);
+      return n > 0 ? `${name}: median ${duration(median)} · mean ${duration(mean)} (${n})` : `${name}: -`;
+    }).join('\n');
+  }
+
+  const placeNameOf = (placeId: string): string => {
+    const name = (store as { getPlace(id: string): { name?: unknown } | null }).getPlace(placeId)?.name;
+    return typeof name === 'string' && name ? name : placeId;
+  };
+
+  /** The memory field: the one place's coverage as it is, every place's under its name when there are several. */
+  async function memoryOfPlaces(places: ReadonlyArray<string>): Promise<string> {
+    if (places.length === 0) return 'no place known yet';
+    const [only] = places;
+    if (places.length === 1 && only !== undefined) return memoryValue(only);
+    const parts = await Promise.all(
+      places.map(async (placeId) => `${placeNameOf(placeId)}\n${await memoryValue(placeId)}`)
+    );
+    return parts.join('\n\n');
+  }
+
+  /**
+   * The speed field's last line: today's missed-answer figures from the journal's `answer`
+   * records (src/behavior/missed.js#missedCounts). Null -- no line -- without a journal that
+   * reads, without a place, or with features.journal off; `missed: unreadable` when the read fails.
+   */
+  async function missedLine(places: ReadonlyArray<string>): Promise<string | null> {
+    if (places.length === 0 || typeof journal?.read !== 'function') return null;
+    try {
+      const records: Array<Untyped> = [];
+      for (const placeId of places)
+        records.push(
+          ...(await journal.read(placeId, { day: utcDay(clock()), kind: 'answer', n: Number.MAX_SAFE_INTEGER }))
+        );
+      return missedStatusLine(missedCounts(records));
+    } catch (err) {
+      log.warn('status: missed unread', { code: objOf(err).code ?? null });
+      return 'missed: unreadable';
+    }
+  }
+
+  /**
+   * The status card as its fields (`{ fields: [{ name, value }] }`), the fields in
+   * STATUS_FIELDS order, one item per line in each, a field with no line `-`; `owner` false leaves
+   * out the keys, costs, memory and speed fields and the storage line (and sends no account read), and
+   * names the models without probing them. With `field` (one of STATUS_FIELDS this caller may see,
+   * or `features`) the card holds that field alone and only its work runs (no probe, no account read, no
+   * coverage for another field); any other `field` gives the whole card; `offline`, NETWORK_FIELDS left out. Reads
+   * the freshest data/ even mid-pause.
+   */
+  async function cmdStatusCard({
+    owner,
+    field = null,
+    offline = false,
+  }: CardRequest): Promise<{ fields: Array<CardField> }> {
+    freshenIfPaused();
+    const cfg = hot.config;
+    const data = store.state.data ?? {};
+    const places: ReadonlyArray<string> = store.topPlaces?.() ?? [];
+    const shownTo = (name: string): boolean => owner || !OWNER_FIELDS.has(name);
+    const visible = STATUS_FIELDS.filter((name) => shownTo(name) && !(offline && NETWORK_FIELDS.has(name)));
+    // The offline card names the models and probes none.
+    const probe = !offline;
+    const shown: Array<string> = field !== null && visible.includes(field) ? [field] : [...visible];
+    // Each field's work, run only for the fields shown, all at once: the account reads go out
+    // alongside the model probes.
+    const compute: Record<string, () => Promise<string> | string> = {
+      // The state, then the gateway connection, then the uptime.
+      state: async () =>
+        [
+          stateValue(data),
+          owner ? await storageLine(places) : null,
+          connectionValue(),
+          `uptime ${span(process.uptime() * 1000)}`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      tasks: () => longTasksValue(),
+      // The owner's card probes every model; a member's, or one without an llm client, names them.
+      'models.base': () =>
+        owner && probe && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg),
+      'keys.base': () => keyCostsValue(cfg),
+      'costs.base': () => roleCostsValue(),
+      'models.errands': () => agentModels(cfg),
+      'costs.errands': () => errandCostsValue(),
+      inner: () => innerValue(),
+      limits: () => limitsValue(cfg, data),
+      memory: () => memoryOfPlaces(places),
+      speed: async () => [speedValue(), await missedLine(places)].filter(Boolean).join('\n'),
+    };
+    const values = await Promise.all(shown.map(async (name) => (await compute[name]?.()) ?? '-'));
+    const fields = shown.map((name, i) => ({ name, value: fitField(values[i] || '-') }));
+    return { fields };
+  }
+
+  return { cmdStatusCard };
+});
+
+defineOp({
+  name: 'status.show',
+  rights: { kind: 'read' },
+  run: async (args, ctx) => {
+    const { env } = ctx;
+    const owner = isOwnerCaller(env.hot.config, ctx);
+    const field = typeof args.field === 'string' ? args.field : null;
+    // The owner's console asks for the whole card with nothing read over the network (`offline`).
+    const offline = args.offline === true;
+    const card = await handlers(ctx.env).cmdStatusCard({ owner, field: offline ? null : field, offline });
+    return { text: '', fields: card.fields };
+  },
+});

@@ -1,0 +1,119 @@
+# Diary
+
+The `diary` service turns selected experience into a dated entry, with an optional illustration and publication. The entries are part of the persona's memory and travel with its `data/` directory.
+
+An entry records its text and media references in the database. Original media lives under `data/media/diary/`. Copying only the database leaves these references without their files, so a backup copies the whole `data/` folder.
+
+The group-memory context of an entry excludes DMs and internal material. With `context.memory.openPrivate` set to `true` (default `false`) the diary turn and its stored facts read every audience instead, and the entry is still stored as a group row, so its mirrors take its copy as they take any other. A mirror is a publication destination, not another copy of the persona's memory.
+
+## The diary turn
+
+An entry takes one turn of the persona, built on the [turn frame](prompt-contract.md#diary-on-the-frame) and nowhere. `postEntry` in `src/behavior/diary.ts` starts a turn of the mode `diary` with no chat, so the turn reads no chat history and journals its turn under the persona. The turn runs on the service lane of the persona's [attention](core.md#the-personas-attention): a chat turn neither holds it back nor waits for it. A slot that falls due during a heartbeat turn ends `busy` and is tried again at the next tick, within 30 minutes of the slot. `turnContextOf` in `src/turn/inputs.ts` issues it the interface's `group` context, the audience of the mirrors the entry is copied to, so the turn reads no internal or private entry or memory. A turn issued an `internal` context instead stores its entry with scope `internal` and a `publicationBoundary`, and no mirror publishes it.
+
+Before the request, `prepareDiary` in `src/turn/diary.ts` draws the kind. A kind that takes a scene asks the director for one, and any other kind reads the stored facts of the days since the last entry. The director gives no scene when its request fails, its answer fails, or no set works. The slot then ends `skip` with the reason `no-scene`, no turn of the persona runs, and the log line `diary: skip` names each failure. A request or token cap on the director refuses the turn.
+
+The request is a service turn built as the heartbeat's ([inner life](inner-life.md#heartbeat)). `<memory>` holds the people and places of the service collector, read under the turn's context, and the request holds no `<meanwhile>`. `<inner>` holds the persona's day since the last entry in `<my_day>`, the calls of today in `<calls>`, the newest `diary.writerEntries` (30) entries in `<diary>`, newest first, then `<told>` with every entry of the turn's own kind that `<diary>` leaves out, oldest first and at most 150 of them, the oldest left out first, `<kind>` with the kind's name, and `<scene>` with the scene for a kind that takes one, the three scenes of a `randomSet` one after another. The owner's topic follows in `<topic>`, and a kind with no scene gets the `<stored_facts>`. Two or more mirrors add the list to choose among, and `<feedback>` names the audiences the persona has not heard were refused. The entries of `<diary>` are read from the `diary` table by `readDiary` in `src/memory/db/diary-past.ts`, and no mirror place and no message is read for them.
+
+The `<task>` is `prompts/diary/task.md`, the text every kind shares, followed by the file of the entry's kind, `prompts/diary/kinds/<kind>.md`, such as `prompts/diary/kinds/selfPicture.md`. An entry of a kind with no picture is voiced at the chance `diary.voiceChance` (default `0.1`, `0` voices none) when the tools the turn offers hold `voice.say`, which they do only while the role `speech` has a route. A voiced entry's task ends with `prompts/diary/voice.md`, and an entry of the voice message alone, with no text message, is recorded and ends `spoke`. A deployment replaces the common text or one kind's file with a file of the same path in its own prompts folder. A kind whose file is missing gets the common text alone.
+
+The turn takes every tool whose definition declares the effect `read`, the set a heartbeat looks with, so the persona searches, reads memory and looks at pictures in the turn. It also takes `draw.create`, `voice.say`, `errand.server`, `errand.scout`, `errand.code` and `errand.read`, and any other call is refused `diary-draw-only`. A call of an errand tool waits for the errand's end within `diary.loop.timeBudgetMs` (default `1000000`), and its answer carries the result, which the next request shows. `draw.create` and `voice.say` post nothing. Their picture or voice message is kept for the entry, which its mirrors publish. The persona's eyes look at a staged picture from its bytes, and the result of the call says what they saw. That result gives the turn one more request, so the entry can speak of the picture as it came out. A place named in such a call is set aside by `planToolCall` in `src/turn/skill-calls.ts`, so the call is checked and kept exactly as one without it, and the log line `diary: named place set aside` names the skill. The steps of the turn are `diary.loop.maxSteps` (default `50`).
+
+A turn that holds the persona's speech records an entry and ends `spoke`. One whose last answer is `<skip/>` and which held no speech records none and ends `skip`, the reason `nothing-to-do`, whatever its calls did before (`outcomePhase` in `src/turn/phases/outcome.ts`). The scheduler in `src/behavior/diary.ts` counts a slot as posted only for `spoke`.
+
+## Kinds
+
+The code draws the kind of an entry before anything else. `drawWeights` in `src/behavior/diary.ts` scales the weight of each kind in `DIARY_KINDS` by the kind's share of all the weights over its use among the newest 150 entries (`DEFAULT_HISTORY_POSTS`), where its use is its count over the entries in that window. The factor stays between 0.25 and 4, so a kind no entry in the window used gets 4. The kind of the newest entry then counts a quarter, which keeps the same kind twice in a row possible and rare. `pickKind` draws one kind from these weights with the turn's `rng`. While a post may carry no picture, the picture kinds (`DEFAULT_PICTURE_KINDS`) stay out of the draw. A kind the owner forces for one post replaces the draw. The journal line `diary: prepared` carries `drawn: true` for a drawn kind.
+
+| Kind | Weight | Scene |
+|---|---|---|
+| `story` | 3 | one |
+| `selfPicture` | 3 | one |
+| `picture` | 2 | one |
+| `photoset` | 1 | one |
+| `randomSet` | 1 | three |
+| `thought` | 2 | none |
+| `people` | 2 | none |
+| `news` | 2 | none |
+| `facts` | 1 | none |
+| `meme` | 1 | none |
+
+An older database stores an invented moment under the kind `status`, which the code does not draw. Schema version 68 gives those entries the kind `story`. `tests/src/memory/db/schema.test.ts` opens a database written at version 67.
+
+## The director
+
+The director in `src/behavior/diary-scene.ts` builds a scene for one entry, a place at the real moment with its circumstances and atmosphere and nothing the persona does or feels. `drawSceneSets` draws eight seed sets with `pickSeeds` in `src/behavior/seeds.ts`, one line of each family in each set. `buildScene` sends one request on the model role `director` with the purpose `diary-scene`, which `models.byPurpose` may pin. Its system message is `prompts/diary/scene.md` alone, and its user message holds the kind, the sets and the moment, as the [prompt contract](prompt-contract.md) describes. The result names the sets offered and either the set chosen, the lines kept and the scene, or the reason the answer failed. A failed request is `request-failed` and a blank prompt `no-prompt`. A `randomSet` asks three requests at once, whose sets come from one draw and so share no line while a family has a line left for each, and one scene of the three is enough for its turn.
+
+The role `director` has its own chain in `models.routes`, a key of `keys.json` with a model or a connected `claude` or `codex` harness with a model, each with an effort. With no route set the role falls back to the chain and the model of `analyzer`. On a key the request carries the strict response format of the answer. A harness enforces no format, so the JSON object is read out of the text around it. `/model set director <route>` sets the chain, and the mechanics step of `neptunia setup` offers it from the configured keys and the connected harnesses while the diary is on.
+
+`scripts/diary-scenes.ts` runs the director alone, to calibrate the wording of `prompts/diary/scene.md`. It reads the configuration, the keys and the stored entries of the data folder `NEPTUNIA_DATA_DIR` and writes nothing there. Its requests carry the origin `replay` and count against no daily cap. `--kinds` picks kinds among the five, `--count` the runs per kind (default `3`), `--seed` the random source, `--prompts` a directory laid over the prompts as `scripts/replay.ts --prompts` lays it, and `--out` a Markdown report. `--director <key>/<model>[:<effort>]` or `--director harness:<claude|codex>/<model>[:<effort>]` replaces the role's chain for one run. `scripts/replay.ts --diary-day --diary-kind <kind>` runs whole entries of one kind, the director and the persona's turn, on the runner `--inner` uses, so the turn reads memory, the intentions and the place handles of the data folder, read only. Its report shows each call of the persona with its status and code. `--draw none` there tells the persona each picture was not drawn, so a text is calibrated without the drawing model, and `--show-request` writes the persona's first request of each sample to a file under `--out` that the report names.
+
+## Seeds
+
+The seeds of the director live in `prompts/diary/seeds/`, one file per family, one seed per line: `place.md`, `setting.md`, `detail.md`, `activity.md`, `subject.md`, `twist.md` and `where.md`. `DIARY_SEED_FAMILIES` in `src/behavior/diary-scene.ts` names them in that order, because `prompts/diary/scene.md` names the lines of a set by position. A deployment replaces one family with a file of the same path in its own prompts folder. The sets of one draw share no line of a family while the family has a line left for each of them, and a family with fewer lines than sets repeats.
+
+An entry keeps the lines each of its scenes kept, as `scenes: [{ used }]` in its `extra`. `recordEntry` in `src/behavior/diary-turn.ts` puts them on the post, and the one writer stores them with the entry. `usedSeedLines` collects the kept lines of the newest 150 entries, and the next draws leave them out. A family whose every line is taken is drawn from whole. An entry stored with a `plan` keeps it, and the lines of the combination its `seed` names stay out of the draws in the same way. `/memory diary show <id>` prints both with the rest of `extra`.
+
+An entry also keeps `turnId` in its `extra`, the id of the diary turn that wrote it. `recordEntry` takes it from the turn runner. An entry recorded before the field has no `turnId`.
+
+`<diary>` shows a past picture post by its scene, on one line and whole. `sceneOf` takes the scene from the entry's drawing prompt, the persona's own words for the picture, else from the `plan.brief` of an entry stored with one. A set stores the prompt of its first picture and the count of its pictures, and no prompt of the others. A picture the persona drew follows its scene with the marks of the entry's first picture, read from its `media` row with each person's handle (`readDiary` in `src/memory/db/diary-past.ts`).
+
+## Mirrors
+
+The diary is one persona collection (`store.getDiary`, `store.setDiaryPosts`), and an entry needs no server: `createDiary` takes none, and a turn of an entry names none. A mirror is one known place that receives the persona's diary entries, and there may be none or many. The owner manages them with `/mirror` ([commands](cli.md#mirrors)), and `src/behavior/mirror-desk.ts` writes every change through the memory writer (kind `mirror`, `src/memory/db/mirror-config.ts`). Every destination is an interface-qualified place id, or a bare native id that one place alone holds. Two interfaces sharing the native id make it `ambiguous-place`, and a root or a private chat is `unknown-place`. An interface that is not connected delays delivery and changes no configuration.
+
+Only the mirrors' publisher writes in a mirror's place, and it sends through each interface's own link. The persona's writes there are refused with `diary-mirror` when they make the call, in the posting check of `src/tools/operations/shared.ts`. That check covers `message.create`, `message.edit`, `draw.create` and `voice.say`, and the `<msg>` of an inner turn, which becomes a `message.create` call. It runs before a wake's hold keeps a post, so nothing waits for delivery and no `feedback` wake follows. A reaction there passes. The core's outbound port in `src/behavior/mirror.ts` refuses every other send to a mirror's place with the same code. `intention.set` and `intention.update` (`src/tools/operations/intention.ts`) refuse a mirror's place as the place an intention begins in and store nothing. An `intention.set` with no place begins in the chat of the call, and it is refused the same way when that chat is a mirror's place. The entry of a mirror's place in `<places>` and in the answer of `memory.read` carries `memory.diary`, which tells the persona that each entry of their diary is copied there and that nothing else of theirs goes there.
+
+Configuration and delivery history live apart. `/mirror remove` marks the `mirrors` row and keeps its `publications` rows, so adding the same destination again reuses the row and sends nothing already delivered. `/mirror configure <mirror> --enabled false` keeps everything and holds what is queued until the mirror is enabled again. A repeated add answers the same mirror.
+
+## Delivery
+
+`createMirrors` in `src/behavior/mirror.ts` gives each entry one `publications` row per enabled mirror its [audience](#audience) allows, keyed `diary:<entry id>:<place id>`. The publisher claims the row through the writer before anything reaches the interface, so the timer's drain, the reconnect's drain and the turn's own publish send it once between them. A claim holds a claimant and a time (`src/memory/db/publication-delivery.ts`). A retired row is never claimed, so it never goes out. Once a publication of an entry to a place is retired, whatever its key, the writer refuses to queue that entry there again with `retired`, and every scan passes over it. A copy of the entry queued there under another key is refused at send time and stays `failed` with code `retired`, its delivery kept, and the drain goes on to the next row. The retired row keeps its status, its receipts and its delivery.
+
+| Status | Meaning |
+|---|---|
+| `queued` | Waiting for its interface or its turn. |
+| `sending` | Claimed by a publisher. |
+| `sent` | Delivered, with its receipts, or recorded as published by the owner. |
+| `failed` | The interface refused it, with its code and whether a retry can help. |
+| `incomplete` | A media file is missing, so nothing was posted (code `media-missing`). |
+| `unknown` | Nobody knows what reached the platform. `/mirror status` calls it `uncertain`. |
+
+An entry goes out as segments: the voice message, each of the persona's messages, then each message of pictures. Each segment has its own idempotency key, stable across retries, and its receipt is written as soon as the segment is out. A retry resumes at the segment that stopped, under the same key. Receipts name messages and attachments per entry, destination and segment, and a remote message count never stands in for one, since one entry can be several messages and a post can be deleted.
+
+A drain runs on the scheduler's 30-second tick and when an interface connects. One mirror's failure stops none of the others, and an old failure holds back no new entry.
+
+A retryable failure goes out again at the next drain, while a certain refusal stays `failed` and costs no further sends. A missing file holds the whole entry until the file is back, and the next drain then sends it whole. An entry stored after a mirror's registration with no publication there was lost between its storing and its publish, for instance to a crash, and the next drain queues it as a new entry.
+
+### Uncertain sends
+
+A send that answers `unknown`, throws, or runs past `mirrors.sendTimeoutMs` is uncertain, and so is a claim that outlives `mirrors.claimLeaseMs` with no word from its publisher. The later segments stay pending and nothing is sent again without proof. Three things settle it. A receipt that arrives late is kept. An adapter that declares `capabilities().reconcile` looks the segment up by its key, which either finds it (`sent`) or proves it absent (it goes out once more), and a lookup that fails leaves it uncertain. The owner settles what no adapter can: `/mirror reconcile --entries` records it as published, and `/mirror reconcile --absent --entries` says it never arrived and queues it again, with the owner's name kept on the row.
+
+Exactly-once delivery holds only as far as the platform can prove it. Between a platform's accepting a message and the core's writing its receipt, a crash leaves the send uncertain, and a platform with no lookup leaves that to the owner. A Discord interface finds only the sends of its current process, so a send from before its restart stays uncertain.
+
+## Audience
+
+The persona chooses which mirrors get an entry. With two or more mirrors enabled, the turn's `<inner>` carries `<publication_places>`, one line per mirror with its `place:<place id>` token, its name and its `interface:<iface>` token. `publicationPlaces` in `src/memory/db/diary-audience.ts` reads the mirrors from memory, and the persona's `<audience>` is checked against the same list, so a place that is no mirror is `audience-unknown-place`. With one mirror or none the block is absent. The answer holds at most one `<audience>` tag, and `recordEntry` in `src/behavior/diary-turn.ts` stores the result on the post as `publicationAudience`, in the `extra` column of the `diary` row.
+
+| Stored `publicationAudience` | Reaches |
+|---|---|
+| `{ kind: 'unrestricted' }` | Every mirror, mirrors added later included. Leaving the tag out records this. |
+| `{ kind: 'interface', iface }` | Every mirror on that interface. |
+| `{ kind: 'place', placeId }` | The place and its descendants through `parent_id`. |
+
+Places compare by their interface-qualified id, so the same native id on two interfaces stays two places. An unknown or malformed value keeps the entry in memory and publishes it nowhere. The turn's `result.diary.audience` answers `{ ok: false, code }` with `audience-unknown-place`, `audience-unknown-interface` or `audience-malformed`, the post stores `{ kind: 'invalid', code }`, and each mirror's outcome is `failed` with `audience-invalid`. Two different values in one turn are malformed, and the tag counts from every answer of the turn.
+
+A refusal reaches both people concerned. `/mirror status` lists the entry under each mirror as `blocked` with `audience-invalid` and the reason code (`audienceBlocked`) for as long as the post stores that value. The next diary request names the post and the reason in `<feedback>`. `markRefusalsTold` in `src/behavior/diary-turn.ts` marks the post `told` once the model answers that request, so a failed request tells the persona again and an answered one never does. An entry under a saved `publicationBoundary` shows only in a request whose past posts hold it.
+
+`storedDiaryPublicationRefusal` in `src/memory/db/publish.ts` reads the stored row in four places: when the publisher queues, in the memory writer's `prepare`, in a backfill scan and right before a send. A mirror the entry leaves out gets no row, and its outcome is `failed` with `audience-excluded`. A row queued before a narrowing ends `failed` with the same code and sends nothing, and a backfill passes over such an entry without blocking the ones after it.
+
+The audience only narrows the trusted restrictions. A saved `publicationBoundary` applies first, and an entry that is neither group material nor under a boundary reaches nothing, whatever it names. A row with no `publicationAudience` predates the choice and stays as it is. An old group entry goes only to its own `scope_iface`. An old entry with no interface, an internal scope or a private scope goes nowhere unless a saved boundary allows its origin.
+
+No edit recalls a copy that already went out. `/mirror status` lists such an entry as delivered outside its audience (`deliveredOutsideAudience`), and `publicationState` answers `outsideAudience: true`, apart from the rows the audience stops.
+
+## Backfill
+
+Enabling backfill on a mirror captures a high-water mark, the newest entry at that moment, and makes the first old entry due at once. Each interval then sends the oldest eligible entry by persisted order (`at_ms`, `position`, `id`). After downtime one due entry goes out and the next is scheduled from the current time, so missed intervals never burst. Entries written later go out at once as new ones and move neither the mark nor the due time. Backfill turns itself off when nothing up to the mark is left, and at once when nothing is eligible.
+
+Receipts, claims in flight, uncertain sends and retired publications take an entry out of the scan, and the next slot goes to the next eligible entry. An old entry that fails or lacks a file blocks the later old entries of that mirror, shown as `blocked` in `/mirror status`, and is retried at the next slot. `/mirror reconcile` unblocks an entry that can never go out. Disabling a mirror or turning backfill off keeps the mark and the progress, and turning it on again continues from there. Before backfilling a channel that already holds old posts, record them with `/mirror reconcile --through <entry id>`: an old post with no entry mapping is no receipt.
+
+The diary prompts supply the writing and drawing instructions. Personal replacements belong in `data/prompts/`; keep the placeholders expected by the [prompt contract](prompt-contract.md). Settings and their readers are listed in [configuration](configuration.md). Start implementation inspection in [src/behavior/diary.ts](../src/behavior/diary.ts) and [src/behavior/mirror.ts](../src/behavior/mirror.ts).

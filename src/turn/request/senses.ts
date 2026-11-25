@@ -1,0 +1,359 @@
+// What the persona can sense and do in a turn, as its request says it: the `<senses>` lines in their stable and
+// per-turn halves, and the `<skills>` catalogue of a turn whose question was what the persona can do. buildRequest
+// (src/behavior/prompt.js), their skill reads (src/tools/operations/skills.ts) and the tool round (src/turn/tool-round.ts)
+// call them.
+
+import { opensPrivate } from '../../memory/open-private.ts';
+import { isPlainObject } from '../../config.ts';
+import { fill } from '../../format.ts';
+import { gifWatchBlocker } from '../../memory/index.ts';
+import { ROLE_ABILITY, offRoles, roleOn } from '../../llm/roles.ts';
+import { collectPictures, collectVideos } from '../../media/classify.ts';
+import { IN_TURN_TOOLS, byFamily } from '../../tools/discovery.ts';
+import type { Base } from './head.ts';
+import type { Labels, RequestConfig, RequestInput } from './types.ts';
+
+/** The two halves of `<senses>`: the lines that read only the config, and the lines of this turn. */
+export type Senses = { stable: string; turn: string };
+
+/** The labels the `<senses>` lines read. */
+type SensesLabels = Pick<Labels, 'senses' | 'tools'>;
+
+/** What renderSenses needs to know about the turn beyond the config. */
+export type SensesOptions = {
+  searchAvailable?: boolean;
+  recallAvailable?: boolean;
+  drawOn?: boolean;
+  dmChat?: boolean;
+  interfaceText?: string | null;
+  gifWatching?: boolean;
+  diaryChannel?: string | null;
+  toolsGranted?: Array<string>;
+  /** The messages the request shows: the media of an off role among them is told once (mediaOffLines). */
+  window?: ReadonlyArray<object>;
+};
+
+/** One argument of a skill (src/tools/discovery.ts#skillArgs). */
+type SkillArg = {
+  readonly name: string;
+  readonly values?: Array<unknown>;
+  readonly more?: boolean;
+  readonly minimum?: number;
+  readonly maximum?: number;
+  readonly required?: boolean;
+};
+
+/** One row of the skills catalogue (src/tools/gateway.ts#listSkills). */
+export type SkillRow = {
+  readonly name: string;
+  readonly title?: string;
+  readonly whenToUse?: string;
+  readonly allowed: boolean;
+  readonly reason: string;
+  readonly proposed?: boolean;
+  readonly args?: Array<SkillArg | null>;
+};
+
+/** The abilities whose media the window may hold, with the role each needs. */
+const MEDIA_ABILITIES = [
+  { ability: 'imagesIn', role: 'vision' },
+  { ability: 'videoIn', role: 'video' },
+] as const;
+
+/** The value at `path` below `value`, undefined at the first step that is not an object. */
+function at(value: unknown, ...path: Array<string>): unknown {
+  let here = value;
+  for (const key of path) {
+    if (here === null || typeof here !== 'object') return undefined;
+    here = Reflect.get(here, key);
+  }
+  return here;
+}
+
+/** The lines of `reasons['ability-unavailable']` for each off role whose media the window holds, vision first. */
+function mediaOffLines(config: RequestConfig, labels: SensesLabels, window: ReadonlyArray<object>): Array<string> {
+  const off = offRoles(config);
+  if (off.length === 0 || window.length === 0) return [];
+  const template = at(labels.tools, 'result', 'reasons', 'ability-unavailable');
+  const why = at(labels.tools, 'result', 'params', 'why', 'no-model');
+  if (typeof template !== 'string' || typeof why !== 'string') return [];
+  const held = new Set<string>();
+  const video = config.media?.video;
+  const sites = video?.sites;
+  for (const message of window) {
+    for (const item of collectPictures(message)) {
+      held.add(item.kind === 'gif' || item.kind === 'video' ? 'video' : 'vision');
+    }
+    if (collectVideos(message, { videoSites: sites ?? [] }).length > 0) held.add('video');
+  }
+  const lines: Array<string> = [];
+  for (const { ability, role } of MEDIA_ABILITIES) {
+    const word = at(labels.tools, 'result', 'params', 'ability', ability);
+    if (off.includes(role) && held.has(role) && typeof word === 'string') {
+      lines.push(fill(template, { ability: word, why }));
+    }
+  }
+  return lines;
+}
+
+/**
+ * The one line naming the abilities of the optional roles that are off (`labels.senses.abilitiesOff`, `{abilities}`
+ * filled with `labels.tools.result.params.ability` words in the order vision, video, drawing, speech, joined by
+ * `labels.senses.abilitiesOffSeparator`, ', ' without it). Undefined while every role is on or the label is missing.
+ */
+function abilitiesOffLine(config: RequestConfig, labels: SensesLabels): string | undefined {
+  const template = labels.senses?.abilitiesOff;
+  if (typeof template !== 'string' || !template) return undefined;
+  const off = offRoles(config);
+  if (off.length === 0) return undefined;
+  const wordOf = (ability: string): string => {
+    const word = at(labels.tools, 'result', 'params', 'ability', ability);
+    return typeof word === 'string' && word ? word : ability;
+  };
+  const separator = labels.senses?.abilitiesOffSeparator;
+  const abilities = off
+    .map((role) => wordOf(String(Reflect.get(ROLE_ABILITY, role))))
+    .join(typeof separator === 'string' ? separator : ', ');
+  return fill(template, { abilities });
+}
+
+/**
+ * Render the `<senses>` lines from `labels.senses`: which lines are true
+ * under the live config (see docs/prompt-contract.md, "`<senses>`"), in two
+ * halves for the prompt cache: `stable`, the lines that read only the config,
+ * the prompts and the server's lists (the same on every turn of a day), and
+ * `turn`, the lines that depend on this turn -- `senses.recallTool` (the
+ * search of the message history), the drawing line (`drawOn`) and `senses.dmChat` (this turn is
+ * a private chat). Each half keeps the lines in the order described below.
+ * Both are '' when `labels.senses` is missing entirely, so an older
+ * deployment's labels.json never breaks — the block is simply omitted.
+ * `drawOn` (an image client and Attach Files) adds the drawing line.
+ * `dmChat` adds `senses.dmChat`; outside a private chat,
+ * `dm.enabled` true adds `senses.privateAware` instead.
+ * No search runs before the persona's reply: the search line is `senses.searchTool` (with a search key configured) and
+ * the recall line `senses.recallTool` (`recallAvailable`), each only when `toolsGranted`
+ * (their granted in-turn tools) holds `web.search` / `memory.search`; else neither. With `web.read` granted,
+ * `senses.readTool` follows the links lines, and `senses.lookTool` shows when `media.look` is granted.
+ * `interfaceText` (what the interface declares for its custom emoji, src/behavior/turn.ts) comes as its own line.
+ * `gifWatching` (GIFs are watched now, src/memory/gif-watch.ts#gifWatchBlocker)
+ * adds `senses.gifWatched`; with GIFs not watched no GIF line shows.
+ * Right after the files line, `senses.abilitiesOff` while an optional model role is off (abilitiesOffLine), then `senses.time` (how to read clock times, line
+ * ages and gap markers), private chats included, when the label is a non-empty string.
+ * With a `diaryChannel`
+ * (the bare name of the diary channel; the label carries the `#`),
+ * `senses.diary` with `{channel}` follows. A missing label adds nothing.
+ */
+// health: allow complexity until 2027-04-01 -- moved whole from src/behavior/prompt.js in stage 5d, a pure move
+export function renderSenses(
+  config: RequestConfig,
+  labels: SensesLabels,
+  {
+    searchAvailable = false,
+    recallAvailable = false,
+    drawOn,
+    dmChat = false,
+    interfaceText = null,
+    gifWatching = false,
+    diaryChannel = null,
+    toolsGranted = [],
+    window = [],
+  }: SensesOptions = {}
+): Senses {
+  const senses = labels.senses;
+  // No search runs before the persona's reply; they call their own tools (granted to them by name).
+  const granted = (name: string) => Array.isArray(toolsGranted) && toolsGranted.includes(name);
+  if (!senses) return { stable: '', turn: '' };
+  const lines: Array<string | undefined> = [];
+  // The lines that change from turn to turn: they stay out of the cached part.
+  const turnLines: Array<string | undefined> = [];
+  // Pictures never go into the persona's own request: they see them through the describer's
+  // captions (and their second look), so the lines say described, never seen first-hand.
+  lines.push(senses.imageDescribed);
+  if (gifWatching) lines.push(senses.gifWatched);
+  // An older labels.json without the video-watching line falls back to the still-frame one.
+  lines.push(senses.videoWatch ?? senses.videoDescribed);
+  // The second look on a question: the persona looks again themselves with media.look, granted to them by name, at a
+  // picture (through the vision model) or a video (video vision).
+  if (granted('media.look') && senses.lookTool) lines.push(senses.lookTool);
+
+  // Stickers get their own line (a picture-format one behaves like an image); what an interface's own kinds of sticker
+  // are comes with the interface's text.
+  if (senses.stickerDescribed) lines.push(senses.stickerDescribed);
+  // What the interface says of its custom emoji, as it declares it.
+  if (interfaceText) lines.push(interfaceText);
+
+  // The web lookup: the links line stays as it is and the read-excerpt line follows it; the search line follows
+  // only when a search key is configured (`searchAvailable`). An older labels.json without either line shows
+  // nothing extra.
+  const quickSearch = config.web?.quickSearch;
+  const searchOn = quickSearch?.enabled !== false && searchAvailable === true;
+  // With the persona's own page reader (web.read granted) the links line says a preview may show the opening of the
+  // page and they can read it all, in place of "cannot open the page".
+  const readerOn = granted('web.read');
+  const linksLine = (readerOn && senses.linksWatchTool) || senses.linksWatch || senses.links;
+  // With the `video` role on, what is sent is heard (src/memory/describe.ts); a labels.json from before the line keeps `voice`.
+  lines.push(roleOn(config, 'video') && senses.voiceHeard ? senses.voiceHeard : senses.voice, linksLine);
+  if (senses.linksRead) lines.push(senses.linksRead);
+  // The persona's own page reader (granted to them by name): they can open a page themselves.
+  if (readerOn && senses.readTool) lines.push(senses.readTool);
+  if (searchOn && granted('web.search') && senses.searchTool) lines.push(senses.searchTool);
+  // Quick search absent, the persona's scout at hand: a look online goes through an errand, when they decide on one.
+  else if (!searchOn && granted('errand.scout') && senses.deepSearchTool) lines.push(senses.deepSearchTool);
+  // The search of the server's own message history (`recallAvailable`: a server turn where the runner is
+  // available); an older labels.json without the line shows nothing. Per turn.
+  if (recallAvailable === true && granted('memory.search') && senses.recallTool) turnLines.push(senses.recallTool);
+  // Drawing needs the image client and Attach Files (`drawOn`): one line. An older labels.json without senses.draw
+  // shows nothing. Per turn: Attach Files is the chat's.
+  if (drawOn === true && senses.draw) turnLines.push(senses.draw);
+  lines.push(senses.files);
+  lines.push(abilitiesOffLine(config, labels));
+  // The media of an off role in the window: the words of the ability-unavailable answer, per turn.
+  turnLines.push(...mediaOffLines(config, labels, window));
+  // How to read clock times, line ages and gap markers; private chats too.
+  if (typeof senses.time === 'string' && senses.time) lines.push(senses.time);
+  // Where the persona keeps its diary, so it can speak of it anywhere.
+  if (senses.diary && typeof diaryChannel === 'string' && diaryChannel)
+    lines.push(fill(senses.diary, { channel: diaryChannel }));
+  // Private chat: the one line for this chat (per turn), or -- on the
+  // server, with the feature on -- the rule about what was said in private. `context.memory.openPrivate` takes the
+  // wording that states what the persona remembers from every place.
+  const open = opensPrivate(config);
+  if (dmChat) turnLines.push(open ? senses.dmChatOpen : senses.dmChat);
+  else if (config.dm?.enabled === true) lines.push(open ? senses.privateAwareOpen : senses.privateAware);
+  return { stable: lines.filter(Boolean).join('\n'), turn: turnLines.filter(Boolean).join('\n') };
+}
+
+// Notation of an argument's allowed values in `<skills>`: separator, and the mark of a cut list.
+const ARG_VALUE_SEPARATOR = '|';
+const ARG_VALUES_MORE = '…';
+
+/**
+ * The `{args}` of one `labels.tools.line`: `forms.list` with `{list}` filled by the arguments
+ * (src/tools/discovery.ts#skillArgs, in their order) joined by ', ', each its name wrapped in
+ * turn by `forms.values` (`{arg}`, `{values}`: the values joined by '|', '…' after a cut list),
+ * else by `forms.range` (`{arg}`, `{min}`, `{max}`; a bound the schema leaves open is ''), then
+ * `forms.required` (`{arg}`);
+ * a form the labels lack leaves the text as it was. '' without arguments or without `forms.list`.
+ * `forms` is `labels.tools.args`.
+ */
+function skillArgsText(args: Array<SkillArg | null> | undefined, formsGiven: unknown): string {
+  // `labels.tools.args` as the labels file gives it: checked to be an object right below, before any read, each form
+  // read as text.
+  const forms = formsGiven as { readonly [form: string]: unknown };
+  if (
+    !Array.isArray(args) ||
+    args.length === 0 ||
+    !isPlainObject(forms) ||
+    typeof forms.list !== 'string' ||
+    !forms.list
+  )
+    return '';
+  const wrap = (key: string, text: string, values?: Record<string, unknown>) => {
+    const form = forms[key];
+    return typeof form === 'string' && form ? fill(form, { ...values, arg: text }) : text;
+  };
+  const one = (arg: SkillArg) => {
+    let text = String(arg.name);
+    if (Array.isArray(arg.values) && arg.values.length > 0) {
+      text = wrap('values', text, {
+        values: [...arg.values, ...(arg.more ? [ARG_VALUES_MORE] : [])].join(ARG_VALUE_SEPARATOR),
+      });
+    } else if (Number.isFinite(arg.minimum) || Number.isFinite(arg.maximum)) {
+      text = wrap('range', text, {
+        min: Number.isFinite(arg.minimum) ? arg.minimum : '',
+        max: Number.isFinite(arg.maximum) ? arg.maximum : '',
+      });
+    }
+    if (arg.required === true) text = wrap('required', text);
+    return text;
+  };
+  return fill(forms.list, {
+    list: args
+      .filter((arg): arg is SkillArg => typeof arg?.name === 'string')
+      .map(one)
+      .join(', '),
+  });
+}
+
+/**
+ * The `<skills>` body, compact whatever the size of the catalogue: only the rows the persona may
+ * use now (`allowed`), grouped by family (src/tools/discovery.ts#byFamily, an empty line between
+ * families), one `labels.tools.line` each with `{name}`, `{title}`, `{whenToUse}`, `{access}`
+ * and `{args}` filled; `{access}` is `labels.tools.access[<the row's reason>]`, else
+ * `labels.tools.access.allowed`; `{args}` is skillArgsText of the row's `args`. A row without a
+ * title (no texts in the skills layer yet) is its name alone. Rows marked `proposed` (the skills
+ * a classifier named for this turn, not the whole catalogue): a line for each allowed one, then
+ * the names of the others in one `labels.tools.proposedOff` line (`{names}`; none without that
+ * label). '' without an allowed
+ * row and nothing to name, or without `labels.tools.line`.
+ * Deterministic: the rows' order (the registry's) and their arguments' (the schema's) decide it.
+ */
+export function skillsInventoryText(rows: Array<SkillRow | null> | null | undefined, labelsGiven: object): string {
+  // The live labels file, as every caller hands it.
+  const labels = labelsGiven as Labels;
+  const l = labels.tools;
+  const template = l?.line;
+  if (!Array.isArray(rows) || rows.length === 0 || typeof template !== 'string' || !template) return '';
+  // `labels.tools.access` as the labels file gives it: the word of each access reason.
+  const access = (isPlainObject(l?.access) ? l?.access : {}) as { readonly [reason: string]: unknown };
+  const word = (row: SkillRow) => access[row.reason] ?? access.allowed ?? '';
+  const named = rows.filter((row): row is SkillRow => Boolean(row) && typeof row?.name === 'string');
+  const line = (row: SkillRow) =>
+    row.title
+      ? fill(template, {
+          name: row.name,
+          title: row.title,
+          whenToUse: row.whenToUse ?? '',
+          access: word(row),
+          args: skillArgsText(row.args, l?.args),
+        })
+      : row.name;
+  const open = byFamily(named.filter((row) => row.allowed === true)).map((group) => group.map(line).join('\n'));
+  if (!named.every((row) => row.proposed === true)) return open.join('\n\n');
+  const closed = named.filter((row) => row.allowed !== true);
+  const label = l?.proposedOff;
+  const offLine =
+    closed.length > 0 && typeof label === 'string' && label
+      ? fill(label, { names: closed.map((row) => row.name).join(', ') })
+      : '';
+  return [open.join('\n\n'), offLine].filter(Boolean).join('\n');
+}
+
+/** The senses of a turn, the options they were rendered with and the skills catalogue. */
+export type SensesOf = {
+  sensesOptions: SensesOptions;
+  senses: Senses;
+  inventoryText: string;
+};
+
+/**
+ * The `<senses>` lines of a turn, fitted as if `<participation>` is shown, and the skills catalogue of a turn whose question was what the persona can do.
+ */
+// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
+export function sensesOf(given: RequestInput & Base): SensesOf {
+  const { config, prompts, labels, dmChat, customEmoji } = given;
+  const sensesOptions: SensesOptions = {
+    searchAvailable: given.searchAvailable === true,
+    recallAvailable: given.recallAvailable === true,
+    // The persona's own in-turn tools granted to them: the search lines say they call them.
+    toolsGranted: Array.isArray(given.toolsGranted)
+      ? // The names of the tools exposed to the persona this turn (src/tools/discovery.ts#exposedSkillNames).
+        (given.toolsGranted as Array<string>).filter((name) => IN_TURN_TOOLS.includes(name))
+      : [],
+    drawOn: given.drawOn,
+    window: given.history,
+    dmChat,
+    // The interface's text speaks of its custom emoji, so it comes with a non-empty index.
+    interfaceText: customEmoji.length > 0 ? (given.mediaPickText ?? null) : null,
+    // Whether GIFs are watched under the live config and prompts.
+    gifWatching: gifWatchBlocker(prompts) === null,
+    diaryChannel: typeof given.diaryChannel === 'string' ? given.diaryChannel : null,
+  };
+  const senses = renderSenses(config, labels, sensesOptions);
+  // The persona's skills: the catalogue
+  // with their access only on a turn whose question was what they can do (`skillsInventory`), in the
+  // tail. Their tools travel as the request's `tools`.
+  const skillsShown = true;
+  const inventoryText = skillsShown ? skillsInventoryText(given.skillsInventory, labels) : '';
+  return { sensesOptions, senses, inventoryText };
+}

@@ -1,0 +1,12 @@
+{
+  "id": "code",
+  "description": "Writes code of any kind on request and returns it in files. It is not for searching the web or for questions about this machine.",
+  "prompt": "prompt.md",
+  "limits": {
+    "steps": 40,
+    "seconds": 600
+  },
+  "daily": {
+    "tasks": 20
+  }
+}

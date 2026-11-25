@@ -1,0 +1,290 @@
+// The core over the fake interface and nothing else: `startCore` (src/core.ts) with the fake interface of
+// scripts/lib/fake-interface.ts started without a `legacy` object, a scripted model and temporary data and private
+// folders. A test seeds the fake's chats and messages through `seed`, emits whole `message.received` events
+// the way an interface delivers them, and reads what the persona posted, what the model was asked and which reads
+// reached the fake (`fake.calls`). No Discord object exists anywhere in it.
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { startCore } from '../../src/core.ts';
+import { start } from '../../scripts/lib/fake-interface.ts';
+import { openMemoryDb } from '../../src/memory/db/open.ts';
+import type { ChatInfo, MessageEvent } from '../../src/protocol/adapter.ts';
+import { withCapturedLogs } from './capture-logs.ts';
+import { chainsOnDefaults } from './chains.ts';
+import { completionOf } from './tool-answers.ts';
+
+type Running = Awaited<ReturnType<typeof start>>;
+export type Fake = Running['adapter'];
+export type Row = Record<string, unknown>;
+type Settings = Record<string, unknown>;
+
+const REPO = fileURLToPath(new URL('../..', import.meta.url));
+export const SELF = { id: 'self-id', name: 'Nova' };
+export const ROOT = { id: 'g1', name: 'Alpha' };
+export const ANSWER = 'γεια σου, καλημέρα';
+
+/** The private layer of every rig: the settle wait and typing off. PR 7d: the `features` switches are code or gone with
+ * the cut, so the rig no longer turns optional behaviour off. */
+const BASE_CONFIG: Settings = {
+  bot: { timezone: 'UTC' },
+  // No video role, so the start sends no canary probe to YouTube.
+  models: { routes: chainsOnDefaults({ video: false }) },
+  pace: { settleMs: 0, settleMaxMs: 0 },
+  typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
+  // The GIF backfill reads every chat's history at start; a rig counts the reads a turn makes, so it reads none.
+  gifs: { backfillMessages: 0 },
+};
+
+const isRecord = (value: unknown): value is Settings =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function merged(base: Settings, extra: Settings): Settings {
+  const out: Settings = { ...base };
+  for (const [key, value] of Object.entries(extra)) {
+    const old = out[key];
+    out[key] = isRecord(old) && isRecord(value) ? merged(old, value) : value;
+  }
+  return out;
+}
+
+// The deadline holds a turn under the load of the whole suite: one alone takes about 0.5 s, the suite stretched two past 4 s.
+export async function until(check: () => boolean, ms = 15_000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error('timed out waiting');
+    await new Promise((resolve) => setTimeout(resolve, 15));
+  }
+}
+
+/** Lets anything the core would still do on its own happen, so a test can assert that nothing did. */
+export const settle = (ms = 250): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+export type CoreRig = {
+  fake: Fake;
+  /** The requests the model got, as the messages array of each. */
+  requests: Array<unknown>;
+  /** Emits an event over the link and resolves with the core's ack status. */
+  emit(event: unknown): Promise<string>;
+  /** What the persona posted in a chat, in order. */
+  posted(chatId: string): Array<string>;
+  /** The text of request `index`, as one string. */
+  requestText(index: number): string;
+  /** The rows of the memory database's `sources` table of one kind, read through a second read-only connection. */
+  sources(kind: string): Array<Row>;
+  /**
+   * The stored lines (`seen` and `said` rows) of one message by its platform id, oldest first, as `kind`, `revision`,
+   * `text` and `occurred_at`: the message family resolves the id the row itself keeps opaque.
+   */
+  linesOf(messageId: string): Array<Row>;
+};
+
+export type RigOptions = {
+  /** Settings of the private layer, merged over the base. */
+  config?: Settings;
+  /** The reads the fake offers (wire names); all when absent. */
+  reads?: ReadonlyArray<string>;
+  /** Seeds the fake once the core is up, before the body runs. */
+  seed?: (fake: Fake) => void;
+  /** What the scripted model answers; `<msg>` plus the default answer when absent. */
+  answer?: string;
+  /**
+   * The scripted model's answers in turn order, each a string or a completion of tests/fixtures/tool-answers.ts; the
+   * last one repeats. Wins over `answer`.
+   */
+  answers?: ReadonlyArray<unknown>;
+  /** What the address classifier answers, as its strict JSON's `answer`; `yes` when absent. */
+  addressAnswer?: string;
+  /** Prepares the data folder before the core starts, such as rows its memory database already holds. */
+  prepare?: (dataDir: string) => void;
+};
+
+export async function withFakeCore<T>(
+  options: RigOptions,
+  body: (rig: CoreRig) => Promise<T>
+): Promise<{ result: T; logs: Array<Row> }> {
+  // Short folders: a Unix socket path is limited to 108 bytes.
+  const root = mkdtempSync(join(tmpdir(), 'cf-'));
+  const dataDir = join(root, 'd');
+  // Runtime privateDir aliases the prepared persona data root.
+  const privateDir = dataDir;
+  mkdirSync(join(privateDir, 'config'), { recursive: true });
+  writeFileSync(join(privateDir, 'config', 'config.json'), JSON.stringify(merged(BASE_CONFIG, options.config ?? {})));
+  options.prepare?.(dataDir);
+  const requests: Array<unknown> = [];
+  const llm = {
+    // Plan 2026-11-04-cli-and-memory B1: the door asks the address classifier first; it says yes and is not recorded.
+    complete: (messages: unknown, given?: unknown): Promise<{ text: string; usage: object; estimated: number }> => {
+      // The lead: the address classifier answers in strict JSON.
+      if ((given as { purpose?: unknown } | undefined)?.purpose === 'address')
+        return Promise.resolve({
+          text: JSON.stringify({ answer: options.addressAnswer ?? 'yes' }),
+          usage: {},
+          estimated: 1,
+        });
+      requests.push(messages);
+      const scripted = options.answers;
+      if (scripted !== undefined && scripted.length > 0)
+        return Promise.resolve(completionOf(scripted[Math.min(requests.length, scripted.length) - 1]));
+      return Promise.resolve({ text: options.answer ?? `<msg>${ANSWER}</msg>`, usage: {}, estimated: 10 });
+    },
+  };
+  let running: Running | null = null;
+  const captured = await withCapturedLogs(async () => {
+    const core = await startCore({
+      paths: { rootDir: REPO, privateDir, dataDir },
+      env: { OPENROUTER_CORE_KEY: 'test-key' },
+      interfaces: [
+        {
+          name: 'fake',
+          start: async (host) => {
+            running = await start(host, {
+              self: SELF,
+              root: ROOT,
+              ...(options.reads === undefined ? {} : { reads: options.reads }),
+            });
+            return running;
+          },
+        },
+      ],
+      llm,
+      embedder: { embed: () => Promise.resolve([]) },
+    });
+    if (running === null) throw new Error('the core never started the fake interface');
+    const live: Running = running;
+    options.seed?.(live.adapter);
+    const dbPath = join(dataDir, 'memory.db');
+    const rig: CoreRig = {
+      fake: live.adapter,
+      requests,
+      emit: (event) => live.emit(event),
+      posted: (chatId) =>
+        live.adapter
+          .messagesIn(chatId)
+          .filter((message) => message.authorId === SELF.id)
+          .map((message) => message.text),
+      requestText: (index) => JSON.stringify(requests[index]),
+      sources: (kind) => {
+        const handle = openMemoryDb(dbPath, { readOnly: true });
+        try {
+          const sql = 'SELECT kind, native_id, writer, holder_id, period, text FROM sources WHERE kind = ? ORDER BY rowid';
+          return (handle.db as { prepare(sql: string): { all(kind: string): Array<Row> } }).prepare(sql).all(kind);
+        } finally {
+          handle.close();
+        }
+      },
+      linesOf: (messageId) => {
+        const handle = openMemoryDb(dbPath, { readOnly: true });
+        try {
+          const sql = `SELECT s.kind, s.revision, s.text, s.occurred_at FROM sources s
+            JOIN message_families f ON f.iface = s.iface AND f.authority_id = s.authority_id
+            AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation
+            WHERE f.message_id = ? AND s.kind IN ('seen', 'said') ORDER BY s.rowid`;
+          return (handle.db as { prepare(sql: string): { all(id: string): Array<Row> } }).prepare(sql).all(messageId);
+        } finally {
+          handle.close();
+        }
+      },
+    };
+    try {
+      return await body(rig);
+    } finally {
+      await core.stop();
+    }
+  }).finally(() => rmSync(root, { recursive: true, force: true }));
+  return { result: captured.result, logs: captured.logs };
+}
+
+/** A server channel as the fake reports it: readable, writable, public, quiet. */
+export function channelInfo(id: string, extra: Partial<ChatInfo> = {}): ChatInfo {
+  return {
+    id,
+    kind: 'channel',
+    rootId: ROOT.id,
+    name: `room-${id}`,
+    topic: null,
+    iface: 'fake',
+    permissions: { read: true, send: true, attach: true, react: true },
+    owner: null,
+    lastMessageAt: null,
+    voice: false,
+    public: true,
+    audience: {
+      everyone: true,
+      groups: [],
+      groupAllow: [],
+      groupDeny: [],
+      memberAllow: [],
+      memberDeny: [],
+      memberGroups: {},
+    },
+    ...extra,
+  };
+}
+
+export type LineOptions = {
+  id: string;
+  chatId?: string;
+  text: string;
+  at: number;
+  authorId?: string;
+  authorName?: string;
+  /** Names the persona (the message is a call to them). */
+  mention?: boolean;
+  system?: boolean;
+  /** An automated account wrote it (a bot or a webhook); absent, a human. */
+  bot?: boolean;
+  /** When the message was last edited on the platform; absent, never. */
+  editedAt?: number;
+  reactions?: Array<{ emoji: string; count: number; mine: boolean }>;
+};
+
+/** A `message.received` event of a member's message in a server channel, as an interface delivers it. */
+export function lineEvent(options: LineOptions): MessageEvent {
+  const authorId = options.authorId ?? 'u1';
+  const self = authorId === SELF.id;
+  return {
+    kind: 'message.received',
+    iface: 'fake',
+    at: options.at,
+    id: `fake:message:${options.id}`,
+    chat: {
+      id: options.chatId ?? 'c1',
+      kind: 'channel',
+      rootId: ROOT.id,
+      name: `room-${options.chatId ?? 'c1'}`,
+    },
+    message: {
+      id: options.id,
+      author: { id: authorId, name: options.authorName ?? 'Eleni', self, bot: options.bot === true },
+      content: options.text,
+      sourceText: options.text,
+      system: options.system ?? false,
+      at: options.at,
+      ...(options.editedAt === undefined ? {} : { editedAt: options.editedAt }),
+      replyToId: null,
+      replyPingAccountId: null,
+      forwardedFrom: null,
+      attachments: [],
+      links: [],
+      forwarded: [],
+      stickers: [],
+      emojis: [],
+      reactions: options.reactions ?? [],
+    },
+    addressing: {
+      mentioned: options.mention === true,
+      replyToSelf: false,
+      mentionedAccountIds: options.mention === true ? [SELF.id] : [],
+      mentionedChatIds: [],
+    },
+  };
+}
+
+/** Seeds the line into the fake's history and returns it, ready to emit. */
+export function deliver(fake: Fake, options: LineOptions): MessageEvent {
+  const event = lineEvent(options);
+  fake.seedEvent(event);
+  return event;
+}

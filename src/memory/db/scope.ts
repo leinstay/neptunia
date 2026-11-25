@@ -1,0 +1,507 @@
+// Scope: who may see a row (spec section 2). Three columns on every row that can be shown: `scope_kind`
+// (`group` | `dm` | `none` | `internal`), `scope_iface` and `scope_dm` (the DM partner's person id, `dm` only).
+// `none` has no source and may be shown anywhere; `internal` (a row derived from two different DMs) is never shown
+// outward. A read always names its context; a read without one throws.
+//
+// Contexts: `{ iface, kind: 'group' }`, `{ iface, kind: 'dm', person, place }`, `{ internal: true }`, and
+// `{ groups: true }` (`groupsContext`, the diary's entry: `none` and the groups of every interface, never a DM or an
+// internal row). A group or DM context marked `open` reads every audience, as the internal one does. A context the
+// core issues (`issueContext`) also carries an `id` and is recorded in `execution_contexts` by the service, and is read
+// through `audience_id` instead of the three columns (its `audienceColumn: true`).
+//
+// Audiences (schema v7, spec 2026-10-24-memory-schema-v7 sections 2 and 11.2): every scoped row also carries
+// `audience_id`, the normalised twin of its three columns: `aud:none`, `aud:internal`, `aud:group:<iface>` and
+// `aud:dm:<DM place id>` (a DM audience is the chat, not the person). `audienceOf(scope)` is the one resolver
+// every writer fills both from; `scopeOfAudience(id)` goes back. A malformed triple resolves to `aud:internal`. A DM
+// audience names its chat through the stored place its writer passes and goes back through that place's row: no place,
+// interface or partner is worked out from the text of a person or place id.
+
+import { randomUUID } from 'node:crypto';
+
+/** The three scope columns of a row. */
+export type Scope = { scope_kind: string | null; scope_iface: string | null; scope_dm: string | null };
+type Partial3 = { scope_kind?: string | null; scope_iface?: string | null; scope_dm?: string | null };
+/** A read context: `internal`, or a group or DM of an interface; an issued one also carries an id and its mode. */
+export type Context = {
+  internal?: true;
+  /** A group or DM context that reads every audience, as `issueContext` marks it under `context.memory.openPrivate`. */
+  open?: true;
+  groups?: true;
+  kind?: 'group' | 'dm';
+  iface?: string;
+  person?: string;
+  place?: string | null;
+  audienceColumn?: boolean;
+  id?: string;
+  mode?: string;
+  destination?: string | null;
+  policyVersion?: number;
+  issuedAt?: string;
+  asker?: Array<string>;
+  /** The other DMs of the same person, bound by the owner (person-links.ts). */
+  linked?: ReadonlyArray<{ iface: string; person: string; place: string | null }>;
+  [key: string]: unknown;
+};
+/** Checks an issued internal context supplied by a trusted caller, never a protocol argument. */
+export function isIssuedInternalContext(value: unknown): value is Context {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'id' in value &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    'mode' in value &&
+    value.mode === 'internal' &&
+    'internal' in value &&
+    value.internal === true
+  );
+}
+
+/**
+ * Whether a context reads every audience: an `internal` one, or a group or DM context marked `open`. The mark opens
+ * reads only; where a write is stored or sent is decided by `kind`, `mode` and `destination`.
+ */
+export function readsAll(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false;
+  const ctx = value as Context;
+  return ctx.internal === true || ctx.open === true;
+}
+
+/** `readsAll` for a context supplied by a trusted caller: an issued internal context, or an issued outward one marked `open`. */
+export function isIssuedReadAllContext(value: unknown): value is Context {
+  if (isIssuedInternalContext(value)) return true;
+  if (value === null || typeof value !== 'object') return false;
+  const ctx = value as Context;
+  return filled(ctx.id) && ctx.mode === 'outward' && ctx.internal !== true && ctx.open === true;
+}
+
+type Row = Record<string, unknown>;
+type Lookup = ((placeId: string) => Row | null | undefined) | null;
+export type AudienceParts = { id: string; kind: string; iface: string | null; place_id: string | null };
+
+export const SCOPE_NONE: Readonly<Scope> = Object.freeze({ scope_kind: 'none', scope_iface: null, scope_dm: null });
+export const SCOPE_INTERNAL: Readonly<Scope> = Object.freeze({
+  scope_kind: 'internal',
+  scope_iface: null,
+  scope_dm: null,
+});
+
+export const groupScope = <T extends string | null>(iface: T): Scope => ({
+  scope_kind: 'group',
+  scope_iface: iface,
+  scope_dm: null,
+});
+export const dmScope = <P extends string, T extends string | null>(person: P, iface: T): Scope => ({
+  scope_kind: 'dm',
+  scope_iface: iface,
+  scope_dm: person,
+});
+
+export const groupContext = (iface: string | null): Context =>
+  iface === null ? { kind: 'group' } : { iface, kind: 'group' };
+/**
+ * A DM context: the DM place the caller found in `places` and the partner person. A DM nobody linked has no person,
+ * and a person no stored DM place holds has no place: that context reads the groups and its linked DMs only.
+ */
+export const dmContext = (person: string | null, iface: string | null, place: string | null): Context => ({
+  ...(iface === null ? {} : { iface }),
+  kind: 'dm',
+  ...(filled(person) ? { person } : {}),
+  place,
+});
+export const internalContext = (): Context => ({ internal: true });
+/**
+ * What a read's context is issued for: the DM of `privateAccountId`, else the group of the chat `chatId`, on the chat's
+ * interface (`chatIface`, else `home`). The group's destination is the place `chatPlaceOf` gives for the chat, as
+ * `store.placeOfChat` reads it from `places`. The person of a DM is the one `personOf` gives for the account's platform
+ * id on that interface, and its place the one `dmPlaceOf` gives, since a meta-person spells no DM place. A partner with
+ * no stored person reads as the interface's group: no private row names a person the database does not hold, so the
+ * group's rows are what such a DM shows.
+ */
+export function readContextSpec({
+  chatIface,
+  home,
+  chatId,
+  privateAccountId,
+  personOf,
+  dmPlaceOf,
+  chatPlaceOf,
+}: {
+  chatIface: unknown;
+  home: unknown;
+  chatId: unknown;
+  privateAccountId: unknown;
+  personOf: (iface: string, platformId: string) => string | null;
+  dmPlaceOf: (iface: string, platformId: string) => string | null;
+  chatPlaceOf: (iface: string, chatId: string) => string | null;
+}):
+  | { iface: string; kind: 'dm'; person: string; place?: string }
+  | { iface: string; kind: 'group'; destination: string | null } {
+  const iface = String(typeof chatIface === 'string' && chatIface !== '' ? chatIface : home);
+  const account =
+    typeof privateAccountId === 'string' || typeof privateAccountId === 'number' ? String(privateAccountId) : '';
+  if (!privateAccountId || !account) {
+    const chat = typeof chatId === 'string' || typeof chatId === 'number' ? String(chatId) : '';
+    return { iface, kind: 'group' as const, destination: chat ? chatPlaceOf(iface, chat) : null };
+  }
+  const person = personOf(iface, account);
+  if (person === null) return { iface, kind: 'group' as const, destination: null };
+  const place = dmPlaceOf(iface, account);
+  return { iface, kind: 'dm' as const, person, ...(filled(place) ? { place } : {}) };
+}
+/** The context of the diary's entry: `none` and the groups of every interface; no direct chat, nothing internal. */
+export const groupsContext = (): Context => ({ groups: true });
+
+/** The scope of a member's DM, with the audience of its stored place when the writer knows one. */
+export type DmScope = Scope & { audience_id?: string };
+
+/** Whether a place id has the spelling of a direct chat. It only ever closes a scope, never names a place or a person. */
+const DM_SPELLING = /^[^:]+:dm:./;
+
+/**
+ * The scope columns of a scope object (`{ channel }`, `{ place }`, `{ place, private }`, `{ user }`, `{}`).
+ * A private layer of user U (`opts.privateUser`) or a scope naming a user is `dm` with that member: the scope `opts.dmOf`
+ * gives for the member's platform id (the stored DM and its partner), `internal` when no stored DM holds the member.
+ * A private place is the stored DM place `opts.dmOfPlace` gives, `internal` when none is stored. Without these readers
+ * nothing is stored, so the member and the private place are `internal` too. A channel or a place is `group`, unless it
+ * is a stored DM, carries the spelling of one, carries the private mark or is marked `unresolved` (a chat no stored
+ * place holds): those are `internal`, as is anything else (no scope, an empty or unknown one). An unknown scope is never
+ * shown outward.
+ * `none` is only for a unit that is source-free on purpose (a self fact, the persona's own unprompted line), which its
+ * mapper sets itself with SCOPE_NONE. The columns name `opts.iface`, none when none is given.
+ */
+export function scopeColumns(
+  scope: unknown,
+  opts: {
+    privateUser?: string | null;
+    iface?: string | null;
+    dmOf?: (platformId: string) => DmScope | null;
+    dmOfPlace?: (placeId: string) => DmScope | null;
+  } = {}
+): DmScope {
+  const oldScope = scope as
+    { user?: unknown; channel?: unknown; place?: unknown; private?: unknown; unresolved?: unknown } | null | undefined;
+  const user = opts.privateUser ?? (typeof oldScope?.user === 'string' && oldScope.user ? oldScope.user : null);
+  const iface = opts.iface ?? null;
+  if (user) return opts.dmOf?.(user) ?? { ...SCOPE_INTERNAL };
+  if (oldScope?.private === true) {
+    const place = typeof oldScope.place === 'string' ? oldScope.place : null;
+    return (place === null ? null : opts.dmOfPlace?.(place)) ?? { ...SCOPE_INTERNAL };
+  }
+  if (oldScope?.unresolved === true) return { ...SCOPE_INTERNAL };
+  const named = [oldScope?.channel, oldScope?.place].filter((id) => typeof id === 'string');
+  // A named id that looks like a DM stays internal even when no stored place holds it: the check fails closed.
+  const isDm = (id: string): boolean => (opts.dmOfPlace?.(id) ?? null) !== null || DM_SPELLING.test(id);
+  if (named.length === 0 || named.some(isDm)) return { ...SCOPE_INTERNAL };
+  return groupScope(iface);
+}
+
+/**
+ * The platform id of the DM partner a scope row names, or null: the partner account of the stored DM place its audience
+ * names, as `partnerOfDm` reads it. A row whose DM no stored place holds names none, and so does every row without the
+ * reader.
+ */
+export function dmUserOf(
+  row: unknown,
+  partnerOfDm: ((audienceId: string) => string | null) | undefined = undefined
+): string | null {
+  const scope = row as { audience_id?: unknown } | null | undefined;
+  const audience = typeof scope?.audience_id === 'string' ? scope.audience_id : '';
+  return audience === '' || !partnerOfDm ? null : partnerOfDm(audience);
+}
+
+function check(value: unknown): asserts value is Context {
+  if (!value || typeof value !== 'object') throw new Error('memory db: a read needs a scope context');
+  const ctx = value as Context;
+  if (ctx.internal === true || ctx.groups === true) return;
+  if (ctx.kind === 'group' && typeof ctx.iface === 'string' && ctx.iface) return;
+  if (ctx.kind === 'dm' && typeof ctx.iface === 'string' && ctx.iface && (filled(ctx.person) || filled(ctx.place)))
+    return;
+  throw new Error('memory db: a read needs a valid scope context');
+}
+
+/** Whether a row (its three scope columns) may be shown in a context. Throws without a valid context. */
+export function allowed(value: unknown, ctx: unknown): boolean {
+  check(ctx);
+  if (readsAll(ctx)) return true;
+  const row = value as Partial3 | null | undefined;
+  const kind = row?.scope_kind;
+  if (kind === 'none') return true;
+  if (ctx.groups === true) return kind === 'group' && isGroupInterface(row?.scope_iface);
+  if (kind === 'group') return isGroupInterface(row?.scope_iface);
+  if (kind === 'dm')
+    return (
+      ctx.kind === 'dm' &&
+      ((filled(ctx.person) && row?.scope_iface === ctx.iface && row?.scope_dm === ctx.person) ||
+        (ctx.linked ?? []).some((one) => row?.scope_iface === one.iface && row?.scope_dm === one.person))
+    );
+  return false;
+}
+
+/**
+ * A SQL WHERE fragment (without the word WHERE) and its positional parameters for a context.
+ * `alias` prefixes the three columns (`s` gives `s.scope_kind`). Throws without a valid context.
+ */
+export function whereFor(ctx: unknown, alias = ''): { sql: string; params: Array<string> } {
+  check(ctx);
+  if (readsAll(ctx)) return { sql: '1 = 1', params: [] };
+  const p = alias ? `${alias}.` : '';
+  let sql = `(${p}scope_kind = 'none' OR (${p}scope_kind = 'group' AND ${p}scope_iface IS NOT NULL AND ${p}scope_iface <> '' AND instr(${p}scope_iface, char(0)) = 0)`;
+  const params: Array<string> = [];
+  if (ctx.groups !== true && ctx.kind === 'dm') {
+    if (filled(ctx.person)) {
+      sql += ` OR (${p}scope_kind = 'dm' AND ${p}scope_iface = ? AND ${p}scope_dm = ?)`;
+      params.push(ctx.iface ?? '', ctx.person);
+    }
+    for (const one of ctx.linked ?? []) {
+      sql += ` OR (${p}scope_kind = 'dm' AND ${p}scope_iface = ? AND ${p}scope_dm = ?)`;
+      params.push(one.iface, one.person);
+    }
+  }
+  return { sql: `${sql})`, params };
+}
+
+/**
+ * The SQL sort key (descending, on the three columns under `alias`) that puts the context's own audience first among
+ * the versions of one description: a direct chat's before a group's, except under an open group context, where the
+ * group's comes first and a direct chat it also reads follows. Under an open DM context its own direct chat comes first.
+ */
+export function ownAudienceFirst(ctx: Context, alias: string): { sql: string; params: Array<string> } {
+  const p = `${alias}.`;
+  if (ctx.open === true && ctx.kind === 'group') return { sql: `${p}scope_kind = 'group'`, params: [] };
+  if (ctx.open === true && ctx.kind === 'dm' && filled(ctx.person))
+    return {
+      sql: `(${p}scope_kind = 'dm' AND ${p}scope_iface = ? AND ${p}scope_dm = ?)`,
+      params: [ctx.iface ?? '', ctx.person],
+    };
+  return { sql: `${p}scope_kind = 'dm'`, params: [] };
+}
+
+// ---------- audiences (schema v7) ----------
+
+export const AUD_NONE = 'aud:none';
+export const AUD_INTERNAL = 'aud:internal';
+const GROUP_PREFIX = 'aud:group:';
+export const groupAudienceId = (iface: unknown): string => `${GROUP_PREFIX}${String(iface)}`;
+export const dmAudienceId = (placeId: unknown): string => `aud:dm:${String(placeId)}`;
+
+const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
+// SQLite text length stops at NUL, so both readers reject that malformed identifier.
+const isGroupInterface = (value: unknown): value is string => filled(value) && !value.includes('\0');
+
+/**
+ * The one resolver: a scope (its three columns) and its audience id, `{ scope_kind, scope_iface, scope_dm, audience_id }`.
+ * The triple comes back as given (it stays the compatibility projection). A DM scope resolves to the stored DM place its
+ * writer found (`opts.dmPlace`, as rows.ts#resolveRow finds it in `places`: then a DM whose partner is no known person,
+ * schema v8's observed DM with an account nobody linked, is still its chat); a triple that names no valid audience (an
+ * unknown kind, a group without an interface, a DM without a stored place) is `aud:internal`.
+ */
+export function audienceOf(
+  value: unknown,
+  { dmPlace = null }: { dmPlace?: unknown } = {}
+): Scope & { audience_id: string } {
+  const scope = value as Partial3 | null | undefined;
+  const kind = scope?.scope_kind ?? null;
+  const iface = scope?.scope_iface ?? null;
+  const dm = scope?.scope_dm ?? null;
+  const out: Scope & { audience_id: string } = {
+    scope_kind: kind,
+    scope_iface: iface,
+    scope_dm: dm,
+    audience_id: AUD_INTERNAL,
+  };
+  if (kind === 'none') out.audience_id = AUD_NONE;
+  else if (kind === 'group' && isGroupInterface(iface)) out.audience_id = groupAudienceId(iface);
+  else if (kind === 'dm' && filled(iface) && filled(dmPlace)) out.audience_id = dmAudienceId(dmPlace);
+  return out;
+}
+
+/**
+ * Whether a triple is one of the four well-formed kinds (a malformed one resolves to internal). A DM with an interface
+ * and a partner is well formed: its audience comes from its stored DM place, which the triple does not name.
+ */
+export function wellFormed(scope: unknown): boolean {
+  const row = scope as Partial3 | null | undefined;
+  const kind = row?.scope_kind ?? null;
+  if (kind === 'internal') return true;
+  if (kind === 'dm') return filled(row?.scope_iface) && filled(row?.scope_dm);
+  return audienceOf(scope).audience_id !== AUD_INTERNAL;
+}
+
+/**
+ * The parts of an audience id: `{ id, kind, iface, place_id }`. A DM audience's interface comes from its place row
+ * (`lookup(placeId)` -> `{ iface }`), null without a reader or a row. Null for an id of no known shape.
+ */
+export function audienceParts(id: unknown, lookup: unknown = null): AudienceParts | null {
+  const look = lookup as Lookup;
+  const value = typeof id === 'string' ? id : '';
+  if (value === AUD_NONE) return { id: value, kind: 'none', iface: null, place_id: null };
+  if (value === AUD_INTERNAL) return { id: value, kind: 'internal', iface: null, place_id: null };
+  if (value.startsWith(GROUP_PREFIX) && isGroupInterface(value.slice(GROUP_PREFIX.length)))
+    return { id: value, kind: 'group', iface: value.slice('aud:group:'.length), place_id: null };
+  if (value.startsWith('aud:dm:') && value.length > 'aud:dm:'.length) {
+    const place = value.slice('aud:dm:'.length);
+    const iface = (typeof look === 'function' ? (look(place)?.iface as string | undefined) : null) ?? null;
+    return { id: value, kind: 'dm', iface, place_id: place };
+  }
+  return null;
+}
+
+/**
+ * The three columns of an audience id (the compatibility projection). A DM audience names its partner through its
+ * place row (`lookup(placeId)` -> `{ iface, partner_person }`), and is internal without a reader or a row; a stored place
+ * with no partner person is a DM nobody linked, whose rows name none; an unknown id is internal.
+ */
+export function scopeOfAudience(id: unknown, lookup: unknown = null): Scope {
+  const look = lookup as Lookup;
+  const parts = audienceParts(id);
+  if (!parts || parts.kind === 'internal') return { ...SCOPE_INTERNAL };
+  if (parts.kind === 'none') return { ...SCOPE_NONE };
+  if (parts.kind === 'group') return groupScope(parts.iface);
+  const found = typeof look === 'function' && parts.place_id !== null ? look(parts.place_id) : null;
+  if (!found || !filled(found.iface)) return { ...SCOPE_INTERNAL };
+  return filled(found.partner_person)
+    ? dmScope(found.partner_person, found.iface)
+    : { scope_kind: 'dm', scope_iface: found.iface, scope_dm: null };
+}
+
+/** The exact private audiences of a DM context, its own and the person's other DMs; none in group contexts. */
+function privateAudiences(ctx: Context): Array<string> {
+  if (ctx.groups === true || ctx.kind !== 'dm') return [];
+  return [ctx.place, ...(ctx.linked ?? []).map((one) => one.place)]
+    .filter((one) => filled(one))
+    .map((one) => dmAudienceId(one));
+}
+
+/** `allowed` on `audience_id`: whether a row may be shown in a context. Throws without a valid context. */
+export function allowedAudience(row: unknown, ctx: unknown): boolean {
+  check(ctx);
+  if (readsAll(ctx)) return true;
+  const id = (row as Row | null | undefined)?.audience_id;
+  if (
+    id === AUD_NONE ||
+    (typeof id === 'string' && id.startsWith(GROUP_PREFIX) && isGroupInterface(id.slice(GROUP_PREFIX.length)))
+  )
+    return true;
+  return typeof id === 'string' && privateAudiences(ctx).includes(id);
+}
+
+/** All valid group audiences, source-free rows and the context's exact DM audience, as SQL and parameters. */
+export function audienceWhere(ctx: unknown, alias = ''): { sql: string; params: Array<string> } {
+  check(ctx);
+  if (readsAll(ctx)) return { sql: '1 = 1', params: [] };
+  const p = alias ? `${alias}.` : '';
+  let sql = `(${p}audience_id = ? OR (substr(${p}audience_id, 1, ${GROUP_PREFIX.length}) = ? AND length(${p}audience_id) > ${GROUP_PREFIX.length} AND instr(${p}audience_id, char(0)) = 0)`;
+  const params = [AUD_NONE, GROUP_PREFIX];
+  for (const dm of privateAudiences(ctx)) {
+    sql += ` OR ${p}audience_id = ?`;
+    params.push(dm);
+  }
+  return { sql: `${sql})`, params };
+}
+
+/** The read filter of a context: on `audience_id` when the context says so (`audienceColumn`), else the triple. */
+export const scopeWhere = (ctx: unknown, alias = ''): { sql: string; params: Array<string> } =>
+  (ctx as Context | null | undefined)?.audienceColumn === true ? audienceWhere(ctx, alias) : whereFor(ctx, alias);
+
+/** The row check of a context: on `audience_id` when the context says so (`audienceColumn`), else the triple. */
+export const canRead = (row: unknown, ctx: unknown): boolean =>
+  (ctx as Context | null | undefined)?.audienceColumn === true ? allowedAudience(row, ctx) : allowed(row, ctx);
+
+/** Resolve evidence while retaining an object's known interface only when its identifier and metadata agree. */
+function audienceEvidence(entry: string | AudienceParts, lookup: unknown): AudienceParts | null {
+  const parsed = audienceParts(typeof entry === 'string' ? entry : entry?.id, lookup);
+  const next = typeof entry === 'string' ? parsed : entry;
+  if (!parsed || !next || next.kind !== parsed.kind || next.place_id !== parsed.place_id) return null;
+  if (next.kind === 'group' && next.iface !== parsed.iface) return null;
+  if (next.kind === 'dm' && (!filled(next.iface) || (parsed.iface !== null && next.iface !== parsed.iface)))
+    return null;
+  return next;
+}
+
+/**
+ * `narrowest` on audiences: the meet of the audiences a derived row came from. none and X = X; internal and X = internal;
+ * groups retain their first identifier, any group and a DM yield that DM, and equal DM places stay private.
+ * Different DM places and unknown ids give internal. Entries are ids or `audienceParts` objects.
+ */
+export function narrowestAudience(audiences: unknown, lookup: unknown = null): string {
+  let result: AudienceParts = { id: AUD_NONE, kind: 'none', iface: null, place_id: null };
+  for (const entry of (Array.isArray(audiences) ? audiences : []) as Array<string | AudienceParts>) {
+    const next = audienceEvidence(entry, lookup);
+    if (!next) return AUD_INTERNAL;
+    if (next.kind === 'none') continue;
+    if (next.kind === 'internal') return AUD_INTERNAL;
+    if (result.kind === 'none') {
+      result = next;
+      continue;
+    }
+    if (result.kind === 'group' && next.kind === 'dm') result = next;
+    else if (result.kind === 'dm' && next.kind === 'dm' && result.place_id !== next.place_id) return AUD_INTERNAL;
+  }
+  return result.id;
+}
+
+// ---------- execution contexts ----------
+
+/** The policy version contexts are issued under (the read rule of spec section 2; a change of the rule bumps it). */
+export const CONTEXT_POLICY_VERSION = 2;
+
+/**
+ * A context the core issues for one turn, session or wake: a read context (as `groupContext` / `dmContext` /
+ * `internalContext`) with an `id`, its `mode` (`outward` for a group or DM, `internal` otherwise), the destination
+ * place, the policy version and the time it was issued, read through `audience_id` (`audienceColumn: true`). Pure: `now` and `newId` are injected; the service records it.
+ * A spec that names no interface reads no group's rows; the callers of a live turn name theirs. `open` marks a group or
+ * DM context that reads every audience (`readsAll`).
+ */
+export function issueContext({
+  kind,
+  iface = null,
+  person = null,
+  place = null,
+  destination = null,
+  open = false,
+  policyVersion = CONTEXT_POLICY_VERSION,
+  now = Date.now,
+  newId = () => `ctx:${randomUUID()}`,
+}: {
+  kind?: 'group' | 'dm' | 'internal';
+  iface?: string | null;
+  person?: string | null;
+  place?: string | null;
+  destination?: string | null;
+  open?: boolean;
+  policyVersion?: number;
+  now?: () => number;
+  newId?: () => string;
+} = {}): Context {
+  let base: Context;
+  if (kind === 'group') base = groupContext(iface);
+  else if (kind === 'dm') base = dmContext(person, iface, place);
+  else base = internalContext();
+  check(base);
+  const ctx: Context = {
+    ...base,
+    ...(open && base.internal !== true ? { open: true as const } : {}),
+    id: newId(),
+    mode: base.internal === true ? 'internal' : 'outward',
+    destination: base.kind === 'dm' ? (destination ?? base.place ?? null) : (destination ?? null),
+    policyVersion,
+    issuedAt: new Date(now()).toISOString(),
+    audienceColumn: true,
+  };
+  return ctx;
+}
+
+/** The `execution_contexts` row of an issued context. */
+export function contextRow(value: unknown): Row {
+  const ctx = value as Context;
+  return {
+    id: ctx.id,
+    mode: ctx.mode ?? (ctx.internal === true ? 'internal' : 'outward'),
+    iface: ctx.internal === true ? null : (ctx.iface ?? null),
+    destination_place_id: ctx.destination ?? null,
+    partner_person_id: ctx.kind === 'dm' ? (ctx.person ?? null) : null,
+    policy_version: Number.isInteger(ctx.policyVersion) ? ctx.policyVersion : CONTEXT_POLICY_VERSION,
+    issued_at: ctx.issuedAt ?? null,
+  };
+}

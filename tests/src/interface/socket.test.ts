@@ -1,0 +1,320 @@
+// Tests for the socket server of the core (src/interface/socket.ts), against the socket client of the wire
+// (src/protocol/wire.ts) and a raw net client where a test needs bytes of its own. The socket sits in a short
+// folder under TMPDIR because a Unix socket path is limited to 108 bytes.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import net from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { connectSocket, encodeEnvelope, envelope } from '../../../src/protocol/index.ts';
+import { listenSocket } from '../../../src/interface/socket.ts';
+import type { Transport } from '../../../src/protocol/wire.ts';
+import { serveAdapter } from '../../../src/protocol/serve.ts';
+import type { Hello } from '../../../src/protocol/serve.ts';
+import type { Capabilities } from '../../../src/protocol/adapter.ts';
+import { openAdapterLink } from '../../../src/interface/link.ts';
+import { createEventDoor } from '../../../src/interface/door.ts';
+import { createFakeAdapter } from '../../../scripts/lib/fake.ts';
+
+type Env = ReturnType<typeof envelope>;
+type Log = {
+  info(msg: string, meta?: unknown): void;
+  warn(msg: string, meta?: unknown): void;
+  error(msg: string, meta?: unknown): void;
+};
+
+const MiB = 1024 * 1024;
+const quiet: Log = { info() {}, warn() {}, error() {} };
+const ping = (id: string): Env => envelope('ping', { at: 1 }, { id });
+const sendWith = (text: string, bytes: Uint8Array = new Uint8Array(0)): Env =>
+  envelope(
+    'action',
+    {
+      action: 'message.send',
+      chat: { iface: 'test', chatId: 'c1' },
+      content: { text, attachments: [{ name: 'f.bin', data: bytes }] },
+    },
+    { id: 'a1' }
+  );
+
+async function until(check: () => boolean, ms = 2000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error('timed out waiting');
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+type Rig = {
+  dir: string;
+  path: string;
+  connections: Array<Transport>;
+  server: { close(): Promise<void> };
+  remove(): void;
+};
+
+async function rig(maxFrameBytes = MiB, nested = false): Promise<Rig> {
+  const dir = mkdtempSync(join(tmpdir(), 'k-'));
+  const path = nested ? join(dir, 'run', 's') : join(dir, 's');
+  const connections: Array<Transport> = [];
+  const server = await listenSocket({ path, maxFrameBytes, log: quiet, onConnection: (t) => connections.push(t) });
+  return { dir, path, connections, server, remove: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+function raw(path: string): Promise<net.Socket> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(path);
+    socket.once('connect', () => resolve(socket));
+    socket.once('error', reject);
+  });
+}
+
+test('delivers an envelope from the client to the server and one back', async () => {
+  const r = await rig();
+  const client = await connectSocket({ path: r.path, maxFrameBytes: MiB });
+  const atServer: Array<string> = [];
+  const atClient: Array<string> = [];
+  client.onEnvelope((e) => atClient.push(e.id));
+  try {
+    await until(() => r.connections.length === 1);
+    const connection = r.connections[0];
+    connection.onEnvelope((e) => atServer.push(e.id));
+    client.send(ping('up'));
+    const connection2 = r.connections[0];
+    connection2.send(ping('down'));
+    await until(() => atServer.length === 1 && atClient.length === 1);
+    assert.deepEqual(atServer, ['up']);
+    assert.deepEqual(atClient, ['down']);
+  } finally {
+    client.close();
+    await r.server.close();
+    r.remove();
+  }
+});
+
+test('carries a 1 MiB attachment over the socket with equal bytes as a Buffer', async () => {
+  const r = await rig(4 * MiB);
+  const client = await connectSocket({ path: r.path, maxFrameBytes: 4 * MiB });
+  const bytes = new Uint8Array(MiB);
+  for (let i = 0; i < bytes.length; i += 1) bytes[i] = (i * 17) % 253;
+  const seen: Array<Env> = [];
+  try {
+    await until(() => r.connections.length === 1);
+    const connection = r.connections[0];
+    connection.onEnvelope((e) => seen.push(e));
+    client.send(sendWith('file', bytes));
+    await until(() => seen.length === 1);
+    const { attachments } = (seen[0].body as { content: { attachments: Array<{ data: Uint8Array }> } }).content;
+    const data = attachments[0].data;
+    assert.equal(Buffer.isBuffer(data), true);
+    assert.equal(Buffer.compare(data as Buffer, Buffer.from(bytes)), 0);
+  } finally {
+    client.close();
+    await r.server.close();
+    r.remove();
+  }
+});
+
+test('closes with frame-too-large when bytes pass the cap before any newline arrives', async () => {
+  const r = await rig(1000);
+  const socket = await raw(r.path);
+  const serverClosed: Array<string> = [];
+  try {
+    await until(() => r.connections.length === 1);
+    const connection = r.connections[0];
+    connection.onClose((reason) => serverClosed.push(reason));
+    socket.write('a'.repeat(3000));
+    await until(() => serverClosed.length === 1);
+    assert.equal(serverClosed[0], 'frame-too-large');
+  } finally {
+    socket.destroy();
+    await r.server.close();
+    r.remove();
+  }
+});
+
+test('accepts a line of exactly the cap', async () => {
+  const line = encodeEnvelope(ping('exact'));
+  const r = await rig(Buffer.byteLength(line));
+  const socket = await raw(r.path);
+  const seen: Array<string> = [];
+  const closed: Array<string> = [];
+  try {
+    await until(() => r.connections.length === 1);
+    const connection = r.connections[0];
+    connection.onEnvelope((e) => seen.push(e.id));
+    const connection2 = r.connections[0];
+    connection2.onClose((reason) => closed.push(reason));
+    socket.write(`${line}\n`);
+    await until(() => seen.length === 1);
+    assert.deepEqual(closed, []);
+  } finally {
+    socket.destroy();
+    await r.server.close();
+    r.remove();
+  }
+});
+
+test('tells the server side when the client closes', async () => {
+  const r = await rig();
+  const client = await connectSocket({ path: r.path, maxFrameBytes: MiB });
+  const closed: Array<string> = [];
+  try {
+    await until(() => r.connections.length === 1);
+    const connection = r.connections[0];
+    connection.onClose((reason) => closed.push(reason));
+    client.close();
+    await until(() => closed.length === 1);
+    assert.notEqual(closed[0], '');
+  } finally {
+    await r.server.close();
+    r.remove();
+  }
+});
+
+// The expectation follows stage 4 PR C: the interfaces run as units under users of their own in the group `neptunia`,
+// so the group reaches the socket (folder 0750, socket 0660) and the token alone decides who may speak. The modes
+// 0700 and 0600 kept every unit out.
+test('creates the folder at mode 0750 and the socket at mode 0660', async () => {
+  const r = await rig(MiB, true);
+  try {
+    assert.equal(statSync(join(r.dir, 'run')).mode & 0o777, 0o750);
+    assert.equal(statSync(r.path).mode & 0o777, 0o660);
+  } finally {
+    await r.server.close();
+    r.remove();
+  }
+});
+
+test('replaces a stale file at the path and serves a client', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'k-'));
+  const path = join(dir, 's');
+  writeFileSync(path, 'left over from a crash');
+  const connections: Array<Transport> = [];
+  const server = await listenSocket({ path, maxFrameBytes: MiB, log: quiet, onConnection: (t) => connections.push(t) });
+  const client = await connectSocket({ path, maxFrameBytes: MiB });
+  try {
+    await until(() => connections.length === 1);
+    assert.equal(connections.length, 1);
+  } finally {
+    client.close();
+    await server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('removes the socket file on close', async () => {
+  const r = await rig();
+  try {
+    assert.equal(existsSync(r.path), true);
+    await r.server.close();
+    assert.equal(existsSync(r.path), false);
+  } finally {
+    r.remove();
+  }
+});
+
+test('close resolves while a client is still connected and that client is told', async () => {
+  const r = await rig();
+  const client = await connectSocket({ path: r.path, maxFrameBytes: MiB });
+  const closed: Array<string> = [];
+  client.onClose((reason) => closed.push(reason));
+  try {
+    await until(() => r.connections.length === 1);
+    await r.server.close();
+    await until(() => closed.length === 1);
+    assert.equal(existsSync(r.path), false);
+  } finally {
+    r.remove();
+  }
+});
+
+// Tests for the link over a real Unix socket: the serving side connects with connectSocket, the core listens with
+// listenSocket and opens one link per connection. The socket sits in a short folder under TMPDIR because a Unix
+// socket path is limited to 108 bytes.
+
+type Link = ReturnType<typeof openAdapterLink>;
+const CAPABILITIES: Capabilities = {
+  operations: ['message.send'],
+  maxChars: 2000,
+  maxFiles: 10,
+  maxFileBytes: 8 * MiB,
+  edit: { ownOnly: true, windowMs: null },
+  history: true,
+  threads: false,
+  reactions: true,
+  customEmoji: false,
+  presence: false,
+  voiceFormats: [],
+  publish: [],
+};
+const HELLO: Hello = {
+  iface: 'fake',
+  self: { id: 'bot-1', name: 'Νέπτυν' },
+  root: { id: 'g1', name: 'Alpha' },
+  capabilities: CAPABILITIES,
+  resume: null,
+};
+
+async function linkRig() {
+  const dir = mkdtempSync(join(tmpdir(), 'lk-'));
+  const path = join(dir, 'c.sock');
+  const handled: Array<string> = [];
+  const door = createEventDoor({
+    handlers: { 'reaction.changed': (event: { id: string }) => void handled.push(event.id) },
+    log: quiet,
+  });
+  const links: Array<Link> = [];
+  const server = await listenSocket({
+    path,
+    maxFrameBytes: 4 * MiB,
+    log: quiet,
+    onConnection: (transport) => links.push(openAdapterLink({ transport, door, token: 'tok', log: quiet })),
+  });
+  const transport = await connectSocket({ path, maxFrameBytes: 4 * MiB });
+  const fake = createFakeAdapter();
+  const served = serveAdapter({ transport, hello: HELLO, token: 'tok', adapter: fake, log: quiet });
+  await until(() => links.length === 1);
+  const [link] = links;
+  if (link === undefined) throw new Error('no link opened');
+  await link.hello;
+  return {
+    dir,
+    path,
+    handled,
+    server,
+    served,
+    link,
+    fake,
+    remove: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+test('carries one event in and one send out over the socket', async () => {
+  const r = await linkRig();
+  try {
+    const status = await r.served.emit({
+      kind: 'reaction.changed',
+      iface: 'fake',
+      at: 1,
+      id: 'e1',
+      chat: { id: 'c1', kind: 'channel' },
+      messageId: 'm1',
+      emoji: { name: 'x' },
+      accountId: 'u1',
+      added: true,
+    });
+    assert.equal(status, 'ok');
+    assert.deepEqual(r.handled, ['e1']);
+    const adapter = r.link.adapter;
+    const delivery = await adapter.send({ iface: 'fake', chatId: 'c1' }, { text: 'over the socket' });
+    assert.equal(delivery.status, 'ok');
+    assert.equal(r.fake.messagesIn('c1')[0]?.text, 'over the socket');
+  } finally {
+    r.served.close();
+    r.link.close();
+    await r.server.close();
+    r.remove();
+  }
+});

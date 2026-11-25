@@ -1,0 +1,203 @@
+// The stretches of a place's chats the persona took part in (src/memory/store.ts, `participationEntry`, and
+// src/memory/participation.ts), owned by the unit `placeCollection('participation', <place id>)`. The store writes
+// them through the write kind `participation-episodes` (session-write.ts) and reads them back through
+// `participationValue` below.
+//
+//   episodes          one per stretch, kind participation: its chat as the place, `startAt` and `lastAt` as start_ms
+//                     and last_ms, the messages kept whole in `extra.messages`; its `itemId` as the episode id, a
+//                     derived id marked `$derived` when it has none
+//   episode_sources   one link per message id to the line the record holds (participation-sources.ts resolves it)
+//   operational       kind participation: the rest of the value (`nextId`)
+//
+// A write replaces the stretches: the episodes and links it no longer holds are retired
+// (place-holder.ts#retirePlaceAbsent).
+
+import { itemOrDerivedId, uniqueIds } from './ids.ts';
+import { groupScope } from './scope.ts';
+import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './row-columns.ts';
+import type { Spec } from './row-columns.ts';
+import { storageContext } from './storage-context.ts';
+import { channelColumn } from './native-rows.ts';
+import {
+  heldPlaceRows,
+  holdsPlace,
+  placeHolderOf,
+  preparedPlace,
+  retirePlaceAbsent,
+  stampPlaceRows,
+} from './place-holder.ts';
+import type { PlaceHolder } from './place-holder.ts';
+import { placeCollection, keyText, collectionId } from './unit-keys.ts';
+import { namedIface } from './live-iface.ts';
+import type { UnitKey } from './unit-keys.ts';
+import { writeMapping } from './upsert.ts';
+import { asText, dbOf, isFiniteNumber } from './types.ts';
+import type { Db, MemoryHandle, Row, Rows } from './types.ts';
+
+/** One write of the kind: the whole participation of one place. */
+export type ParticipationWrite = { placeId: string; value: Row };
+
+/** What a write answers: the rows it wrote and the rows it retired. */
+export type ParticipationResult = { upserted: number; retired: number };
+
+/** The columns of an item: its chat by the chat's place (native-rows.ts#channelColumn). */
+const specOf = (db: Db): Array<Spec> => [
+  channelColumn(db, 'place_id'),
+  { col: 'start_ms', key: 'startAt', type: 'num' },
+  { col: 'last_ms', key: 'lastAt', type: 'num' },
+];
+
+/** The reference of a message's line that participation-sources.ts resolves. */
+const messageSourceRef = (iface: string | null, messageId: unknown): string =>
+  `src:${iface ?? 'none'}:${asText(messageId)}`;
+
+const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
+const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
+
+/** The episode rows and message links of `episodes` into `rows`. */
+function putEpisodes(
+  rows: Rows,
+  episodes: ReadonlyArray<Row>,
+  iface: string | null,
+  unitId: string,
+  spec: Array<Spec>
+): void {
+  const uniq = uniqueIds();
+  episodes.forEach((episode: Row, position: number) => {
+    const part = split(episode, spec, iface);
+    const itemId = typeof episode.itemId === 'string' && episode.itemId ? episode.itemId : null;
+    const base =
+      itemId ??
+      itemOrDerivedId(null, 'participation', episode.placeId ?? '', episode.startAt ?? '', episode.id ?? position);
+    const id = uniq(base);
+    if (itemId && id === base) delete part.rest.itemId;
+    else part.rest.$derived = true;
+    put(rows, 'episodes', {
+      id,
+      ...part.cols,
+      kind: 'participation',
+      subject_id: null,
+      extra: extraText(part.rest),
+      ...groupScope(iface),
+      created_at: null,
+      retired_at: null,
+      position,
+    });
+    const messages: Array<unknown> = Array.isArray(episode.messages) ? episode.messages : [];
+    messages.forEach((message, index) => {
+      if (isPlainObject(message) && typeof message.id === 'string')
+        put(rows, 'episode_sources', {
+          episode_id: id,
+          source_id: messageSourceRef(iface, message.id),
+          position: index,
+        });
+    });
+  });
+}
+
+/** The rows of the participation `value` of the unit `key`, owned by `holder`, its operational row the unit's id. */
+function participationRows(
+  db: Db,
+  key: UnitKey,
+  value: Row,
+  unitId: string,
+  holder: PlaceHolder,
+  writeIface?: string
+): Rows {
+  const iface = ifaceOf(storageContext(db, key, writeIface));
+  const rows: Rows = {};
+  const rest = { ...value };
+  const has = [];
+  if (Array.isArray(value.episodes) && value.episodes.every(isPlainObject)) {
+    putEpisodes(rows, value.episodes, iface, unitId, specOf(db));
+    delete rest.episodes;
+    has.push('episodes');
+  }
+  rest.$has = has;
+  // The operational row keeps the holder it was first stored under, the unit's id.
+  const stored = preparedPlace(
+    db,
+    "SELECT owner FROM operational WHERE kind = 'participation' AND writer = ? AND holder_id = ? ORDER BY rowid LIMIT 1"
+  ).get(holder.writer, holder.holder_id);
+  put(rows, 'operational', {
+    kind: 'participation',
+    owner: stored ? stored.owner : unitId,
+    value: JSON.stringify(rest),
+  });
+  return stampPlaceRows(rows, holder);
+}
+
+/** The participation its rows give back. */
+function participationOf(db: Db, rows: Rows): Row {
+  const spec = specOf(db);
+  const rest = parseExtra(rowsOf(rows, 'operational')[0]?.value);
+  const has = Array.isArray(rest.$has) ? rest.$has : [];
+  delete rest.$has;
+  const obj = { ...rest };
+  if (has.includes('episodes')) {
+    obj.episodes = ordered(rows, 'episodes').map((row) => {
+      const extra = parseExtra(row.extra);
+      const derived = extra.$derived === true;
+      delete extra.$derived;
+      const episode = join(row, extra, spec);
+      if (!derived) episode.itemId = row.id;
+      return episode;
+    });
+  }
+  return obj;
+}
+
+/**
+ * Stores the whole participation the unit `key` holds (a place's `participation` unit) inside the caller's transaction
+ * and retires what it no longer holds.
+ */
+export function writeParticipation(
+  db: Db,
+  key: UnitKey,
+  value: Row,
+  { at, iface }: { at: string; iface?: string }
+): ParticipationResult {
+  const id = collectionId(key);
+  const holder = placeHolderOf(key)!; // a `participation` unit always has its holder columns (place-holder.ts)
+  const mapping = participationRows(db, key, value, id, holder, iface);
+  const upserted = writeMapping(db, mapping, { at });
+  const retired = retirePlaceAbsent(db, holder, mapping, at);
+  return { upserted, retired };
+}
+
+/** A write as the writer receives it, checked. */
+export function participationWriteOf(update: Row): ParticipationWrite {
+  if (!filled(update.placeId)) throw coded('PARTICIPATION_PLACE');
+  // A value of another shape, such as a list a hand edit left, is stored as its fields and read back malformed.
+  if (typeof update.value !== 'object' || update.value === null) throw coded('PARTICIPATION_VALUE');
+  return { placeId: update.placeId, value: update.value as Row };
+}
+
+/** Whether `key` names a place's participation. */
+export const isParticipationKey = (key: UnitKey | undefined): boolean =>
+  key?.kind === 'participation' && key.subject?.type === 'place';
+
+/** The write of a unit update of a participation (a value write of the place's own unit), else null. */
+export function participationOfUnit(update: Row): ParticipationWrite | null {
+  const key = update.key as UnitKey | undefined;
+  if (update.op !== 'value' || !key || !isParticipationKey(key)) return null;
+  if (keyText(placeCollection('participation', key.subject.id)) !== keyText(key)) return null;
+  return participationWriteOf({ placeId: key.subject.id, value: update.value ?? {} });
+}
+
+/** The write kind `participation-episodes` on the writer connection (session-write.ts). */
+export function applyParticipationWrite(handle: MemoryHandle, update: Row): ParticipationResult {
+  const write = participationWriteOf(update);
+  const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
+  const key = placeCollection('participation', write.placeId);
+  return handle.transaction(() =>
+    writeParticipation(dbOf(handle), key, write.value, { at, iface: namedIface(update) ?? undefined })
+  );
+}
+
+/** The participation the unit `key` holds (a place's `participation` unit), or not found when none is stored. */
+export function participationValue(db: Db, key: UnitKey): { found: true; value: unknown } | { found: false } {
+  const holder = placeHolderOf(key);
+  if (!holder || !holdsPlace(db, holder, 'operational')) return { found: false };
+  return { found: true, value: participationOf(db, heldPlaceRows(db, holder, ['episodes', 'operational'])) };
+}

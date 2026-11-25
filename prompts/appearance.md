@@ -1,0 +1,1 @@
+{{name}}: late twenties, average height, lean build. Dark brown hair, slightly messy and overgrown, pushed to one side. Grey-green eyes, slightly heavy-lidded. Light skin, no strong tan. Default expression: a faint half-smirk and a relaxed brow, as if half paying attention and half amused by something unspoken.

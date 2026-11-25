@@ -1,0 +1,490 @@
+// The record: what the app observed, kept for good. Hot memory forgets by design (caps,
+// eviction); the record does not, so nothing the persona lived through is lost to eviction.
+// One line per observation in the memory database (src/memory/db/service.ts), in the unit of its
+// day, `<place>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl` (`dayFile`, relative to the data
+// directory: the unit's name, no file), by the UTC day of the line's `occurredAt`; a private
+// chat's lines go under `private/<accountId>/record/` instead and never into the place record. Kinds:
+//
+//   - `seen`: a message the app observed (an edit is a new line with revision 2, 3, ...);
+//   - `deleted`: the platform deleted a message (its stored text stays: not a forget request);
+//   - `said`: the persona's own message, once its post succeeded;
+//   - `felt`: the feeling the persona attached to a stored moment, with its own id; the record keeps these lines and no
+//     writer makes new ones.
+//
+// Only a whitelist of a message's fields enters a line (toRecordLine): ids, time, channel,
+// author, reply target, text, media kinds (never a URL of a file), mentions, `direct`, and for a
+// posted link with a preview the compact `links` (recordLinks: its URL, as posted in the text, with
+// the preview's title, description and site, so a link post is found by what it shows). `append`
+// waits while a writer lock is held (`writerGate`), then writes the lines through the write kind
+// `record-lines` (`memoryDb.writeRecordLines`, src/memory/db/record-lines.ts), which stores each in
+// its day's unit, refuses a line whose message revision (or deletion) the month already holds and
+// adopts a line the live observation wrote first; the promise resolves once the writer committed
+// and rejects with the writer's code. Every read is answered from the database
+// (src/memory/db/record-lines.ts); a closed database is an error with a code (`DB_CLOSED`), never
+// an empty answer.
+//
+// Logs carry counts and ids of places, never a line's contents.
+
+import path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { log as defaultLog } from '../log.ts';
+import { clampChars, oneLine } from './clamp.ts';
+import { memoryRootOf } from './root.ts';
+
+import { mediaItemsOf } from './db/media-store.ts';
+import { recordDays, recordLines, recordMonths, recordNewestRevision, recordStats } from './db/record-lines.ts';
+import { isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
+import type { StoredRecord, MemoryDb, Untyped } from './types.ts';
+import type { NativeMessageLocator } from './db/recall.ts';
+
+/** The schema version every line carries. */
+export const RECORD_VERSION = 1;
+
+const MONTH_RE = /^\d{4}-\d{2}$/;
+const DAY_RE = /^\d{4}-\d{2}-\d{2}/;
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The most links one record line keeps. */
+export const RECORD_LINKS_MAX = 3;
+/** The longest cache id of a recorded link, in code points. */
+const LINK_ID_CHARS = 500;
+
+/** Distinct non-empty strings of `values` (arrays), in order. */
+function idList(...values: Array<unknown>): Array<string> {
+  const out: Array<string> = [];
+  for (const value of values) {
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (typeof item === 'string' && item && !out.includes(item)) out.push(item);
+    }
+  }
+  return out;
+}
+
+/**
+ * An epoch-ms or ISO time (a bare `YYYY-MM-DD` is that day's midnight UTC) as an ISO string, else
+ * null. Shared with src/memory/archive.ts.
+ */
+export function isoOf(value: unknown): string | null {
+  if (typeof value === 'number' && isFiniteNumber(value)) return new Date(value).toISOString();
+  if (typeof value === 'string' && value) {
+    if (DATE_ONLY_RE.test(value)) return `${value}T00:00:00.000Z`;
+    const ms = Date.parse(value);
+    return isFiniteNumber(ms) ? new Date(ms).toISOString() : null;
+  }
+  return null;
+}
+
+/**
+ * The media of a slim message: the kinds of its attachments and links, then its stickers and custom emoji as the items
+ * an observation makes of them (media-store.ts#mediaItemsOf), with their platform ids and names.
+ */
+function mediaOf(slim: Untyped) {
+  const kinds: Array<string> = [];
+  for (const item of [
+    ...(Array.isArray(slim.attachments) ? slim.attachments : []),
+    ...(Array.isArray(slim.links) ? slim.links : []),
+  ]) {
+    const kind: unknown = item?.kind;
+    if (typeof kind === 'string' && kind) kinds.push(kind);
+  }
+  return [...kinds, ...mediaItemsOf({ stickers: slim.stickers, emojis: slim.emojis })];
+}
+
+/** The marks of the persona's line on what they made (`{ self, accounts }`), as the line keeps them; none when not given. */
+function marksOf(given: unknown): { marks?: { self: boolean; accounts: Array<string> } } {
+  if (given === null || typeof given !== 'object') return {};
+  const marks = given as { self?: unknown; accounts?: unknown };
+  return { marks: { self: marks.self === true, accounts: idList(marks.accounts) } };
+}
+
+/**
+ * The compact links of a record line, from a normalized message's links (src/protocol/events.ts#Message:
+ * `{ id, kind, url, title, text, site }`) or from links already in this shape (`description`
+ * instead of `text`): each `{ id?, url, title, description, site }` on one line, the URL, the title,
+ * the description and the site kept whole. Only a link (`kind`
+ * `link`, or no kind: never a GIF, whose URL leaves the text) with a title or a description is
+ * kept, at most RECORD_LINKS_MAX, in order. `id` is the link's media-cache key, when it has one.
+ * Pure.
+ */
+export function recordLinks(
+  items: unknown
+): Array<{ id?: string; url: string; title: string; description: string; site: string }> {
+  const out = [];
+  const str = (value: Untyped) => (typeof value === 'string' ? oneLine(value) : '');
+  for (const item of Array.isArray(items) ? items : []) {
+    if (out.length >= RECORD_LINKS_MAX) break;
+    if (!item || typeof item !== 'object' || (item.kind !== undefined && item.kind !== 'link')) continue;
+    const title = str(item.title);
+    const description = str(item.description ?? item.text);
+    if (!title && !description) continue;
+    const id = clampChars(str(item.id), LINK_ID_CHARS);
+    out.push({
+      ...(id ? { id } : {}),
+      url: str(item.url),
+      title,
+      description,
+      site: str(item.site),
+    });
+  }
+  return out;
+}
+
+/**
+ * One record line from a slim message (src/memory/update.ts#slimMessage; `mentionedAccountIds`
+ * and `replyToAuthorId` are read when the slim has them). Only the whitelisted fields are
+ * copied: `messageId`, `revision`, `occurredAt` (the slim's `ts`), the channel (as `scope`),
+ * `by`, `replyTo`, `text`, `media` (kinds, and the items of stickers and custom emoji), `links` (recordLinks of the slim's `linkCards`,
+ * only when there are some: a line without the key has no link preview), `voiced`, `marks` of a `said` line (what they
+ * made: `{ self, accounts }`), `mentions`, `direct`;
+ * `participants` = the author, the mentioned members and the reply target's author when known. A `said` line names
+ * no author (it is the persona's) and carries `turnId` / `opId`; a `deleted` line keeps only
+ * the message id and its author as a participant. `placeId` is stamped on append.
+ *
+ */
+// health: allow complexity until 2027-04-01 -- one copy of whitelisted fields
+export function toRecordLine(
+  slim: StoredRecord,
+  {
+    kind = 'seen',
+    revision = 1,
+    origin = 'live',
+    now = Date.now,
+    uuid = randomUUID,
+    turnId = null,
+    opId = null,
+  }: {
+    kind?: 'seen' | 'said' | 'deleted';
+    revision?: number;
+    origin?: 'live' | 'backfill';
+    now?: () => number;
+    uuid?: () => string;
+    turnId?: string | null;
+    opId?: string | null;
+  } = {}
+): object {
+  const source = slim && typeof slim === 'object' ? slim : {};
+  const messageId = typeof source.id === 'string' && source.id ? source.id : null;
+  const placeId = typeof source.placeId === 'string' && source.placeId ? source.placeId : null;
+  const by = typeof source.authorId === 'string' && source.authorId ? source.authorId : null;
+  const replyTo = typeof source.replyToId === 'string' && source.replyToId ? source.replyToId : null;
+  const replyAuthor =
+    replyTo && typeof source.replyToAuthorId === 'string' && source.replyToAuthorId ? source.replyToAuthorId : null;
+  const mentions = idList(source.mentionedAccountIds ?? source.mentions);
+  const recordedAt = new Date(now()).toISOString();
+  const head = {
+    v: RECORD_VERSION,
+    id: uuid(),
+    kind,
+    messageId,
+  };
+  const envelope = {
+    occurredAt: isoOf(source.ts) ?? recordedAt,
+    recordedAt,
+    scope: placeId ? { channel: placeId } : {},
+  };
+  const tail = { sourceMessageIds: idList(messageId), origin: origin === 'backfill' ? 'backfill' : 'live' };
+  if (kind === 'deleted') return { ...head, ...envelope, participants: idList(by), ...tail };
+  const rev = isIntegerNumber(revision) && revision > 0 ? revision : 1;
+  const links = recordLinks(source.linkCards);
+  const body = {
+    ...head,
+    revision: rev,
+    ...envelope,
+    ...(kind === 'said' ? {} : { by }),
+    replyTo,
+    text: typeof source.content === 'string' ? source.content : '',
+    media: mediaOf(source),
+    ...(links.length > 0 ? { links } : {}),
+    ...(typeof source.voiced === 'string' && source.voiced !== '' ? { voiced: source.voiced } : {}),
+    ...(kind === 'said' ? marksOf(source.marks) : {}),
+    mentions,
+  };
+  if (kind === 'said') {
+    return {
+      ...body,
+      turnId: turnId ?? null,
+      opId: opId ?? null,
+      participants: idList(mentions, replyAuthor),
+      ...tail,
+    };
+  }
+  return { ...body, direct: source.direct === true, participants: idList(by, mentions, replyAuthor), ...tail };
+}
+
+/**
+ * The revision id of a feeling's text: `rv-` and the first 12 hex digits of its sha256.
+ */
+export function revisionOf(text: string): string {
+  return `rv-${createHash('sha256')
+    .update(String(text ?? ''), 'utf8')
+    .digest('hex')
+    .slice(0, 12)}`;
+}
+
+/** How many times appendRevision moves an edit past a revision the record already holds. */
+export const EDIT_REVISION_RETRIES = 5;
+
+/**
+ * Append an edit's line at `revision`, or after the newest revision the record holds when that
+ * one is taken (revisions the caller's own count does not know): on a duplicate the line is rebuilt with the record's newest revision of
+ * the message + 1 (`record.newestRevision`, else the refused revision + 1) and appended again, at
+ * most EDIT_REVISION_RETRIES times. A bump is logged as `record: edit revision bumped` (counts
+ * only). The caller continues its own count from the returned `revision`.
+ * @param record  From createRecord.
+ * @param lineAt  The line at a revision (toRecordLine).
+ * @param revision  The revision to try first.
+ */
+export async function appendRevision(
+  record: { append: Untyped; newestRevision?: Untyped },
+  placeId: string,
+  lineAt: (revision: number) => Untyped,
+  revision: number,
+  { log = defaultLog }: { log?: { info: Untyped } } = {}
+): Promise<{ revision: number; written: number; duplicates: number; bumps: number }> {
+  let current = revision;
+  let line = lineAt(current);
+  let result = await record.append(placeId, [line]);
+  let bumps = 0;
+  while ((result?.duplicates ?? 0) > 0 && bumps < EDIT_REVISION_RETRIES) {
+    bumps += 1;
+    const known =
+      typeof record.newestRevision === 'function'
+        ? await record.newestRevision(placeId, line.messageId, line.occurredAt)
+        : null;
+    current = Math.max(current, isIntegerNumber(known) ? known : current) + 1;
+    line = lineAt(current);
+    result = await record.append(placeId, [line]);
+  }
+  const written = result?.written ?? 0;
+  if (bumps > 0) log.info('record: edit revision bumped', { placeId: String(placeId), bumps, written });
+  return { revision: current, written, duplicates: result?.duplicates ?? 0, bumps };
+}
+
+/** A line of the record as it is stored: a message the persona saw or said, or the deletion of one. */
+export type RecordLine = {
+  [field: string]: Untyped;
+  kind?: string;
+  messageId: string;
+  occurredAt: string;
+  revision?: number;
+  scope: { channel?: string; private?: boolean; user?: string };
+  text?: string;
+  by?: string;
+  links?: Array<Untyped>;
+};
+
+/** The parsed line, or null. */
+function parse(line: Untyped) {
+  try {
+    const value = JSON.parse(line);
+    return value && typeof value === 'object' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What `RecordStore.iterate` yields, as the record lines they are (the store's public type keeps them plain objects). */
+export function asRecordLines(lines: AsyncIterable<object>): AsyncIterable<RecordLine> {
+  // The record writes nothing but record lines.
+  return lines as AsyncIterable<RecordLine>;
+}
+
+export type RecordMessageRef = Readonly<{
+  lineId: string;
+  locator: NativeMessageLocator;
+  observedSourceId?: string;
+}>;
+
+export type RecordStore = {
+  append(
+    placeId: string | null,
+    lines: Array<object>,
+    opts?: { messages?: ReadonlyArray<RecordMessageRef> }
+  ): Promise<{ written: number; duplicates: number }>;
+  dayFile(placeId: string, occurredAtIso: string): string;
+  iterate(placeId: string, query?: { from?: string; to?: string; placeIds?: Array<string> }): AsyncIterable<object>;
+  newestRevision(
+    placeId: string,
+    messageId: string,
+    occurredAtIso: string,
+    opts?: { locator?: NativeMessageLocator }
+  ): Promise<number | null>;
+  stats(placeId: string): Promise<{ messages: number; days: number; first: string | null }>;
+};
+
+/**
+ * Create the record.
+ *
+ * @param options.dataDir  the `data/` directory (the units' names are relative to it)
+ * @param [options.writerGate]  awaited before every append: the
+ *   journal's `waitUnlocked`, so its writer lock (src/memory/journal.ts#withWriterLock) holds the
+ *   record's appends too
+ * @param options.memoryDb  the memory database service (src/memory/db/service.ts): every
+ *   read is answered from it (src/memory/db/record-lines.ts) and `append` writes it (`writeRecordLines`); a
+ *   failed read or write rejects with a code
+ *   `stats` counts the record of a place (the distinct message ids of its lines). `append` stamps
+ *   the private scope on each line of a DM place, one write per append; a line the month
+ *   already holds is a duplicate (`duplicates`). `iterate` streams
+ *   the parsed lines whose `occurredAt` lies in `[from, to]` (and whose channel is one of `placeIds`
+ *   when given), day by day. `newestRevision` is the highest revision the month of `occurredAtIso`
+ *   holds for the message (null when none; a `deleted` line does not count). Appends run one at a time.
+ *   `dayFile` is the absolute path a day's unit is named after (no file is written there).
+ */
+export function createRecord({
+  dataDir,
+  log = defaultLog,
+  now = Date.now,
+  writerGate = null,
+  memoryDb = null,
+}: {
+  dataDir: string;
+  log?: { info: Untyped; warn: Untyped };
+  now?: () => number;
+  writerGate?: (() => Promise<void>) | null;
+  memoryDb: MemoryDb | null;
+}): RecordStore {
+  const root = memoryRootOf(dataDir);
+  const seam = readSeamOf(memoryDb, log, 'record');
+  let chain: Promise<unknown> = Promise.resolve();
+
+  /** Run `task` after every append already queued. */
+  function serial<TResult>(task: () => Promise<TResult>): Promise<TResult> {
+    const run = chain.then(task);
+    chain = run.catch(() => {});
+    return run;
+  }
+
+  function baseDir(placeId: string | null) {
+    return path.join(root.placeDir(placeId), 'record');
+  }
+
+  function dayOf(iso: string) {
+    return String(iso ?? '').match(DAY_RE)?.[0] ?? new Date(now()).toISOString().slice(0, 10);
+  }
+
+  function dayFile(placeId: string | null, occurredAtIso: Untyped) {
+    const day = dayOf(occurredAtIso);
+    return path.join(baseDir(placeId), day.slice(0, 7), `${day}.jsonl`);
+  }
+
+  /**
+   * What the stored row of a line's place says of its scope: the native id of a DM place's partner account, `group` for
+   * any other stored place, `unknown` for a place no row holds yet (or no database to read).
+   */
+  function placeScopeOf(placeId: string | null): { native: string } | 'group' | 'unknown' {
+    if (placeId === null) return 'group';
+    if (!memoryDb?.readHandle?.()) return 'unknown';
+    const db = seam.db();
+    const row = seam.run(() =>
+      db
+        .prepare(
+          `SELECT a.native_id AS native, (p.kind = 'dm' OR p.chat = 'dm') AS dm FROM places p
+           LEFT JOIN accounts a ON a.id = p.partner_account WHERE p.id = ?`
+        )
+        .get(placeId)
+    );
+    if (!row) return 'unknown';
+    if (row.dm !== 1) return 'group';
+    return typeof row.native === 'string' ? { native: row.native } : 'unknown';
+  }
+
+  /**
+   * A line as `append` stores it: `occurredAt` as ISO, a line of a DM place with the private scope. A line of a place
+   * no row holds names that place in its scope, so a direct chat's line stays closed (scope.ts#scopeColumns).
+   */
+  function stamped(raw: Untyped, placeId: string | null, place: { native: string } | 'group' | 'unknown') {
+    const line = { ...raw };
+    line.occurredAt = isoOf(line.occurredAt) ?? new Date(now()).toISOString();
+    if (place === 'unknown' && placeId !== null) line.scope = { ...(raw.scope ?? {}), place: placeId };
+    else if (place !== 'group' && place !== 'unknown') {
+      const channel = typeof raw.scope?.channel === 'string' ? raw.scope.channel : null;
+      line.scope = { user: place.native, private: true, ...(channel ? { channel } : {}) };
+    }
+    return line;
+  }
+
+  /** The database's writer of record lines, or a coded rejection when there is none. */
+  function linesWriter() {
+    if (typeof memoryDb?.writeRecordLines !== 'function')
+      throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+    return memoryDb.writeRecordLines;
+  }
+
+  /** The lines go to the database as one write, which stores each run of lines of one day in that day's unit. */
+  async function appendToDb(placeId: string | null, lines: Untyped, messages?: ReadonlyArray<RecordMessageRef>) {
+    const write = seam.run(() => linesWriter());
+    const place = placeScopeOf(placeId);
+    const stampedLines: Array<Untyped> = [];
+    for (const raw of Array.isArray(lines) ? lines : []) {
+      if (raw && typeof raw === 'object') stampedLines.push(stamped(raw, placeId, place));
+    }
+    if (stampedLines.length === 0) return { written: 0, duplicates: 0 };
+    // The writer answers how many lines it wrote and how many the month already held.
+    const done = (await seam.run(() => write({ placeId, lines: stampedLines, ...(messages ? { messages } : {}) }))) as
+      StoredRecord | undefined;
+    return { written: done?.written ?? 0, duplicates: done?.duplicates ?? 0 };
+  }
+
+  async function append(
+    placeId: string | null,
+    lines: Array<Untyped>,
+    { messages }: { messages?: ReadonlyArray<RecordMessageRef> } = {}
+  ) {
+    if (typeof writerGate === 'function') await writerGate();
+    return serial(() => appendToDb(placeId, lines, messages));
+  }
+
+  async function* iterate(
+    placeId: string | null,
+    {
+      from = null,
+      to = null,
+      placeIds: chatIds = null,
+    }: {
+      from?: string | null;
+      to?: string | null;
+      placeIds?: Array<string> | null;
+    } = {}
+  ) {
+    const db = seam.db();
+    const fromMs = from ? Date.parse(from) : -Infinity;
+    const toMs = to ? Date.parse(to) : Infinity;
+    const fromDay = from ? dayOf(from) : '0000-00-00';
+    const toDay = to ? dayOf(to) : '9999-99-99';
+    const channels = Array.isArray(chatIds) ? new Set(chatIds) : null;
+    for (const month of seam.run(() => recordMonths(db, placeId))) {
+      if (!MONTH_RE.test(month) || month < fromDay.slice(0, 7) || month > toDay.slice(0, 7)) continue;
+      for (const unit of seam.run(() => recordDays(db, placeId, month))) {
+        const { day } = unit;
+        if (day < fromDay || day > toDay) continue;
+        for (const line of seam.run(() => recordLines(db, unit.key))) {
+          const value = parse(line);
+          if (!value) continue;
+          const at = Date.parse(value.occurredAt);
+          if (isFiniteNumber(at) && (at < fromMs || at > toMs)) continue;
+          if (channels && !channels.has(value.scope?.channel)) continue;
+          yield value;
+        }
+      }
+    }
+  }
+
+  function newestRevision(
+    placeId: string,
+    messageId: string,
+    occurredAtIso: Untyped,
+    { locator }: { locator?: NativeMessageLocator } = {}
+  ) {
+    return serial(async () => {
+      const db = seam.db();
+      return seam.run(() => recordNewestRevision(db, placeId, dayOf(occurredAtIso).slice(0, 7), messageId, locator));
+    });
+  }
+
+  async function stats(placeId: string | null) {
+    const db = seam.db();
+    return seam.run(() => recordStats(db, placeId));
+  }
+
+  return { append, dayFile, iterate, newestRevision, stats };
+}

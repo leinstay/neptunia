@@ -1,0 +1,368 @@
+// Tests for src/llm/roles.ts (the model roles: the core, its helpers and drawing on the first route of their chains in
+// `models.routes`; the errand agents are no model role; one resolver, no cross-role fallback). A base role's model
+// comes from its chain. The merge of a local chain is in tests/src/config.test.ts, and the call sites are here.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  BASE_ROLES,
+  CORE_ROLES,
+  MEMORY_ROLE,
+  ROLE_DEFAULTS,
+  PURPOSE_ROLES,
+  isModelRole,
+  roleModel,
+  roleOn,
+  OPTIONAL_ROLES,
+  offRoles,
+  MEMORY_ROLE_DEFAULT,
+} from '../../../src/llm/roles.ts';
+import { readConfig } from '../../../src/config.ts';
+import { MODEL_SET_ROLES } from '../../../src/tools/operations/catalog.ts';
+import { tempDir } from '../../fixtures/tmp.ts';
+import { chainsOf } from '../../fixtures/chains.ts';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const purposeRoles: Record<string, string> = PURPOSE_ROLES;
+
+/** A chain of one API route on the key `main` for `role`, as `models.routes` holds it. */
+const on = (role: string, model: string) => ({ [role]: [{ via: 'api', key: 'main', model, effort: null }] });
+
+/** A scratch root with the tracked config.json and, when given, a config.local.json. */
+function loadWith(local: unknown) {
+  const dir = tempDir('nep-roles-');
+  try {
+    // The tracked settings live in config/config.json.
+    fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+    fs.copyFileSync(path.join(ROOT, 'config', 'config.json'), path.join(dir, 'config', 'config.json'));
+    // Role overrides use the canonical persona file.
+    fs.mkdirSync(path.join(dir, 'data', 'config'), { recursive: true });
+    if (local !== undefined) fs.writeFileSync(path.join(dir, 'data', 'config', 'config.json'), JSON.stringify(local));
+    return readConfig(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// ---- roleModel ---------------------------------------------------------------
+
+test("roleModel: models.byPurpose for the purpose, else the role's first route, else the role default", () => {
+  const config = { models: { routes: on('analyzer', 'x/analyzer'), byPurpose: { split: 'x/split' } } };
+  assert.equal(roleModel(config, 'analyzer', 'split'), 'x/split');
+  assert.equal(roleModel(config, 'analyzer', 'address'), 'x/analyzer');
+  assert.equal(roleModel(config, 'analyzer'), 'x/analyzer');
+  assert.equal(roleModel(config, 'analyzer', 'lookup'), 'x/analyzer', 'a lookup purpose goes out on the analyzer');
+});
+
+test('roles: the lookup purposes go out on the analyzer, each pinnable by itself', () => {
+  // The web search is the lookup purpose that a request names.
+  for (const purpose of ['web-search']) {
+    assert.equal(purposeRoles[purpose], 'analyzer', purpose);
+    assert.equal(
+      roleModel(
+        { models: { routes: on('analyzer', 'x/a'), byPurpose: { [purpose]: 'x/pinned' } } },
+        'analyzer',
+        purpose
+      ),
+      'x/pinned',
+      purpose
+    );
+  }
+});
+
+test('roleModel: a byPurpose entry applies whatever the role, an empty or non-string one does not', () => {
+  const routes = { ...on('core', 'x/core'), ...on('vision', 'x/vision') };
+  const config = { models: { routes, byPurpose: { reply: 'x/reply', describe: '', relook: 7 } } };
+  assert.equal(roleModel(config, 'core', 'reply'), 'x/reply');
+  assert.equal(roleModel(config, 'vision', 'describe'), 'x/vision');
+  assert.equal(roleModel(config, 'vision', 'relook'), 'x/vision');
+  assert.equal(
+    roleModel({ models: { byPurpose: Object.create({ split: 'x/inherited' }) } }, 'analyzer', 'split'),
+    ROLE_DEFAULTS.analyzer
+  );
+});
+
+test('roleModel: a byPurpose that is not a plain object, or an entry that is not a non-empty string, leaves the role model', () => {
+  const routes = on('analyzer', 'x/analyzer');
+  for (const byPurpose of [{ lookup: '' }, { lookup: null }, { lookup: 7 }, ['x/array'], 'x/string', null]) {
+    assert.equal(
+      roleModel({ models: { routes, byPurpose } }, 'analyzer', 'lookup'),
+      'x/analyzer',
+      JSON.stringify(byPurpose)
+    );
+  }
+  assert.equal(
+    roleModel({ models: { byPurpose: { toString: 'x/proto' } } }, 'analyzer', 'constructor'),
+    ROLE_DEFAULTS.analyzer,
+    'own keys only'
+  );
+});
+
+test("roleModel: a mandatory role with no chain takes its own default, never another role's model", () => {
+  const config = { models: { routes: { ...on('core', 'x/core'), ...on('analyzer', 'x/analyzer') } } };
+  // `dev`, `scout` and `server` are no roles: an agent runs on the model of its route.
+  for (const role of ['embedding', 'memory'])
+    assert.equal(roleModel(config, role), ROLE_DEFAULTS[role] ?? ROLE_DEFAULTS.core, role);
+  assert.equal(roleModel(undefined, 'core'), ROLE_DEFAULTS.core);
+  assert.equal(roleModel({ models: { routes: { analyzer: [] } } }, 'analyzer'), ROLE_DEFAULTS.analyzer);
+});
+
+test('roleModel: an optional role with no chain, or an empty one, is off', () => {
+  // Catches: an optional role with no chain coming back on its built-in default, so it spends a key nobody chose.
+  for (const role of ['vision', 'video', 'speech', 'drawing']) {
+    assert.equal(roleModel({}, role), undefined, role);
+    assert.equal(roleModel({ models: { routes: { [role]: [] } } }, role), undefined, role);
+    assert.equal(roleOn({}, role), false, role);
+  }
+});
+
+test('roleModel: undefined for a name that is not a role, unless its purpose is pinned', () => {
+  assert.equal(roleModel({}, 'constructor'), undefined);
+  assert.equal(roleModel({}, 'web'), undefined, 'the errand agent is called scout');
+  assert.equal(roleModel({ models: { byPurpose: { odd: 'x/odd' } } }, 'nope', 'odd'), 'x/odd');
+});
+
+// The agents are no model roles, so only the base roles read a model here, each from its own chain.
+test('roleModel: each role reads its own chain only', () => {
+  const crossed = {
+    models: {
+      routes: { scout: [{ via: 'api', key: 'main', model: 'openrouter/x/scout' }] },
+      errands: { core: 'x/core', drawing: 'x/draw' },
+      development: { analyzer: 'x/an' },
+    },
+  };
+  for (const role of ['core', 'analyzer']) assert.equal(roleModel(crossed, role), ROLE_DEFAULTS[role], role);
+  assert.equal(roleModel(crossed, 'drawing'), undefined, 'an optional role named in another group stays off');
+  assert.equal(roleModel({ models: { routes: on('drawing', 'x/draw') } }, 'drawing'), 'x/draw');
+  for (const models of [null, 'x', ['a'], { routes: 7 }, { routes: [], errands: 'x', development: null }])
+    assert.equal(roleModel({ models }, 'core'), ROLE_DEFAULTS.core, JSON.stringify(models));
+});
+
+test("roleModel: the memory role has its own chain and default, never the core's chain", () => {
+  assert.equal(roleModel({ models: { routes: { ...on('memory', 'x/m'), ...on('core', 'x/c') } } }, MEMORY_ROLE), 'x/m');
+  assert.equal(
+    roleModel({ models: { routes: on('core', 'x/c') } }, MEMORY_ROLE),
+    ROLE_DEFAULTS.core,
+    "with no chain: its own default, never the core's route"
+  );
+});
+
+// The errand agents are no model role and run on the model of their route.
+test('isModelRole: the base roles and memory are model roles, the errand agents and other names are not', () => {
+  // Catches: an agent read as a model role, so roleModel hands the scout a built-in model its route never named.
+  for (const role of [...BASE_ROLES, MEMORY_ROLE]) assert.equal(isModelRole(role), true, role);
+  for (const name of ['scout', 'server', 'search', 'errands', 'thinker', 'dev', '', undefined, 3]) {
+    assert.equal(isModelRole(name), false, String(name));
+    assert.equal(roleModel({}, String(name)), undefined, String(name));
+  }
+});
+
+test("roles: the built-in defaults equal config.json's agent groups, and every role has one", () => {
+  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
+  // `abilities` declares what each model can do, per model id. `agents` holds the agents' routing, and `routes` holds
+  // each role's chain of routes, empty as shipped.
+  assert.deepEqual(Object.keys(shipped.models), [
+    'byPurpose',
+    'abilities',
+    // An errand agent runs on the model of its route, so the models hold no errand or development group.
+    'agents',
+    'routes',
+  ]);
+  assert.deepEqual(shipped.models.routes, {});
+  assert.equal(
+    roleModel({}, 'memory'),
+    roleModel({}, 'core'),
+    "with no chain: the built-in default of the memory role is the core's default"
+  );
+  assert.deepEqual(shipped.models.byPurpose, {});
+  // The agents have no built-in model and no `model.set` row.
+  assert.deepEqual(Object.keys(ROLE_DEFAULTS).sort(), [...BASE_ROLES].sort());
+  assert.deepEqual([...BASE_ROLES], [...CORE_ROLES, 'drawing']);
+  assert.deepEqual([...MODEL_SET_ROLES], [...BASE_ROLES], '/nep model set offers every role');
+  for (const role of Object.values(PURPOSE_ROLES)) assert.ok(BASE_ROLES.includes(role), role);
+});
+
+// ---- every purpose resolves --------------------------------------------------
+
+test("purposes: under config.json every purpose resolves to its role's default model", () => {
+  const config = loadWith(undefined);
+  for (const [purpose, role] of Object.entries(PURPOSE_ROLES)) {
+    // The tracked optional roles are off, so their purposes resolve to no model.
+    const off = ['vision', 'video', 'speech', 'drawing'].includes(role);
+    assert.equal(roleModel(config, role, purpose), off ? undefined : ROLE_DEFAULTS[role], purpose);
+  }
+});
+
+test('quick search takes the analyzer model, and neither web.quickSearch.model nor a search chain is read', () => {
+  // Quick search has no chain of its own, so its purposes resolve on the analyzer.
+  // Catches: quick search answering with a retired setting's model, or with no model while the analyzer has one.
+  const config = {
+    models: {
+      routes: {
+        analyzer: [{ via: 'api', key: 'helpers', model: 'x/analyzer' }],
+        search: [{ via: 'api', key: 'helpers', model: 'perplexity/sonar-pro' }],
+      },
+    },
+    web: { quickSearch: { model: 'perplexity/sonar' } },
+  };
+  for (const purpose of ['search-summary', 'quick-search']) {
+    assert.equal(PURPOSE_ROLES[purpose as keyof typeof PURPOSE_ROLES], 'analyzer', purpose);
+    assert.equal(roleModel(config, 'analyzer', purpose), 'x/analyzer', purpose);
+  }
+});
+
+// ---------- the on and off state of the optional roles ----------
+
+// The on and off state of the optional model roles (src/llm/roles.ts#roleOn and #offRoles over config/config.json).
+// `vision`, `video`, `drawing` and `speech` are on while their chain in `models.routes` holds a route and off with
+// none, the tracked default; `core`, `memory`, `analyzer` and `embedding` are mandatory. A role is on by its chain.
+
+/** The tracked config.json with `local` merged over it, as the core reads a deployment. */
+function llmRolesLoadWith(local: unknown) {
+  const dir = tempDir('nep-roles-off-');
+  try {
+    fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+    fs.copyFileSync(path.join(ROOT, 'config', 'config.json'), path.join(dir, 'config', 'config.json'));
+    // Role overrides use the canonical persona file.
+    fs.mkdirSync(path.join(dir, 'data', 'config'), { recursive: true });
+    if (local !== undefined) fs.writeFileSync(path.join(dir, 'data', 'config', 'config.json'), JSON.stringify(local));
+    return readConfig(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** `models.routes` with one API route per role named with a model, and an empty chain for one named with null. */
+const withChains = (models: Record<string, string | null>) => ({
+  models: {
+    routes: Object.fromEntries(
+      Object.entries(models).map(([role, model]) => [
+        role,
+        model === null ? [] : [{ via: 'api', key: 'main', model, effort: null }],
+      ])
+    ),
+  },
+});
+
+// Bug caught: an empty chain read as "the role's default" would call a model nobody chose, and spend on it.
+test('an optional role whose chain is empty or absent is off, one with a route is on', () => {
+  for (const role of OPTIONAL_ROLES) {
+    assert.equal(roleOn(withChains({ [role]: null }), role), false, `${role} empty`);
+    assert.equal(roleOn({}, role), false, `${role} absent`);
+    assert.equal(roleOn(withChains({ [role]: 'x/model' }), role), true, `${role} with a route`);
+  }
+});
+
+// Bug caught: a mandatory role switched off by an empty chain would leave the persona without a core or a memory.
+test('the mandatory roles are on whatever their chain holds', () => {
+  for (const role of ['core', 'memory', 'analyzer', 'embedding']) {
+    assert.equal(roleOn(withChains({ [role]: null }), role), true, `${role} empty`);
+    assert.equal(roleOn({}, role), true, `${role} absent`);
+  }
+});
+
+// Bug caught: the senses line and the tool list naming the off roles in an order that moves with the config.
+test('offRoles lists the off optional roles in the order vision, video, drawing, speech', () => {
+  assert.deepEqual([...OPTIONAL_ROLES], ['vision', 'video', 'drawing', 'speech']);
+  const config = withChains({ speech: null, vision: null, video: 'x/v' });
+  assert.deepEqual(offRoles(config), ['vision', 'drawing', 'speech']);
+  assert.deepEqual(offRoles(withChains({ vision: 'a', video: 'b', drawing: 'c', speech: 'd' })), []);
+});
+
+// Bug caught: a request built on an off role's default model because the resolver fell back to ROLE_DEFAULTS.
+test('roleModel gives no model for an off optional role and the id for an on one', () => {
+  assert.equal(roleModel(withChains({ drawing: null }), 'drawing'), undefined);
+  assert.equal(roleModel(withChains({ vision: 'x/v' }), 'vision'), 'x/v');
+  assert.equal(roleModel(withChains({ core: null }), 'core'), ROLE_DEFAULTS.core, 'a mandatory role keeps its default');
+});
+
+// Bug caught: `/model set` writing a chain that the tracked settings still keep off.
+test('a local chain over the tracked config turns that role on and leaves the others off', () => {
+  const config = llmRolesLoadWith(withChains({ drawing: 'openai/gpt-image-x' }));
+  assert.equal(roleOn(config, 'drawing'), true);
+  assert.equal(roleModel(config, 'drawing'), 'openai/gpt-image-x');
+  assert.deepEqual(offRoles(config), ['vision', 'video', 'speech']);
+});
+
+test("roleModel: the diary's director role takes the analyzer's model while it has no chain, and its own once it has one", () => {
+  // Catches: a scene role with no route left with no model, or kept on the analyzer's after it got its own.
+  const analyzer = on('analyzer', 'x/analyzer');
+  assert.equal(roleModel({ models: { routes: analyzer } }, 'director'), 'x/analyzer');
+  assert.equal(roleModel(undefined, 'director'), ROLE_DEFAULTS.analyzer);
+  assert.equal(roleModel({ models: { routes: { ...analyzer, ...on('director', 'x/scene') } } }, 'director'), 'x/scene');
+});
+
+// Its key variable went with `llm.keyByRole`: the key ring routes the role (src/keys/ring.ts).
+test('the memory role: its own chain and its own default model', () => {
+  assert.equal(roleModel({ models: { routes: chainsOf({ memory: 'x/m', core: 'x/c' }) } }, 'memory'), 'x/m');
+  assert.equal(
+    roleModel({ models: { routes: chainsOf({ core: 'x/c' }) } }, 'memory'),
+    MEMORY_ROLE_DEFAULT,
+    'unset: its own default, never the core key'
+  );
+});
+
+// ---- the call sites ----------------------------------------------------------
+
+/**
+ * Every .js/.mjs file under src/ and scripts/, as [relative path, text], the TypeScript files of the folders that were
+ * JavaScript when this check was written, and the modules at the root of `src/` (their call sites stay in the count
+ * after the conversion).
+ */
+const CONVERTED_FOLDERS = [
+  'src/agent-runner/',
+  'src/behavior/',
+  'src/interface/',
+  'src/llm/',
+  'src/media/',
+  'src/memory/',
+  'src/protocol/',
+  'src/speech/',
+  'src/web/',
+  'scripts/',
+];
+
+function sources() {
+  const out: Array<[string, string]> = [];
+  const walk = (dir: string): void => {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (fs.statSync(full).isDirectory()) walk(full);
+      else if (
+        /\.m?js$/.test(name) ||
+        (name.endsWith('.ts') &&
+          (/^src\/[^/]+\.ts$/.test(path.relative(ROOT, full)) ||
+            CONVERTED_FOLDERS.some((folder) => path.relative(ROOT, full).startsWith(folder))))
+      )
+        out.push([path.relative(ROOT, full), fs.readFileSync(full, 'utf8')]);
+    }
+  };
+  walk(path.join(ROOT, 'src'));
+  walk(path.join(ROOT, 'scripts'));
+  return out;
+}
+
+test('call sites: every request role is one of the roles, every purpose goes out on its own role', () => {
+  const chatRoles = new Set(['system', 'user', 'assistant', 'tool']);
+  let pairs = 0;
+  for (const [file, text] of sources()) {
+    // A semantic predicate's argument also has a `role`; those files send no request.
+    const semantic = /memory[\\/]db[\\/]semantic-/.test(file);
+    for (const [, role] of semantic ? [] : text.matchAll(/\brole: '([\w.-]+)'/g)) {
+      if (!chatRoles.has(role)) assert.ok(BASE_ROLES.includes(role), `${file}: role '${role}'`);
+    }
+    for (const [, role, purpose] of text.matchAll(/roleModel\([\w.]+, '([\w-]+)', '([\w-]+)'\)/g)) {
+      assert.equal(purposeRoles[purpose], role, `${file}: roleModel for ${purpose}`);
+      pairs += 1;
+    }
+    for (const [, role, purpose] of text.matchAll(
+      /roleRequestOptions\([\w.]+, \{\s*role: '([\w-]+)'[^}]*?purpose: '([\w-]+)'/g
+    )) {
+      assert.equal(purposeRoles[purpose], role, `${file}: helper request for ${purpose}`);
+      pairs += 1;
+    }
+  }
+  assert.ok(pairs >= 25, `found ${pairs} role/purpose pairs`);
+});

@@ -1,0 +1,1172 @@
+// The steps of a turn: the persona's calls planned and made, their speech posted or held, and one more request while
+// something is left to read and room is left; the history a turn reads, the think it keeps, the transcript of a step's
+// note and the open intentions of an inner turn. createTurnRunner (src/behavior/turn.js) builds it once per runner with
+// createToolRound; the attempt calls its functions.
+
+import { setSettings } from '../behavior/diary.ts';
+import { humanizeSpeech } from '../behavior/humanizer.ts';
+import { historyLines } from '../behavior/lines.ts';
+import type { Line, ReactorNames } from '../behavior/lines.ts';
+import { skillsInventoryText } from '../behavior/prompt.ts';
+import type { ReactorStore } from '../behavior/reactor-store.ts';
+import type { StepLabels } from '../behavior/tool-step.ts';
+import {
+  appendStep,
+  cutToFit,
+  squeezedLabel,
+  deltaLines,
+  giveWay,
+  rescueRequest,
+  roomLeft,
+  stepNote,
+  stepVerdict,
+} from '../behavior/tool-step.ts';
+import { innerSettings } from '../behavior/inner.ts';
+import { diagnosticText } from '../behavior/wake.ts';
+import { callReason, fill, formatTranscript, noLegend } from '../format.ts';
+import type { Reads } from '../interface/reads.ts';
+import type { KeepLines } from '../pipeline/keep-lines.ts';
+import { requestTokenLimit } from '../llm/budget.ts';
+import { REPLY_REQUEST } from '../llm/openrouter.ts';
+import { hasThinkTag } from '../llm/parse.ts';
+import { estimateMessages, estimateTools } from '../llm/tokens.ts';
+import { log } from '../log.ts';
+import { countDashes, oneLine, stripDashes } from '../memory/clamp.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
+import { CODE } from '../tools/codes.ts';
+import { linksOfCalls, outcomeDetail } from '../tools/executors.ts';
+import type { CallView } from '../tools/executors.ts';
+import { coerceArgs, coversSpeech, toolResultText } from '../tools/tool-calls.ts';
+import type { NormalCall } from '../tools/tool-calls.ts';
+import type { Obj, SkillMap } from '../tools/types.ts';
+import { READ_SKILLS, SERVICE_ERRAND_SKILLS, wakeGoesOn } from '../tools/wake-tools.ts';
+import type { Act, ActArgs, ActOutcome, HeldSpeech, HoldArgs } from './act.ts';
+import {
+  CALL_STATUS_NAMES,
+  answerLeaked,
+  askUnleaked,
+  callTextOf,
+  defaultSkills,
+  ifaceOption,
+  searchHandles,
+  speechItemsOf,
+} from './calls.ts';
+import type { CallEnvelope, SearchRefs } from './calls.ts';
+import { cutOffOf, untoldDiagnostics } from './journal.ts';
+import { chatFetchCount, chatHeadStepOf } from './history.ts';
+import { TURN_CANCELLED } from './timers.ts';
+import { snapshotOfDraft } from './routing.ts';
+import { INNER_TERMINAL_SKILLS, LOOP_MIN_CALL_MS, LOOP_WHY, holdOf, loopSettings } from './settings.ts';
+import { resultCharsFor } from './settings.ts';
+import type {
+  CallContext,
+  CallOutcome,
+  CallPlan,
+  CallRefusal,
+  CallsDraft,
+  PlannedCall,
+  SkillCalls,
+} from './skill-calls.ts';
+import { askedFor } from './triggers.ts';
+import { turnKindOf, waitsForErrand } from './request/frame.ts';
+import type { TriggerKind } from './triggers.ts';
+import type { Typing } from './typing.ts';
+
+/** What a diary entry may call: every tool that only looks, its pictures, its voice message and an errand. */
+const DIARY_SKILLS: ReadonlyArray<string> = Object.freeze([
+  ...READ_SKILLS,
+  'draw.create',
+  'voice.say',
+  ...SERVICE_ERRAND_SKILLS,
+]);
+
+/** Reactors read per reaction of the persona's lines. */
+const REACTION_FETCH_USERS = 10;
+
+/** The live config, as far as the tool round reads it; the settings functions read their own sections. */
+export type ToolRoundConfig = Parameters<typeof resultCharsFor>[1] & {
+  tools?: { callTimeoutMs?: number; resultMaxChars?: number } | null;
+  bot?: { timezone?: string } | null;
+  context: {
+    channelMessages: number;
+    chatHeadStep?: unknown;
+    reactions?: { fetchTimeoutMs?: number } | null;
+  };
+  diary?: unknown;
+  humanizer?: { enabled?: unknown } | null;
+  format?: { stripDashes?: unknown } | null;
+};
+
+/** The labels, as the tool round hands them on; the text functions read their own sections. */
+type RoundLabels = NonNullable<StepLabels> & { task?: { continueInnerOpen?: unknown }; [key: string]: unknown };
+
+/** A completion of the language model client (src/llm/openrouter.ts#createLlm), as a step reads it. */
+export type StepCompletion = NonNullable<Parameters<typeof cutOffOf>[0]> & {
+  text?: unknown;
+  toolCalls?: unknown;
+  usage?: unknown;
+};
+
+/** The language model client (src/llm/openrouter.ts#createLlm), as a step's follow-up request uses it. */
+type RoundLlm = { complete: (messages: Array<object>, options: object) => Promise<StepCompletion> };
+
+/** The calibrator of the token estimate (src/llm/calibrate.js), as the room of a request is judged. */
+type Calibrator = { apply: (estimate: number) => number; ratio: number };
+
+/** What createToolRound reads: the dependencies and the functions of the other topic modules it calls. */
+export type ToolRoundContext = {
+  /** Stores the lines a turn reads when memory lacks them (src/pipeline/keep-lines.ts); absent, none. */
+  keepLines?: KeepLines | null;
+  hot: { readonly config: ToolRoundConfig; readonly prompts: { labels?: RoundLabels } | null | undefined };
+  llm: RoundLlm;
+  calibrator: Calibrator;
+  clock: () => number;
+  skills: SkillMap | null;
+  ifaceReads: Reads;
+  reactors: ReactorStore | null;
+  memberOf: (placeId: string, accountId: string) => { name: string; bot: boolean } | null;
+  selfIdOf: () => string;
+  chatOf: (channel: { id: string }) => ChatRef;
+  callView: SkillCalls['callView'];
+  planToolCall: SkillCalls['planToolCall'];
+  runCalls: SkillCalls['runCalls'];
+  typingWhileCalls: Typing['typingWhileCalls'];
+  holdSpeech: Act['holdSpeech'];
+  act: Act['act'];
+};
+
+/** A line of a turn's history, as the steps number and keep it. */
+type StepLine = {
+  id?: string;
+  ts?: unknown;
+  self?: boolean;
+  authorId?: string;
+  authorName?: string | null;
+  [key: string]: unknown;
+};
+
+/** A diary set's picture as the turn staged it. */
+type StagedPicture = { picture: Obj; self: unknown; text: string; made?: unknown; depicts?: unknown };
+
+/** The counts of what a turn's answers looked like, for its turn record. */
+type FormatCounts = {
+  thinkMissing: number;
+  coerced: number;
+  malformed: number;
+  truncated: number;
+  capped: number;
+  held: number;
+  thinkLeaked: number;
+  leakEnded: number;
+  tagInOutgoing: number;
+  thinkOffScript: number;
+};
+
+/** What an attempt's draft holds that the steps read and write. */
+export type ToolRoundDraft = CallsDraft & {
+  info?: { iface?: string } | null;
+  /** The turn's mode, which with its trigger and its wake gives its kind (src/turn/request/frame.ts#turnKindOf). */
+  mode?: string;
+  nowhere?: boolean;
+  inner?: {
+    wake?: {
+      items?: unknown;
+      intentions?: unknown;
+    } | null;
+  } | null;
+  diary?: { set?: unknown } | null;
+  staged?: Array<StagedPicture>;
+  tools: Array<object>;
+  deletedIds?: unknown;
+  searchRefs?: SearchRefs;
+  handleFloor?: number | null;
+  deltaTaken?: number;
+  format: FormatCounts;
+  held?: { step: number; items: number };
+  limits?: { add: (limit: { kind: string; where: string; lost?: number; detail?: string }) => void } | null;
+  loopCut?: { reason: string; dropped: number };
+  steps?: number;
+  loopSeen?: Array<StepLine>;
+  diagnostics?: Array<{ told?: boolean }>;
+  unseenFailed?: Array<object>;
+  innerLoop?: { steps: number; cut: string | null; droppedCalls: number };
+  innerOpenFollowUp?: boolean;
+  setShort?: number;
+  reactorNames?: Map<string, { name: string; bot: boolean } | null>;
+  lastThink?: string | null;
+  finalThink?: string | null;
+};
+
+/** What an answer said once parsed: the speech, and an inner turn's tags lowered into the calls they stand for. */
+export type StepParsed = ActArgs['parsed'] &
+  HoldArgs['parsed'] & {
+    loweredCalls?: Array<PlannedCall>;
+    skip?: unknown;
+    think?: unknown;
+    thinkOpen?: unknown;
+    untagged?: unknown;
+  };
+
+/** One answer of the persona read: split into speech and calls (answerOf), the speech parsed. */
+export type StepAnswer = { rawText: string; calls: Array<NormalCall>; parsed: StepParsed };
+
+/** What a step's request numbers: its lines, where a `#N` of the persona's resolves. */
+type Routing = {
+  idByIndex: Map<number, string>;
+  history: Array<StepLine>;
+  lines: Array<StepLine>;
+  pulledIds: ReadonlyMap<string, string> | null;
+  handles?: Map<string, string> | null;
+  memberNames?: Map<string, Array<string>> | null;
+  channelHandles?: unknown;
+};
+
+type Routed = 'idByIndex' | 'history' | 'lines' | 'pulledIds' | 'handles' | 'channelHandles' | 'parsed' | 'set';
+
+/** The arguments of the act and the held speech that a step's speech does not set itself. */
+type StepActArgs = Omit<ActArgs, Routed> & Omit<HoldArgs, Routed>;
+
+export type RunStepsArgs = {
+  /** The owner's cancel of this turn: it takes effect between steps. */
+  cancel?: AbortSignal | null;
+  /** What the persona's tools do, for the owner's chat. */
+  noteStep?: (step: { name: string; detail: string }) => void;
+  channel: CallContext['channel'];
+  placeId: string;
+  trigger: (CallContext['trigger'] & { content?: unknown }) | null | undefined;
+  draft: ToolRoundDraft;
+  messages: Array<object>;
+  first: StepAnswer;
+  readAnswer: (completion: StepCompletion, number: number) => StepAnswer;
+  actArgs: StepActArgs;
+  callContext: CallContext;
+  envelopeOf: (call: PlannedCall) => CallEnvelope;
+  routing: Routing;
+  memoryOn: boolean;
+  selfName: string;
+  triggerKind: TriggerKind | null;
+  lateMedia?: (() => string) | null;
+};
+
+/** What the steps of a turn came to: act's answers in order, whether one was cut off, whether anything was delivered. */
+export type Stepped = {
+  acts: Array<ActOutcome | HeldSpeech>;
+  cutOff: boolean;
+  delivered: boolean;
+  /** The persona's last answer was a skip. */
+  skipped: boolean;
+  /** A later request's two answers broke their `<think>`, which ended the steps. */
+  leakEnded: boolean;
+  /** Two answers held text outside every tag and nothing else, which ended the steps. */
+  bareEnded: boolean;
+  /** The persona's last answer came from the rescue request. */
+  rescued: boolean;
+};
+
+type TranscriptOptions = {
+  selfName: string;
+  handles?: Map<string, string> | null;
+  memberNames?: Map<string, Array<string>> | null;
+  indexOffset: number;
+  media?: object;
+};
+
+export type ToolRound = {
+  readHistory: (
+    channel: { id: string },
+    config: ToolRoundConfig,
+    options?: { inner?: boolean; draft?: ToolRoundDraft | null; placeId?: string | null }
+  ) => Promise<Array<Line>>;
+  noteThink: (draft: ToolRoundDraft | null | undefined, parsed: { think?: unknown } | null | undefined) => void;
+  stepTranscript: (
+    lines: Array<object>,
+    options: TranscriptOptions
+  ) => Array<{ id: string; index: number; ts: number; text: string }>;
+  runSteps: (args: RunStepsArgs) => Promise<Stepped>;
+};
+
+// health: allow function-length until 2027-04-01 -- the steps share the runner state of src/behavior/turn.js, moved whole in stage 5b
+export function createToolRound(ctx: ToolRoundContext): ToolRound {
+  const {
+    hot,
+    llm,
+    calibrator,
+    clock,
+    skills,
+    ifaceReads,
+    reactors,
+    memberOf,
+    selfIdOf,
+    chatOf,
+    callView,
+    planToolCall,
+    runCalls,
+    typingWhileCalls,
+    holdSpeech,
+    act,
+  } = ctx;
+
+  /**
+   * The lines of `channel` a turn reads under `config` (src/behavior/lines.ts#historyLines over the interface's
+   * `history`): with the reactor store (`reactors`), features.reactionNames and features.seeReactions on (a
+   * missing key counts as on), the persona's lines carry who reacted to them, the missing reactors
+   * read within `context.reactions.fetchTimeoutMs`. A turn reads `context.channelMessages` lines and the lines a step
+   * of the window's head adds (chatFetchCount), an inner turn a bounded recent slice (wakes.chatMessages).
+   * The lines are stored when memory lacks them (`keepLines`, src/pipeline/keep-lines.ts), never awaited.
+   * A turn that runs nowhere (`draft.nowhere`) has no history. Throws when the interface cannot read the history.
+   */
+  function readHistory(
+    channel: { id: string },
+    config: ToolRoundConfig,
+    { inner = false, draft = null, placeId = null }: NonNullable<Parameters<ToolRound['readHistory']>[2]> = {}
+  ): Promise<Array<Line>> {
+    if (draft?.nowhere === true) return Promise.resolve([]);
+    const namesOn = reactors;
+    const place = placeId;
+    const reactionsConfig = config.context.reactions;
+    const names: ReactorNames | null = namesOn
+      ? {
+          store: reactors,
+          budgetMs: reactionsConfig?.fetchTimeoutMs ?? 2000,
+          fetchUsers: REACTION_FETCH_USERS,
+          known: (accountId) => (place ? memberOf(place, accountId) : null),
+          cache: draft
+            ? (draft.reactorNames ??= new Map<string, { name: string; bot: boolean } | null>())
+            : new Map<string, { name: string; bot: boolean } | null>(),
+          selfId: selfIdOf(),
+          placeId: place,
+          log,
+        }
+      : null;
+    return historyLines(ifaceReads, chatOf(channel), {
+      // Far enough back for the window's head (src/turn/history.ts), which moves in steps of `context.chatHeadStep`.
+      limit: inner
+        ? innerSettings(config).chatMessages
+        : chatFetchCount(config.context.channelMessages, chatHeadStepOf(config)),
+      names,
+      keep: ctx.keepLines ?? null,
+    });
+  }
+
+  /**
+   * Keep the think of the answer just parsed: `lastThink` is the step's (null when it had none, so the
+   * next step carries nothing older), `finalThink` the turn's last one that had a think, which the turn
+   * exports to its places when it ends.
+   */
+  function noteThink(draft: ToolRoundDraft | null | undefined, parsed: { think?: unknown } | null | undefined): void {
+    if (!draft) return;
+    draft.lastThink = typeof parsed?.think === 'string' && parsed.think.trim() ? parsed.think : null;
+    if (draft.lastThink) draft.finalThink = draft.lastThink;
+  }
+
+  /**
+   * The open-intentions line of an inner turn's continuation (`labels.task.continueInnerOpen`,
+   * `{list}`): the intentions the turn woke for (the wake's `intentionIds`, their records in
+   * `wake.intentions`) that no `intention.*` call of the turn has named yet (intentionNamed), as
+   * `<id>: <purpose>` items joined by `; `. '' when none is left or the label is missing.
+   */
+  function openIntentionsText(draft: ToolRoundDraft | null, labels: RoundLabels): string {
+    const template = labels?.task?.continueInnerOpen;
+    const wake = draft?.inner?.wake;
+    if (typeof template !== 'string' || !template.trim() || !wake) return '';
+    const named = draft.innerIntentIds ?? new Set();
+    const byId = new Map(
+      (isList(wake.intentions) ? wake.intentions : []).map((record) => [objOf(record).id, objOf(record)])
+    );
+    const ids = [
+      ...new Set(
+        (isList(wake.items) ? wake.items : []).flatMap((item) => {
+          const intentionIds = objOf(item).intentionIds;
+          return isList(intentionIds) ? intentionIds : [];
+        })
+      ),
+    ];
+    const items = ids
+      // A Set answers false for an id of another type.
+      .filter((id) => id && !named.has(id as string) && byId.has(id))
+      .map((id) => `${String(id)}: ${oneLine(byId.get(id)?.purpose ?? '')}`);
+    return items.length > 0 ? fill(template, { list: items.join('; ') }) : '';
+  }
+
+  /**
+   * Lines of a step's note rendered like the chat (formatTranscript with the turn's options), numbered from `indexOffset`.
+   * `media` carries what a re-rendered line shows now (`videos`, `descriptions`); a delta's new lines need none.
+   */
+  function stepTranscript(
+    lines: Array<object>,
+    { selfName, handles, memberNames = null, indexOffset, media = {} }: TranscriptOptions
+  ): Array<{ id: string; index: number; ts: number; text: string }> {
+    const config = hot.config;
+    const handleOf =
+      handles instanceof Map ? new Map([...handles].map(([handle, id]) => [String(id), handle])) : undefined;
+    return formatTranscript(lines, {
+      // A step's lines stand in the request, under its root `<media>`.
+      mediaNameOf: noLegend,
+      timezone: config.bot?.timezone ?? 'UTC',
+      selfName,
+      labels: hot.prompts?.labels ?? {},
+      now: clock(),
+      seeReactions: true,
+      handles: handleOf,
+      memberNames: memberNames ?? undefined,
+      indexOffset,
+      ...media,
+    });
+  }
+
+  /**
+   * The steps of one turn, for every kind of chat turn (a reply, a follow-up, a mention, a name, a private chat, a part of a
+   * split message, a finished errand, an interjection, an initiative, an overheard line, an inner turn, a heartbeat).
+   * `first` is the reply request's answer (readAnswer's); the request in hand is `messages`, append-only from then on.
+   *
+   * An answer with no tool call posts its speech (act) and ends the turn. An answer with calls plans them in its order
+   * (planToolCall: the journal's `proposed`, a call that cannot run refused with a result, the step's cap, the
+   * heartbeat and destination rules, the argument repair, the resolution and the gateway), runs them in segments
+   * (runCalls: reads together, every other call alone) and only then lets its speech go out -- when every call worked
+   * and its result is an effect or an accepted errand (src/behavior/tool-step.js#stepVerdict). Otherwise the speech
+   * is held, never posted later, and the next request says so. A step that left something to read (a `data` result, a
+   * call that did not work, an inner turn's open intention) is followed by one more request, when room is left
+   * (src/behavior/tool-step.js#roomLeft): the previous messages, the persona's answer, one result for every call, and a
+   * note (the speech held, the lines that came in meanwhile numbered past every number in use, the messages that did
+   * not go out, the last-step notice, an inner turn's open intentions, what the parser did with that answer). The first
+   * user message is never rebuilt. `tools.loop.maxSteps` (an inner turn's: `wakes.loop`) counts those requests and the
+   * last of them is always the final one, which cannot call: it goes with the tool choice `none` (an inner turn's keeps
+   * `auto`), its calls get a `loop-cap` result that only the journal keeps, and its speech goes out (an inner turn's
+   * when its terminal call went through, a diary post's is held). A heartbeat's final answer makes every intention change
+   * it holds. The same goes for a request the time
+   * budget (`timeBudgetMs`, from the first call) or the room of the request (the tokens: the results are cut to fit,
+   * 400 characters each at least) made the last. When the steps end with no final answer (the next request does not
+   * fit even cut, or it throws), a turn that answers someone and delivered nothing makes one rescue request: the first
+   * messages and `labels.task.step.rescue`, with the tool choice `none`, read as a final answer. A heartbeat's intention
+   * change that went through is read back in the next request, so the turn ends on an answer with no call. Logs `skills: loop` (`steps`, `calls`, `ms`).
+   *
+   * Resolves `{ acts, cutOff, delivered, skipped, leakEnded, bareEnded, rescued }`: act's answers in order, whether a step was cut
+   * off with nothing complete, whether anything reached the chat (the speech, a post, a picture, an errand accepted),
+   * whether the last answer skipped, whether a broken think ended the steps, whether a second answer of bare text did, and whether the last answer was the rescue's.
+   */
+  async function runSteps(args: RunStepsArgs): Promise<Stepped> {
+    // The typing lease of the calls (typingWhileCalls): started with the first step that has calls, stopped when no
+    // request follows and whatever the outcome.
+    const typing = { stop: () => {}, started: false };
+    try {
+      return await runStepsIn({ ...args, typing });
+    } finally {
+      typing.stop();
+    }
+  }
+
+  // health: allow function-length until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
+  async function runStepsIn({
+    channel,
+    placeId,
+    trigger,
+    draft,
+    messages: requestMessages,
+    first,
+    readAnswer,
+    actArgs,
+    callContext,
+    envelopeOf,
+    routing,
+    memoryOn,
+    selfName,
+    triggerKind,
+    lateMedia = null,
+    typing,
+    cancel = null,
+    noteStep = () => {},
+  }: RunStepsArgs & { typing: { stop: () => void; started: boolean } }): Promise<Stepped> {
+    const inner = Boolean(draft.inner);
+    const isCancelled = (): boolean => cancel?.aborted === true;
+    const wake = draft.inner?.wake;
+    const wakeKind = wake?.kind ?? null;
+    // A diary post (draft.diary): only draw.create runs; its pictures are staged and posted with the messages.
+    const diary = Boolean(draft.diary);
+    const registry = skills ?? defaultSkills();
+    const definitionOf = (name: string) => registry.get(name) ?? null;
+    // Someone waits for this turn (askedFor), and it is no inner, diary or errand result turn (that one quotes
+    // the message that asked for the errand, and nobody waits for it): only a waiting user needs the answer.
+    const answersSomeone = askedFor(trigger, triggerKind) && triggerKind !== 'errand' && !inner && !diary;
+    // Once a turn: a quiet call the persona makes in the shown step ends the turn with it.
+    let quietShown = false;
+    const quietSkill = (skill: string): boolean => ['effect', 'job'].includes(definitionOf(skill)?.result ?? '');
+    const settings = loopSettings(hot.config, { inner, diary });
+    // A heartbeat or a diary turn waits for the errand it starts, for as long as its time budget lasts, and keeps a
+    // harness session held that long, so the session outlives the wait.
+    const kind = turnKindOf(draft.mode ?? '', triggerKind, wakeKind);
+    const waits = waitsForErrand(kind);
+    const held = holdOf(hot.config, kind);
+    // The pictures staged so far as the set the post carries (a single picture is a set of one), or null.
+    const stagedSet = () =>
+      diary && (draft.staged?.length ?? 0) > 0
+        ? {
+            pictures: (draft.staged ?? []).map(({ picture, self, text, made, depicts }) => ({
+              ...picture,
+              self,
+              text,
+              made,
+              depicts,
+            })),
+          }
+        : null;
+    // The most one call may run: an inner turn's own (wakes.loop.callTimeoutMs), else tools.callTimeoutMs (read now).
+    // loopSettings gives an inner turn its own callTimeoutMs.
+    const callTimeoutCap = (inner ? settings.callTimeoutMs : (hot.config.tools?.callTimeoutMs ?? 120000)) as number;
+    const tools = draft.tools.length > 0 ? { tools: draft.tools, toolChoice: 'auto' } : {};
+    // The final request cannot call: the tools stay for the cached prefix, the choice is none. An inner turn's final
+    // request keeps its choice, because its terminal calls still run.
+    const toolsOf = (final: boolean): object =>
+      final && !inner && 'tools' in tools ? { ...tools, toolChoice: 'none' } : tools;
+    const acts: Array<ActOutcome | HeldSpeech> = [];
+    let messages = requestMessages;
+    // What the request in hand numbers: its lines (the delta's too), where a `#N` of the persona's resolves.
+    let routed: Routing = { ...routing };
+    let answer = first;
+    // The continuation requests made so far (0: the reply's own answer is in hand).
+    let step = 0;
+    // Set when the request that gave `answer` was the final one: `steps`, `time` or `tokens`.
+    let finalReason: string | null = null;
+    let loopStartedAt: number | null = null;
+    let openTaken = false;
+    let delivered = false;
+    let cutOff = false;
+    let leakEnded = false;
+    // The answers of this turn that held text outside every tag, and whether a second one ended the steps.
+    let bareAnswers = 0;
+    let bareEnded = false;
+    let made = 0;
+    // The results no request has followed yet, and the inner actions of the calls that gave them.
+    let unseen: Array<CallOutcome> = [];
+    // The rescue request is made once a turn; the results of the step it replaced stay facts.
+    let rescued = false;
+    // The answer in hand came from the rescue request.
+    let fromRescue = false;
+    let carried: Array<CallOutcome> = [];
+    let ranActions: NonNullable<ToolRoundDraft['innerActions']> = [];
+    const knownIds = new Set(
+      [...(routing.history ?? []), ...(routing.lines ?? [])]
+        .map((line) => line?.id)
+        .filter((id): id is string => typeof id === 'string' && id !== '')
+    );
+    if (trigger?.id) knownIds.add(String(trigger.id));
+    const viewOf = (r: Routing): CallView =>
+      callView({
+        channel,
+        snapshot: snapshotOfDraft(draft),
+        placeId,
+        idByIndex: r.idByIndex,
+        lines: r.lines,
+        pulledIds: r.pulledIds,
+        memoryOn,
+        channelHandles: r.channelHandles,
+        memberHandles: r.handles,
+        trigger,
+        deletedIds: draft.deletedIds,
+        searchRefs: draft.searchRefs ?? null,
+        partnerId: draft.readerId ?? null,
+        draft,
+      });
+    const contextOf = (r: Routing, timeoutMs: number | null = null): CallContext => ({
+      ...callContext,
+      idByIndex: r.idByIndex,
+      lines: r.lines,
+      pulledIds: r.pulledIds,
+      handles: r.handles ?? null,
+      memberNames: r.memberNames ?? null,
+      channelHandles: r.channelHandles ?? null,
+      timeoutMs,
+    });
+
+    /** The lines that came in since the last request, the persona's own left out (tool-step.js#deltaLines); a failed fetch gives none. */
+    const deltaOf = async (): Promise<{ text: string; lines: Array<StepLine>; idByIndex: Map<number, string> }> => {
+      const none = { text: '', lines: [], idByIndex: new Map<number, string>() };
+      let fetched: unknown;
+      try {
+        fetched = await readHistory(channel, hot.config, { inner, draft, placeId });
+      } catch (err) {
+        log.warn('skills: continuation fetch failed', { channel: channel.id, error: err });
+        return none;
+      }
+      // readHistory answers the history's lines.
+      const fresh = (isList(fetched) ? (fetched as ReadonlyArray<StepLine | null>) : [])
+        .filter(
+          (line): line is StepLine & { id: string } =>
+            Boolean(line) && typeof line?.id === 'string' && line.id !== '' && !knownIds.has(line.id)
+        )
+        .sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+      for (const line of fresh) knownIds.add(line.id);
+      const numbered = deltaLines({
+        lines: fresh.filter((line) => line.self !== true),
+        floor: draft.handleFloor ?? 0,
+        taken: Math.max(draft.deltaTaken ?? 0, draft.searchRefs ? draft.searchRefs.next - 1 : 0),
+        // A post whose id the port did not answer is kept as null, which matches no line.
+        ownIds: (draft.ownPosts ?? []) as Array<string>,
+      });
+      if (numbered.lines.length === 0) return none;
+      draft.deltaTaken = numbered.next - 1;
+      searchHandles(draft).advance(numbered.next);
+      const items = stepTranscript(numbered.lines, {
+        selfName,
+        handles: routed.handles,
+        memberNames: routed.memberNames,
+        indexOffset: numbered.offset,
+      });
+      // deltaLines hands back lines of the history it was given.
+      const lines = numbered.lines as Array<StepLine>;
+      return { text: items.map((item) => item.text).join('\n'), lines, idByIndex: numbered.idByIndex };
+    };
+
+    /**
+     * One follow-up request under the think standard: its completion, `ended` when a second answer leaked too, or
+     * null when the request threw.
+     */
+    const ask = async (
+      sent: Array<object>,
+      final: boolean,
+      skill: string | null
+    ): Promise<{ completion: StepCompletion } | { ended: true } | null> => {
+      try {
+        const asked = await askUnleaked(
+          () =>
+            llm.complete(sent, {
+              ...REPLY_REQUEST,
+              ...(draft.started ? { limits: draft.limits } : {}),
+              ...ifaceOption(draft),
+              ...toolsOf(final),
+              ...held,
+              ...(cancel === null ? {} : { signal: cancel }),
+            }),
+          (given) => answerLeaked(given as Parameters<typeof answerLeaked>[0], { step: step + 2, registry }),
+          () => {
+            draft.format.thinkLeaked += 1;
+            log.info('turn: think leaked', { channel: channel.id, step: step + 1, leaks: draft.format.thinkLeaked });
+          }
+        );
+        return asked.ended ? { ended: true } : { completion: asked.completion };
+      } catch (err) {
+        log.warn('skills: follow-up failed', { channel: channel.id, skill, step: step + 1, error: err });
+        return null;
+      }
+    };
+
+    for (;;) {
+      // Nothing more runs or goes out once the owner cancelled.
+      if (isCancelled()) break;
+      const { parsed } = answer;
+      const records = answer.calls;
+      const loweredCalls = parsed.loweredCalls ?? [];
+      const bare = parsed.untagged === true;
+      // Text outside every tag is never sent. A second answer of it and nothing else ends the steps: the persona was
+      // told.
+      if (bare) bareAnswers += 1;
+      if (bare && bareAnswers > 1 && records.length === 0) {
+        (draft.diagnostics ??= []).push({ kind: 'bareTextEnded', told: false } as { told?: boolean });
+        bareEnded = true;
+        break;
+      }
+      const isFinal: boolean = finalReason !== null;
+      const room = roomLeft({
+        step,
+        maxSteps: settings.maxSteps,
+        elapsedMs: loopStartedAt === null ? 0 : clock() - loopStartedAt,
+        timeBudgetMs: settings.timeBudgetMs,
+      });
+      if (records.length === 0 && speechItemsOf(parsed) === 0 && !stagedSet() && !bare) break;
+
+      // 1. The persona's calls, planned in their order and made.
+      const plans: Array<CallPlan & { record: NormalCall; coerced: Array<{ arg: string; to: boolean | number }> }> = [];
+      let results: Array<CallOutcome> = [];
+      // An inner turn's last answer still makes its first terminal call: a post or a change of an intention.
+      const terminalAt =
+        isFinal && inner
+          ? records.findIndex((record) => !record.problem && INNER_TERMINAL_SKILLS.includes(record.name))
+          : -1;
+      if (records.length > 0) {
+        if (loopStartedAt === null) loopStartedAt = clock();
+        if (!typing.started) {
+          typing.started = true;
+          typing.stop = typingWhileCalls(channel, triggerKind, draft);
+        }
+        const view = { ...viewOf(routed), links: await linksOfCalls(ifaceReads, records) };
+        for (const record of records) {
+          const preRefuse = preRefusalOf(record, {
+            isFinal,
+            // A heartbeat's final answer makes each of its intention changes (src/tools/wake-tools.ts).
+            isTerminal: record.index === terminalAt || (inner && wakeGoesOn(wakeKind, record.name)),
+            room,
+            maxCallsPerStep: settings.maxCallsPerStep,
+            finalReason,
+            diary,
+          });
+          const coercion = preRefuse
+            ? { args: record.args, coerced: [] }
+            : coerceArgs(record.args, registry.get(record.name)?.argsSchema);
+          // coerceArgs answers an object for the object a normalized call carries.
+          const args = coercion.args as Obj;
+          // format.stripDashes holds for the text of the persona's own post or edit as for a <msg>
+          // (src/turn/phases/response.ts).
+          const writes = record.name === 'message.create' || record.name === 'message.edit';
+          if (writes && typeof args.text === 'string' && hot.config.format?.stripDashes !== false) {
+            const dashes = countDashes(args.text);
+            args.text = stripDashes(args.text);
+            if (dashes > 0) log.info('turn: dashes stripped', { channel: channel.id, count: dashes });
+          }
+          // A post of the persona's own goes through the humanizer as one message, one call at a time
+          // (docs/humanizer.md).
+          if (record.name === 'message.create' && typeof args.text === 'string') {
+            const speech = { messages: [{ text: args.text }], think: answer.parsed.think };
+            const own = await humanizeSpeech({
+              parsed: speech,
+              loweredCalls: [],
+              llm,
+              hot,
+              name: selfName,
+              place: channel.id,
+            });
+            const [written] = own.messages;
+            args.text = written?.text ?? args.text;
+          }
+          const call: PlannedCall = {
+            skill: record.name,
+            args,
+            body: '',
+            toolCallId: record.id,
+            index: record.index,
+            ...(coercion.coerced.length > 0 ? { coerced: coercion.coerced.map((item) => item.arg) } : {}),
+            ...(preRefuse ? { preRefuse } : {}),
+          };
+          const planned = await planToolCall({ call, channel, envelope: envelopeOf(call), draft, view });
+          plans.push({ ...planned, record, coerced: coercion.coerced });
+          draft.format.coerced += coercion.coerced.length;
+          if (record.problem === CODE.MALFORMED_CALL) draft.format.malformed += 1;
+          if (record.problem === CODE.TRUNCATED_CALL) draft.format.truncated += 1;
+          if (preRefuse?.code === CODE.LOOP_CAP) draft.format.capped += 1;
+          if (preRefuse?.code === CODE.THINK_IN_TEXT) draft.format.tagInOutgoing += 1;
+        }
+        for (const plan of plans) noteStep({ name: plan.record.name, detail: 'started' });
+        const leftMs = Math.max(LOOP_MIN_CALL_MS, settings.timeBudgetMs - (clock() - loopStartedAt));
+        const actionsBefore = draft.innerActions?.length ?? 0;
+        results = await runCalls(plans, {
+          ...contextOf(routed, Math.min(callTimeoutCap, leftMs)),
+          ...(waits ? { waitMs: leftMs } : {}),
+        });
+        for (const result of results) noteStep({ name: result.skill, detail: result.status });
+        ranActions = draft.innerActions?.slice(actionsBefore) ?? [];
+        made += results.length;
+      }
+
+      // 2. The persona's speech: out after the calls when every one of them worked and needs no reading, else held.
+      // What there is to say now: their messages and reactions, and a diary post's staged pictures (one item).
+      const heldItems = speechItemsOf(parsed) + (stagedSet() ? 1 : 0);
+      let speak =
+        records.length === 0
+          ? true
+          : stepVerdict(
+              results.map((result) => ({ name: result.skill, result })),
+              { definitionOf }
+            ).speak;
+      // The final answer is the persona's reply: its calls did not run and its speech goes out. An inner turn's speaks
+      // when its one terminal call went through; a diary post's is held.
+      if (isFinal && records.length > 0)
+        speak = inner
+          ? terminalAt >= 0 && coversSpeech(definitionOf(results[terminalAt].skill), results[terminalAt])
+          : !diary;
+      let loweredResults: Array<CallOutcome> = [];
+      const deliveries: Array<{ n: number; total: number; code: string }> = [];
+      if (speak && heldItems > 0 && !isCancelled()) {
+        const posted = await postSpeech({ parsed, loweredCalls });
+        loweredResults = posted.loweredResults;
+        deliveries.push(...posted.deliveries);
+        if (posted.acted) {
+          acts.push(posted.acted);
+          if (posted.acted.delivered === true) delivered = true;
+        }
+      } else if (heldItems > 0) {
+        draft.held = { step: step + 1, items: heldItems };
+        draft.format.held += 1;
+        log.info('turn: speech held', { channel: channel.id, step, items: heldItems });
+      }
+      const stepResults = [...results, ...loweredResults];
+      // A staged picture reached no chat yet: the post that carries it says so.
+      if (
+        stepResults.some(
+          (result) =>
+            result.status === 'ok' &&
+            result.code !== CODE.STAGED &&
+            ['effect', 'job'].includes(definitionOf(result.skill)?.result ?? '')
+        )
+      )
+        delivered = true;
+      const posted = stepResults.some((result) => result.skill === 'message.create' && result.status === 'ok');
+      if (isCancelled()) break;
+
+      // 3. What follows: a request when something is left to read and room is left, else the end.
+      const verdict = stepVerdict(
+        results.map((result) => ({ name: result.skill, result })),
+        { definitionOf }
+      );
+      // A note on a post that went out (a tag that named nobody) is something to read too: the persona may edit it.
+      // A turn that answers someone shows them a quiet call that worked (a post, an edit, a reaction, a picture, a job) in
+      // one step, where they answer or stay silent; a turn nobody asked for, an inner one included, ends with it.
+      const seen =
+        answersSomeone && !quietShown && results.some((result) => result.status === 'ok' && quietSkill(result.skill));
+      if (seen) quietShown = true;
+      // Text outside every tag is something left to read too: the persona is told it was not posted.
+      // A heartbeat's intention change that went through is read back, so the persona may make another.
+      const fresh =
+        bare ||
+        (records.length > 0 &&
+          (verdict.fresh ||
+            seen ||
+            results.some(
+              (result) =>
+                (typeof result.note === 'string' && result.note !== '') ||
+                (result.status === 'ok' && wakeGoesOn(wakeKind, result.skill))
+            )));
+      const labels = hot.prompts?.labels ?? {};
+      // The room the calls left: the time they took counts.
+      const left = roomLeft({
+        step,
+        maxSteps: settings.maxSteps,
+        elapsedMs: loopStartedAt === null ? 0 : clock() - loopStartedAt,
+        timeBudgetMs: settings.timeBudgetMs,
+      });
+      // An inner turn that posted: the intentions it woke for that no intent call has named yet. They ride every note that follows a post; a post
+      // that left nothing to read earns one request of its own for them, once per turn.
+      const openLine = inner && posted && !isFinal ? openIntentionsText(draft, labels) : '';
+      const openAlone = openLine !== '' && !fresh && !openTaken && left.run && left.next !== 'none';
+      // Under the full stop (features.tools off) the persona is silent: nothing more is asked of them.
+      const stopped = results.some((result) => result.code === CODE.SKILLS_OFF);
+      const next: string = isFinal || stopped ? 'none' : fresh || openAlone ? left.next : 'none';
+      if (next === 'none') {
+        typing.stop();
+        unseen = stepResults;
+        break;
+      }
+      if (openAlone) {
+        openTaken = true;
+        draft.innerOpenFollowUp = true;
+      }
+
+      // 4. The request that follows: the messages so far, the persona's answer, a result for every call, the note.
+      const delta = await deltaOf();
+      // Media the request showed as not ready that is ready now (lateMediaTeller), told once.
+      const lateText = lateMedia ? lateMedia() : '';
+      // Why a call did not work, in detail: the argument that was wrong, what the skill takes (the operation's own message is the persona's data already).
+      // callReason (src/format.js) words the reason as a line of text.
+      const detailOf = (result: Obj): string =>
+        (callReason as (mark: object, labels: unknown) => string)(
+          {
+            detail: outcomeDetail(result, {
+              argNames: registry.get(String(result.skill))?.dispatch?.options?.map((option) => option.name) ?? null,
+            }),
+          },
+          labels
+        );
+      const resultTexts = results.map((result, i) =>
+        toolResultText(result, labels, {
+          maxChars: resultCharsFor(result, hot.config),
+          coerced: plans[i].coerced,
+          // A skill result's rows are the catalogue rows skillsInventoryText renders.
+          rowsText: (rows, words) =>
+            skillsInventoryText(rows as Parameters<typeof skillsInventoryText>[0], words as object),
+          reasonOf: detailOf,
+        })
+      );
+      const notice = !speak && heldItems > 0;
+      const diagnostics = untoldDiagnostics(draft)
+        .map((diagnostic) => diagnosticText(diagnostic, labels))
+        .filter(Boolean)
+        .map((line) => `- ${line}`);
+      // A long lookup: from the answer with calls number remindAfterSteps on, every request that may still call says
+      // how many such answers there were (this one counted). The settings of an inner turn and a diary post hold none.
+      const lookups = step + 1;
+      const remindAfter = settings.remindAfterSteps ?? 0;
+      const longOf = (last: boolean): number => (!last && remindAfter > 0 && lookups >= remindAfter ? lookups : 0);
+      const build = (last: boolean, texts: Array<string>, base: Array<object> = messages): Array<object> =>
+        appendStep({
+          messages: base as Array<Obj>,
+          rawText: answer.rawText,
+          calls: records,
+          results: texts.map((text) => ({ text })),
+          note: stepNote({
+            labels,
+            held: notice,
+            deltaText: delta.text,
+            lateText,
+            deliveries,
+            last,
+            terminal: inner,
+            open: openLine,
+            diagnostics,
+            long: longOf(last),
+          }),
+        });
+      let last: boolean = next === 'final';
+      let reason: string | null = last ? (step >= settings.maxSteps - 1 ? LOOP_WHY.steps : LOOP_WHY.time) : null;
+      let sent: Array<object> | null = build(last, resultTexts);
+      // The request must fit under the cap with its tools. The results of earlier steps give way first, oldest first,
+      // and the request stays what it was. When nothing older is left, this step's results are cut to fit and the
+      // request is the last one.
+      const limit = requestTokenLimit(hot.config);
+      const cost = (list: Array<object>): number =>
+        // The request's messages, as appendStep builds them.
+        calibrator.apply(estimateMessages(list)) + estimateTools(draft.tools);
+      let base: Array<object> = messages;
+      if (cost(sent) > limit) {
+        const room = giveWay({
+          messages: messages as Array<Obj>,
+          keep: requestMessages.length,
+          line: (labels as StepLabels)?.task?.step?.dropped ?? '',
+          fits: (base) => cost(build(last, resultTexts, base)) <= limit,
+        });
+        base = room.messages;
+        sent = build(last, resultTexts, base);
+        if (room.fits) log.info('skills: results gave way', { channel: channel.id, step });
+      }
+      if (cost(sent) > limit) {
+        const excessChars = Math.ceil(((cost(sent) - limit) * 3.5) / Math.max(0.1, calibrator.ratio));
+        last = true;
+        reason = LOOP_WHY.tokens;
+        sent = build(true, cutToFit(resultTexts, excessChars, undefined, squeezedLabel(labels)), base);
+        if (cost(sent) > limit) {
+          log.warn('skills: loop cap', { channel: channel.id, reason, step, dropped: results.length });
+          draft.loopCut = { reason, dropped: (draft.loopCut?.dropped ?? 0) + results.length };
+          draft.limits?.add({ kind: 'loop-cap', where: 'tools.loop', lost: results.length, detail: reason });
+          sent = null;
+        }
+      }
+      let asked = sent === null ? null : await ask(sent, last, results[0]?.skill ?? null);
+      // The steps ended with no final answer: a turn that answers someone and has delivered nothing gets one rescue
+      // request, the persona's first messages and the rescue note, which cannot call. The step's results stay facts.
+      const rescuing = asked === null && answersSomeone && !delivered && !rescued && !isCancelled();
+      if (rescuing) {
+        rescued = true;
+        carried = stepResults;
+        last = true;
+        reason = LOOP_WHY.rescue;
+        sent = rescueRequest({ messages: requestMessages as Array<Obj>, labels });
+        log.info('turn: rescue request', { channel: channel.id, step: step + 1 });
+        asked = await ask(sent, true, null);
+      }
+      if (asked === null || 'ended' in asked || sent === null) {
+        if (asked !== null && 'ended' in asked) {
+          // What the steps before it posted stands. Their results reached no answer, so they stay facts.
+          draft.format.leakEnded = 1;
+          (draft.diagnostics ??= []).push({ kind: 'thinkLeaked', told: false } as { told?: boolean });
+          leakEnded = true;
+        }
+        unseen = rescuing ? [] : stepResults;
+        break;
+      }
+      const { completion } = asked;
+      fromRescue = rescuing;
+      step += 1;
+      draft.steps = step;
+      if (!rescuing) {
+        // The delta's lines went out in that request: the persona saw them (noteSpokeSaw).
+        (draft.loopSeen ??= []).push(...delta.lines);
+        // The answer completed with the note on: what the parser said is told, and the results are read.
+        for (const diagnostic of draft.diagnostics ?? []) diagnostic.told = true;
+        for (const action of ranActions) action.presented = true;
+      }
+      unseen = [];
+      ranActions = [];
+      messages = sent;
+      routed = {
+        ...routed,
+        idByIndex: new Map([...routed.idByIndex, ...delta.idByIndex]),
+        lines: [...routed.lines, ...delta.lines],
+        history: [...routed.history, ...delta.lines],
+      };
+      if (last) finalReason = reason;
+      answer = readAnswer(completion, step + 1);
+      const followUp = answer.parsed;
+      log.info('skills: follow-up answered', {
+        channel: channel.id,
+        step,
+        calls: answer.calls.length,
+        usage: completion.usage,
+        messages: followUp.messages.length,
+        reactions: followUp.reactions.length,
+        final: last,
+      });
+      const quiet = answer.parsed.skip || speechItemsOf(answer.parsed) === 0;
+      const cut = cutOffOf(completion, answer.parsed, {
+        placeId: channel.id,
+        empty: Boolean(quiet) && answer.calls.length === 0,
+        followUp: true,
+      });
+      if (cut && !cut.kept && answer.calls.length === 0) {
+        cutOff = true;
+        break;
+      }
+    }
+
+    // A cancel with nothing of the turn out is a cancelled turn. Once something went out the turn stands as it spoke.
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TURN_CANCELLED is the turn's own signal, caught by its end
+    if (isCancelled() && !delivered) throw TURN_CANCELLED;
+    // The end: calls no request followed are either dropped (a fact for the next request) or failed unseen (a fact too).
+    unseen = [...carried, ...unseen];
+    const dropped = unseen.filter((result) => result.code === CODE.LOOP_CAP);
+    if (dropped.length > 0) {
+      const why = finalReason ?? LOOP_WHY.extraCall;
+      log.info('skills: loop cap', { channel: channel.id, reason: why, step, dropped: dropped.length });
+      draft.limits?.add({ kind: 'loop-cap', where: 'tools.loop', lost: dropped.length, detail: why });
+      draft.loopCut = { reason: draft.loopCut?.reason ?? why, dropped: (draft.loopCut?.dropped ?? 0) + dropped.length };
+    }
+    // A final answer whose speech was held with no call capped (only calls that ran): nothing was dropped, the persona still wrote it.
+    if (!inner) {
+      (draft.unseenFailed ??= []).push(
+        ...unseen
+          .filter((result) => result.status !== 'ok' && result.code !== CODE.LOOP_CAP)
+          .map((result) => ({
+            kind: 'callFailed',
+            skill: result.skill,
+            status: CALL_STATUS_NAMES.has(result.status) ? result.status : 'failed',
+            code: typeof result.code === 'string' && result.code ? result.code : null,
+            ...callTextOf(result),
+          }))
+      );
+    }
+    if (loopStartedAt !== null)
+      log.info('skills: loop', { channel: channel.id, steps: step, calls: made, ms: clock() - loopStartedAt });
+    // An inner turn's loop end state, for its result (`inner.loop`): the steps made, the bound that cut it with calls dropped, how many.
+    if (inner)
+      draft.innerLoop = { steps: step, cut: draft.loopCut?.reason ?? null, droppedCalls: draft.loopCut?.dropped ?? 0 };
+    return { acts, cutOff, delivered, skipped: Boolean(answer.parsed.skip), leakEnded, bareEnded, rescued: fromRescue };
+
+    /** The persona's speech of a step posted: the messages, reactions and picture through act, then an inner turn's lowered speech as calls. */
+    async function postSpeech({
+      parsed,
+      loweredCalls,
+    }: {
+      parsed: StepParsed;
+      loweredCalls: Array<PlannedCall>;
+    }): Promise<{
+      acted: ActOutcome | HeldSpeech | null;
+      loweredResults: Array<CallOutcome>;
+      deliveries: Array<{ n: number; total: number; code: string }>;
+    }> {
+      // The persona's speech read as one text and, when the humanizer asks for it, written again (docs/humanizer.md).
+      // An addressed turn shows them typing for the seconds the humanizer takes; with the humanizer off nothing is
+      // sent.
+      const stopTyping = hot.config.humanizer?.enabled === true ? typingWhileCalls(channel, triggerKind, draft) : null;
+      const humanized = await humanizeSpeech({
+        parsed,
+        loweredCalls,
+        llm,
+        hot,
+        name: selfName,
+        place: channel.id,
+      }).finally(() => stopTyping?.());
+      parsed = { ...parsed, messages: humanized.messages };
+      loweredCalls = humanized.loweredCalls;
+      let acted: ActOutcome | HeldSpeech | null = null;
+      const set = stagedSet();
+      // A set kind with fewer pictures staged than `diary.set.minPosted` is not posted at all, not even its messages.
+      if (diary && draft.diary?.set) {
+        const staged = draft.staged?.length ?? 0;
+        const minPosted = setSettings(hot.config.diary).minPosted;
+        if (staged < minPosted) {
+          log.info('turn: set short', { channel: channel.id, pictures: staged, wanted: minPosted });
+          draft.setShort = staged;
+          return { acted: null, loweredResults: [], deliveries: [] };
+        }
+      }
+      const spoken = parsed.messages.length > 0 || parsed.reactions.length > 0 || set;
+      if (spoken) {
+        // The arguments the attempt gave, completed with what this step numbers: what act and holdSpeech each take.
+        const speech = {
+          ...actArgs,
+          parsed,
+          set,
+          idByIndex: routed.idByIndex,
+          history: routed.history,
+          lines: routed.lines,
+          pulledIds: routed.pulledIds,
+          handles: routed.handles,
+          channelHandles: routed.channelHandles,
+        } as ActArgs & HoldArgs;
+        acted = await (diary ? holdSpeech : act)(speech);
+      }
+      const out: {
+        acted: ActOutcome | HeldSpeech | null;
+        loweredResults: Array<CallOutcome>;
+        deliveries: Array<{ n: number; total: number; code: string }>;
+      } = { acted, loweredResults: [], deliveries: [] };
+      if (loweredCalls.length === 0) return out;
+      // The tags of an inner turn are the persona's speech: each planned (the journal, the gate) and made like a call, with no result to give back.
+      const view = { ...viewOf(routed), links: await linksOfCalls(ifaceReads, loweredCalls) };
+      const lowered: Array<CallPlan> = [];
+      for (const call of loweredCalls)
+        lowered.push(await planToolCall({ call, channel, envelope: envelopeOf(call), draft, view }));
+      out.loweredResults = await runCalls(lowered, contextOf(routed, callTimeoutCap));
+      const messagesSent = out.loweredResults.filter((result, i) => {
+        const plan = lowered[i];
+        return plan.call.skill === 'message.create';
+      });
+      const failed = messagesSent.filter((result) => result.status !== 'ok');
+      if (failed.length > 0)
+        out.deliveries.push({
+          n: messagesSent.length - failed.length,
+          total: messagesSent.length,
+          code: failed[0].code ?? CODE.ERROR,
+        });
+      return out;
+    }
+  }
+
+  /**
+   * Why a call of a step cannot run, decided before it is planned: `{ code, reason, values? }`, or null when it can. A
+   * call the transport could not read or no skill has is refused with its own code (`malformed-call`, `truncated-call`,
+   * `unknown-skill`); a call past what the step allows (the final request's, the time's, the step's cap of calls) is
+   * `loop-cap` with `what` saying which; in a diary entry anything but a tool that only looks, `draw.create`,
+   * `voice.say` and an errand is `diary-draw-only`. An inner turn's last answer still makes its terminal calls (`isTerminal`).
+   */
+  function preRefusalOf(
+    record: NormalCall,
+    {
+      isFinal,
+      isTerminal,
+      room,
+      maxCallsPerStep,
+      finalReason,
+      diary = false,
+    }: {
+      isFinal: boolean;
+      isTerminal: boolean;
+      room: { run: boolean; capReason: string | null };
+      maxCallsPerStep: number;
+      finalReason: string | null;
+      diary?: boolean;
+    }
+  ): CallRefusal | null {
+    if (record.problem)
+      return { code: record.problem, reason: record.problem === CODE.UNKNOWN_SKILL ? record.name : '' };
+    // A diary entry looks, makes pictures, may say one thing aloud and may hand off an errand and read it; nothing else.
+    if (diary && !DIARY_SKILLS.includes(record.name)) return { code: CODE.DIARY_DRAW_ONLY, reason: record.name };
+    // A think tag never goes out, and nothing edits the persona's words: the call is refused whole.
+    if (record.name === 'message.create' && hasThinkTag(JSON.stringify(record.args?.text ?? '')))
+      return { code: CODE.THINK_IN_TEXT, reason: '' };
+    // A final step has its reason, and a step out of room its own or the time.
+    const capped = (what: string | null | undefined): CallRefusal => ({ code: CODE.LOOP_CAP, reason: what as string });
+    if (isFinal) return isTerminal ? null : capped(finalReason);
+    if (!room.run) return capped(room.capReason ?? LOOP_WHY.time);
+    if (record.index >= maxCallsPerStep) return capped(LOOP_WHY.extraCall);
+    return null;
+  }
+
+  return { readHistory, noteThink, stepTranscript, runSteps };
+}
+
+/** Whether a value is a list. */
+function isList(value: unknown): value is ReadonlyArray<unknown> {
+  return Array.isArray(value);
+}
+
+/** A value as a record whose fields are read as untrusted. */
+function objOf(value: unknown): { id?: unknown; purpose?: unknown; intentionIds?: unknown } {
+  return value !== null && typeof value === 'object' ? value : {};
+}

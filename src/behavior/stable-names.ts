@@ -1,0 +1,151 @@
+// The engine's stable names on a message as it enters the core. An interface hands a custom emoji as the token
+// `<emoji:ID>` in the content with an entry of `emojis`, a sticker as an entry of `stickers`, and a reaction with a
+// custom emoji as `<emoji:ID>` with its platform name. `nameMessageMedia` names each through the store
+// (src/memory/store-media-names.ts) and gives the message back with `:e23:` in its text and the stable name as the
+// `name` of each emoji, sticker and custom reaction. A message enters the core two ways: as a live event through the
+// door (src/behavior/core-message-producers.ts) and in the answer of an adapter's read. `withStableNames` wraps the one
+// adapter the core reads through (src/core.ts), so its `history` and `fetchMessages` answer named messages to every
+// reader, and no text the persona reads holds a token or a platform name.
+
+import { nameEmojiTokens } from './emoji.ts';
+import { log } from '../log.ts';
+import { emojiTokensListed } from '../protocol/index.ts';
+import type { Adapter, FetchedMessage } from '../protocol/adapter.ts';
+import type { MediaName, MediaNameItem } from '../memory/store-media-names.ts';
+
+/** The store's issuer of stable names. */
+export type MediaNamer = {
+  nameMedia(iface: string, kind: 'emoji' | 'sticker', items: ReadonlyArray<MediaNameItem>): Array<MediaName>;
+};
+
+type Loose = Record<string, unknown>;
+/** The parts of a message or a forwarded snapshot that carry names. */
+type Part = { content?: string; emojis?: Array<object>; stickers?: Array<object> };
+type Named = Part & { id: string; reactions?: Array<object>; forwarded?: Array<object> };
+
+const looseOf = (value: object): Loose => value as Loose;
+const itemOf = (value: object): MediaNameItem => {
+  const { id, name, animated } = looseOf(value);
+  return { nativeId: String(id), platformName: String(name), animated: animated === true };
+};
+
+/** The stable name of the token `<emoji:ID>`. The door and a read pass only a message whose every token names an entry
+ * of `emojis` (emojiTokensListed), so a miss is a broken interface. */
+function stableNameOf(byId: ReadonlyMap<string, string>, id: string): string {
+  const name = byId.get(id);
+  if (name === undefined) throw new Error(`emoji token ${id} has no entry in emojis`);
+  return name;
+}
+
+/** `part` with its emoji tokens and its emoji and stickers under their stable names. */
+function namePart<TPart extends Part>(part: TPart, iface: string, names: MediaNamer): TPart {
+  const emojis = part.emojis ?? [];
+  const stickers = part.stickers ?? [];
+  const named = names.nameMedia(iface, 'emoji', emojis.map(itemOf));
+  const stuck = names.nameMedia(iface, 'sticker', stickers.map(itemOf));
+  const byId = new Map(named.map((row) => [row.nativeId, row.name]));
+  return {
+    ...part,
+    ...(typeof part.content === 'string'
+      ? { content: nameEmojiTokens(part.content, (id) => stableNameOf(byId, id)) }
+      : {}),
+    ...(part.emojis ? { emojis: emojis.map((emoji, at) => ({ ...emoji, name: named[at].name })) } : {}),
+    ...(part.stickers ? { stickers: stickers.map((sticker, at) => ({ ...sticker, name: stuck[at].name })) } : {}),
+  };
+}
+
+/** `message` with every custom emoji, sticker and custom reaction under its stable name (see the head of this file). */
+export function nameMessageMedia<TMessage extends Named>(
+  message: TMessage,
+  iface: string,
+  names: MediaNamer
+): TMessage {
+  const reactions = message.reactions ?? [];
+  // A reaction with a custom emoji carries its platform name; a unicode one carries none.
+  const custom = reactions.filter((reaction) => typeof looseOf(reaction).name === 'string');
+  const issued = names.nameMedia(
+    iface,
+    'emoji',
+    custom.map((reaction) => {
+      const { emoji, name, animated } = looseOf(reaction);
+      return {
+        nativeId: String(emoji).slice('<emoji:'.length, -1),
+        platformName: String(name),
+        animated: animated === true,
+      };
+    })
+  );
+  const reactionName = new Map(custom.map((reaction, at) => [reaction, issued[at].name]));
+  return {
+    ...namePart(message, iface, names),
+    ...(message.reactions
+      ? {
+          reactions: reactions.map((reaction) => {
+            const name = reactionName.get(reaction);
+            return name === undefined ? reaction : { ...reaction, name };
+          }),
+        }
+      : {}),
+    ...(message.forwarded ? { forwarded: message.forwarded.map((part) => namePart(part, iface, names)) } : {}),
+  };
+}
+
+/** A message event, its message and the message before an edit, under stable names. */
+export function nameEventMedia<TEvent extends { iface: string; message: Named; previous?: Named | null }>(
+  event: TEvent,
+  names: MediaNamer
+): TEvent {
+  return {
+    ...event,
+    message: nameMessageMedia(event.message, event.iface, names),
+    ...(event.previous ? { previous: nameMessageMedia(event.previous, event.iface, names) } : {}),
+  };
+}
+
+/** One message of a `fetchMessages` answer under stable names: its event, and its text by the event's emoji. */
+function nameFetched(found: FetchedMessage, names: MediaNamer): FetchedMessage {
+  const event = found.event;
+  if (event === undefined) return found;
+  const text =
+    typeof found.text === 'string'
+      ? namePart({ content: found.text, emojis: event.message.emojis }, event.iface, names).content
+      : found.text;
+  return { ...found, text, event: nameEventMedia(event, names) };
+}
+
+/** `adapter` with the messages its `history` and `fetchMessages` answer under stable names; every other method as it is. */
+export function withStableNames<TPort extends Adapter>(adapter: TPort, names: MediaNamer): TPort {
+  const history: Adapter['history'] = async (chat, query) => {
+    const answer = await adapter.history(chat, query);
+    if (answer.status !== 'ok') return answer;
+    // The door refuses a live message whose token names no entry; a read leaves such an event out by the same rule.
+    const listed = answer.events.filter((event) => emojiTokensListed(event.message));
+    const dropped = answer.events.length - listed.length;
+    if (dropped > 0) log.warn('history: events left out for an unlisted emoji token', { iface: chat.iface, dropped });
+    return { ...answer, events: listed.map((event) => nameEventMedia(event, names)) };
+  };
+  const fetchMessages: Adapter['fetchMessages'] = async (chat, messageIds, options) => {
+    const answer = await adapter.fetchMessages(chat, messageIds, options);
+    if (answer.status !== 'ok') return answer;
+    // By the rule of history above, a fetched message whose token names no entry is answered as missing.
+    const unlisted = (found: FetchedMessage): boolean =>
+      found.event !== undefined && !emojiTokensListed(found.event.message);
+    const dropped = answer.messages.filter(unlisted).length;
+    if (dropped > 0) log.warn('fetch: messages left out for an unlisted emoji token', { iface: chat.iface, dropped });
+    return {
+      ...answer,
+      messages: answer.messages.map((found) =>
+        unlisted(found) ? { messageId: found.messageId, missing: true } : nameFetched(found, names)
+      ),
+    };
+  };
+  return new Proxy(adapter, {
+    get(target, key) {
+      if (key === 'history') return history;
+      if (key === 'fetchMessages') return fetchMessages;
+      const value: unknown = Reflect.get(target, key, target);
+      // A port's methods are its own: bound to it, as a call on the port itself would be.
+      return typeof value === 'function' ? (value as (...args: Array<unknown>) => unknown).bind(target) : value;
+    },
+  });
+}

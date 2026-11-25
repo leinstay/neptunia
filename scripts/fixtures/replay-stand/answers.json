@@ -1,0 +1,27 @@
+{
+  "default": "<msg>ok</msg>",
+  "byPurpose": {
+    "reply": [
+      {
+        "text": "",
+        "calls": [
+          {
+            "name": "message_react_add",
+            "arguments": {
+              "message": "#6",
+              "emoji": "👍"
+            }
+          }
+        ]
+      },
+      {
+        "text": "<msg>Friday suits me too.</msg>"
+      }
+    ],
+    "diary-scene": [
+      {
+        "text": "{\"set\":1,\"used\":[],\"scene\":\"A small harbour at noon. Gulls sit on the posts and the tide is low. Nets dry on a wall.\"}"
+      }
+    ]
+  }
+}

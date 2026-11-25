@@ -1,0 +1,234 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { openMemoryDb } from '../../../../src/memory/db/open.ts';
+import { applyMemoryWrite } from '../../../../src/memory/db/session-write.ts';
+import { dbOf } from '../../../../src/memory/db/types.ts';
+import type { Row, Db, MemoryHandle } from '../../../../src/memory/db/types.ts';
+import { addChannelPlace } from '../../../fixtures/memory-db/opaque-people.ts';
+import { openTestMemory, tempDataDir } from '../../../fixtures/memory-db/service.ts';
+import { DatabaseSync } from 'node:sqlite';
+import { createAppendStore } from '../../../../src/memory/append-store.ts';
+import { createArchive } from '../../../../src/memory/archive.ts';
+import { auditMemory } from '../../../fixtures/memory-audit.ts';
+import { placeOfRoot } from '../../../../src/memory/addresses.ts';
+import { createStore } from '../../../../src/memory/store.ts';
+import { storageContext } from '../../../../src/memory/db/storage-context.ts';
+import { lineHolderOf } from '../../../../src/memory/db/line-holder.ts';
+import { archiveRows } from '../../../../src/memory/db/archive-lines.ts';
+import { personOfAccount } from '../../../../src/memory/db/meta-person.ts';
+import { observe, OBSERVATION_VERSION } from '../../../../src/memory/db/observe.ts';
+import { placeCollection } from '../../../../src/memory/db/unit-keys.ts';
+
+const NOW = Date.parse('2026-11-09T10:00:00.000Z');
+const ROOT = 'synthetic:root:1';
+const NOV = '2026-11-08T09:00:00.000Z';
+
+type Memory = Awaited<ReturnType<typeof openTestMemory>>;
+
+const entry = (id: string, itemId: string, recordedAt: string, extra: Row = {}): Row => ({
+  id,
+  itemId,
+  itemKind: 'claim',
+  revisionId: `rv-${id}`,
+  event: 'expired',
+  by: 'engine',
+  origin: 'live',
+  recordedAt,
+  kind: 'fact',
+  scope: { channel: 'room-a' },
+  participants: ['member'],
+  observedAt: { date: '2026-10-01' },
+  text: { text: `the text of ${id}`, lang: 'en' },
+  weight: 2,
+  ...extra,
+});
+
+async function fresh(): Promise<Memory> {
+  return openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
+}
+
+test('a write whose entries are not a list is refused with a code', async () => {
+  const memory = await fresh();
+  try {
+    await assert.rejects(
+      memory.memoryDb.writeArchiveLines({ placeId: ROOT, month: '2026-11', lines: 'none' as never }),
+      {
+        code: 'ARCHIVE_LINES_LINES',
+      }
+    );
+  } finally {
+    await memory.close();
+  }
+});
+
+test('an archived item of a chat whose place id spells nothing is a claim about the stored place', () => {
+  const dir = tempDataDir();
+  const handle = openMemoryDb(path.join(dir, 'memory.db'));
+  try {
+    const db = dbOf(handle);
+    addChannelPlace(db, { id: 'place:9b22', iface: 'discord', authority: 'discord/global', native: 'room-n' });
+    const line = entry('e1', 'claim:archived-1', NOV, { scope: { channel: 'room-n' }, participants: [] });
+    // The service names its live interface on the write.
+    applyMemoryWrite(handle, {
+      kind: 'archive-lines',
+      placeId: null,
+      month: '2026-11',
+      lines: [line],
+      iface: 'discord',
+      now: NOW,
+    });
+    const claim = db.prepare('SELECT subject_kind, subject_id FROM claims WHERE id = ?').get('claim:archived-1');
+    assert.deepEqual({ ...claim }, { subject_kind: 'place', subject_id: 'place:9b22' });
+  } finally {
+    handle.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const VERSION_NOW = Date.parse('2026-11-06T07:20:05.000Z');
+const HOUR = 3_600_000;
+const CHANNEL = '200000000000000001';
+const quiet = { info() {}, debug() {}, warn() {}, error() {} };
+const settle = async (rounds = 12) => {
+  for (let i = 0; i < rounds; i += 1) await new Promise((resolve) => setImmediate(resolve));
+};
+
+const episode = (n: number, itemId: string, lastOwnAt: number) => ({
+  itemId,
+  id: `p${n}`,
+  placeId: CHANNEL,
+  startAt: lastOwnAt,
+  lastAt: lastOwnAt,
+  lastOwnAt,
+  continues: null,
+  messages: [
+    {
+      id: `native-${itemId}`,
+      ts: lastOwnAt,
+      self: true,
+      text: 'a synthetic line',
+      authorId: 'bot',
+      name: 'persona',
+      replyTo: null,
+      caption: null,
+    },
+  ],
+});
+
+// Bug (production 2026-11-06): the archive line of an expired participation episode became a live claim_versions
+// row whose claim_id names a `pt-` episode that is in no row of `claims`, so the audit counted it dangling.
+test('an expired participation episode leaves no claim version without its claim', async () => {
+  const env = await openTestMemory({ now: () => VERSION_NOW, config: { features: { record: true, archive: true } } });
+  const appendStore = createAppendStore({ log: quiet, now: () => VERSION_NOW });
+  try {
+    const { memoryDb, dataDir } = env;
+    const archive = createArchive({ appendStore, dataDir, log: quiet, now: () => VERSION_NOW, memoryDb });
+    const store = createStore({ dataDir, archive, archiveOn: () => true, memoryDb });
+    const place = placeOfRoot(store, 'g1');
+    const settings = { hours: 24 };
+    store.setParticipation(
+      place,
+      {
+        nextId: 3,
+        episodes: [episode(1, 'pt-old', VERSION_NOW - 30 * HOUR), episode(2, 'pt-new', VERSION_NOW - HOUR)],
+      },
+      { settings, now: VERSION_NOW - 31 * HOUR }
+    );
+    await settle();
+    // The write past `hours` expires pt-old.
+    const kept = store.getParticipation(place);
+    const { dropped } = store.setParticipation(place, kept, { settings, now: VERSION_NOW });
+    assert.deepEqual(
+      dropped.map((victim) => (victim as { itemId: string }).itemId),
+      ['pt-old']
+    );
+    store.flush();
+    await store.flushSettled({});
+    await settle();
+    await store.flushSettled({ final: true });
+    await memoryDb.tick();
+
+    const db = new DatabaseSync(path.join(dataDir, 'memory.db'));
+    try {
+      const versions = db
+        .prepare("SELECT claim_id FROM claim_versions WHERE event = 'expired' AND retired_at IS NULL")
+        .all();
+      assert.deepEqual(
+        versions.map((row) => row.claim_id),
+        ['pt-old'],
+        'the expiry was archived as a live version'
+      );
+      const orphans = db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM claim_versions v WHERE v.retired_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM claims c WHERE c.id = v.claim_id)
+           AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.id = v.claim_id)`
+        )
+        .get();
+      assert.equal(orphans?.n, 0, 'a live version names a row that is in neither claims nor episodes');
+      // The rows the test's own synthetic messages leave (a place and sources nothing recorded) are in the audit either
+      // way; what the expiry's version adds to `danglingLinks` is the difference to the same database without it.
+      const withVersion = auditMemory(db).checks.danglingLinks;
+      db.prepare("DELETE FROM claim_versions WHERE event = 'expired'").run();
+      assert.equal(withVersion, auditMemory(db).checks.danglingLinks, 'the version counts as dangling');
+    } finally {
+      db.close();
+    }
+  } finally {
+    await appendStore.close();
+    await env.close();
+  }
+});
+
+const AT = '2026-11-08T10:00:00.000Z';
+const SCOPE_NOW = Date.parse('2026-11-08T12:00:00.000Z');
+const OPTS = { now: () => SCOPE_NOW, log: quiet };
+const AUTHORITY: Record<string, string> = { discord: 'discord/global', telegram: 'telegram/global', cli: 'cli/local' };
+
+const personOf = (db: Db, account: string): string => String(personOfAccount(db, account));
+
+function withDb(body: (db: Db, handle: MemoryHandle) => void): void {
+  const handle = openMemoryDb(':memory:');
+  try {
+    body(dbOf(handle), handle);
+  } finally {
+    handle.close();
+  }
+}
+
+/** Observes one line from `native` in a group channel, so the member has an account and a meta-person and no direct chat. */
+function seeInGroup(handle: MemoryHandle, native: string, key = `g${native}:1`): void {
+  const authority = AUTHORITY.discord ?? 'discord/global';
+  const result = observe(
+    handle,
+    {
+      v: OBSERVATION_VERSION,
+      iface: 'discord',
+      authority,
+      native: { kind: 'message', key, revision: 1 },
+      place: { authority, key: 'channel:c1', kind: 'channel', chat: 'channel' },
+      author: { kind: 'account', key: native },
+      occurredAt: AT,
+      observedAt: AT,
+      text: `synthetic line ${key}`,
+    },
+    OPTS
+  );
+  assert.equal(result.ok, true, JSON.stringify(result));
+}
+
+test("an archived item of a member with no stored direct chat names the member's meta-person and stays internal", () => {
+  // Bug: the stub claim of an archived private item spells the member's person in its scope.
+  withDb((db, handle) => {
+    seeInGroup(handle, '701');
+    const key = placeCollection('archive', 'discord:channel:c1', { partition: '2026-11' });
+    const entry: Row = { id: 'ar1', kind: 'archive', event: 'expired', itemId: 'c9', scope: { user: '701' } };
+    // An archive month's key always names its owner columns (line-holder.ts#lineHolderOf).
+    const holder = { line: lineHolderOf(key)!, position: 0 };
+    const [stub] = archiveRows(entry, storageContext(db, key), holder, new Set<string>()).claims ?? [];
+    assert.equal(stub?.subject_id, personOf(db, 'discord:701'));
+    assert.equal(stub?.scope_kind, 'internal');
+  });
+});

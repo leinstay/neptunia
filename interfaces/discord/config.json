@@ -1,0 +1,3 @@
+{
+  "discord": { "intents": { "presences": false, "members": false } }
+}

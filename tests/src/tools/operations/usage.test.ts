@@ -1,0 +1,737 @@
+// The costs fields of the owner's status card (keys.base, costs.base, costs.errands): today's per-role accumulator fed by the
+// `llm: usage` log lines (src/tools/operations/usage.ts), the OpenRouter key reads, and the pure renderers
+// over every key shape the owner may set.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  createUsage,
+  usageTap,
+  agentCostsLines,
+  keyCostsLines,
+  keyStateLines,
+  roleCostsLines,
+  readAccount,
+  readActivity,
+  activitySums,
+  compactTokens,
+  USAGE_FILE,
+  KEEP_DAYS,
+} from '../../../../src/tools/operations/usage.ts';
+import { tempDir } from '../../../fixtures/tmp.ts';
+import { openTestMemory } from '../../../fixtures/memory-db/service.ts';
+
+const HOUR = 3_600_000;
+
+function tmpDir() {
+  return tempDir('nep-usage-');
+}
+
+/** A clock the test moves by hand. */
+function clock(start = Date.parse('2026-10-15T12:00:00.000Z')) {
+  const state = { at: start };
+  const now = () => state.at;
+  const advance = (ms: number) => {
+    state.at += ms;
+  };
+  return Object.assign(now, { advance });
+}
+
+/** Terse fixture wording for the renderer: not shipped text. */
+const LABELS = {
+  status: {
+    costs: {
+      keyLimit: 'key {spent}/{limit} ({notes})',
+      keyLimitPlain: 'key {spent}/{limit}',
+      keyNone: 'key none, used {used}',
+      keyNonePlain: 'key none',
+      keyUnavailable: 'key unavailable: {reason}',
+      resets: 'resets {interval}',
+      resetsAt: 'resets {interval} at {at}',
+      neverResets: 'never resets',
+      intervals: { daily: 'day', weekly: 'week', monthly: 'month' },
+      byokCounted: 'byok in',
+      byokNotCounted: 'byok out',
+      noteSeparator: '; ',
+      usage: 'usage {parts}',
+      usageToday: 'D {usd}',
+      last7: 'L7 {usd}{since}',
+      last30: 'L30 {usd}{since}',
+      since: ' from {day}',
+      partSeparator: ' | ',
+      reasons: { timeout: 'slow', network: 'net', http: 'http {status}', noClient: 'none', badAnswer: 'odd' },
+      byRoleEmpty: 'by role: nothing',
+      role: '{role} {requests} in {in} c {cached} out {out} = {cost}',
+    },
+  },
+};
+
+const ok = (data: unknown) => ({ ok: true as const, data });
+
+const KEY_DAILY = {
+  label: 'sk-or-v1-secret',
+  limit: 30,
+  limit_reset: 'daily',
+  limit_remaining: 21.54,
+  include_byok_in_limit: true,
+  budgets: [
+    {
+      scope: 'key_limit',
+      limit_usd: 30,
+      spend_usd: 8.45,
+      remaining_usd: 21.55,
+      reset_interval: 'daily',
+      resets_at: '2026-10-16T00:00:00.000Z',
+      include_byok: true,
+    },
+  ],
+  usage: 52.3,
+  usage_daily: 0.1,
+  usage_weekly: 3.41,
+  usage_monthly: 12,
+};
+
+/** The main key's lines. */
+function keyLines(key: Parameters<typeof keyCostsLines>[0]['key']) {
+  return keyCostsLines({ key, labels: LABELS });
+}
+
+// ---- the renderers -----------------------------------------------------------------
+
+test('keyCostsLines: a daily budget shows spend over limit, the reset time and BYOK, then usage today only (never the calendar week or month); no credits line', () => {
+  assert.deepEqual(keyCostsLines({ key: ok(KEY_DAILY), labels: LABELS }), [
+    'key 8.45/30.00 (resets day at 2026-10-16 00:00 UTC; byok in)',
+    'usage D 0.10',
+  ]);
+});
+
+test('keyCostsLines: never prints the key label', () => {
+  const text = keyCostsLines({ key: ok(KEY_DAILY), labels: LABELS }).join('\n');
+  assert.ok(!text.includes('sk-or'), 'no key label');
+});
+
+test('keyCostsLines: a weekly and a monthly reset, BYOK left out of the limit', () => {
+  for (const [interval, word] of [
+    ['weekly', 'week'],
+    ['monthly', 'month'],
+  ]) {
+    const key = { limit: 50, limit_reset: interval, limit_remaining: 40, include_byok_in_limit: false };
+    assert.deepEqual(keyLines(ok(key)), [`key 10.00/50.00 (resets ${word}; byok out)`], interval);
+  }
+});
+
+test('keyCostsLines: a limit that never resets, an unknown interval as its code, a missing reset with no note', () => {
+  assert.deepEqual(keyLines(ok({ limit: 20, limit_reset: null, limit_remaining: 5 })), [
+    'key 15.00/20.00 (never resets)',
+  ]);
+  assert.deepEqual(keyLines(ok({ limit: 20, limit_reset: 'hourly', limit_remaining: 5 })), [
+    'key 15.00/20.00 (resets hourly)',
+  ]);
+  assert.deepEqual(
+    keyLines(ok({ limit: 20, limit_remaining: 5 })),
+    ['key 15.00/20.00'],
+    'no reset field, no BYOK field: no notes'
+  );
+});
+
+test('keyCostsLines: budgets missing or empty fall back to the top-level fields; the spend from the interval usage when no remainder', () => {
+  assert.deepEqual(keyLines(ok({ limit: 30, limit_reset: 'daily', budgets: [], usage_daily: 2.5 })), [
+    'key 2.50/30.00 (resets day)',
+    'usage D 2.50',
+  ]);
+  assert.deepEqual(keyLines(ok({ limit: 30, limit_reset: 'daily' })), ['key -/30.00 (resets day)'], 'no spend known');
+});
+
+test('keyCostsLines: the effective budget stands in when no budget is the key limit', () => {
+  const key = {
+    limit: null,
+    budgets: [{ scope: 'other', limit_usd: 9 }],
+    effective_budget: { limit_usd: 10, spend_usd: 1, reset_interval: 'weekly' },
+  };
+  assert.deepEqual(keyLines(ok(key)), ['key 1.00/10.00 (resets week)']);
+});
+
+test('keyCostsLines: no limit shows the total used, or nothing more when even that is missing', () => {
+  assert.deepEqual(keyLines(ok({ limit: null, limit_reset: null, budgets: [], usage: 52.314 })), [
+    'key none, used 52.31',
+  ]);
+  assert.deepEqual(keyLines(ok({})), ['key none']);
+});
+
+test('keyCostsLines: a failed read of the key says why', () => {
+  assert.deepEqual(keyCostsLines({ key: { ok: false, reason: 'http', status: 401 }, labels: LABELS }), [
+    'key unavailable: http 401',
+  ]);
+  assert.deepEqual(keyCostsLines({ key: { ok: false, reason: 'network' }, labels: LABELS }), ['key unavailable: net']);
+  assert.deepEqual(keyCostsLines({ key: { ok: false, reason: 'bad-answer' }, labels: LABELS }), [
+    'key unavailable: odd',
+  ]);
+});
+
+test('roleCostsLines: one line per role in the given order, no header and no total; the empty day says so', () => {
+  const rows = [
+    { role: 'core', requests: 38, promptTokens: 974_000, cachedTokens: 342_000, completionTokens: 9_300, cost: 4.03 },
+    { role: 'analyzer', requests: 12, promptTokens: 51_200, cachedTokens: 0, completionTokens: 812, cost: 0.2 },
+  ];
+  assert.deepEqual(roleCostsLines({ rows, labels: LABELS }), [
+    'core 38 in 974k c 342k out 9.3k = 4.03',
+    'analyzer 12 in 51k c 0 out 812 = 0.20',
+  ]);
+  assert.deepEqual(roleCostsLines({ rows: [], labels: LABELS }), ['by role: nothing']);
+});
+
+test('keyCostsLines / roleCostsLines: no labels, no lines; a missing label leaves its line out', () => {
+  assert.deepEqual(keyCostsLines({ key: ok(KEY_DAILY), labels: {} }), []);
+  assert.deepEqual(roleCostsLines({ rows: [], labels: {} }), []);
+  const partial = { status: { costs: { ...LABELS.status.costs, usage: undefined } } };
+  assert.deepEqual(keyCostsLines({ key: ok(KEY_DAILY), labels: partial }).length, 1, 'no usage line');
+});
+
+test('compactTokens: plain below a thousand, one decimal below ten thousand, whole k, then M', () => {
+  assert.deepEqual([0, 812, 9_300, 10_000, 974_000, 999_700, 1_234_567].map(compactTokens), [
+    '0',
+    '812',
+    '9.3k',
+    '10k',
+    '974k',
+    '1.00M',
+    '1.23M',
+  ]);
+});
+
+// ---- the account reads ---------------------------------------------------------------
+
+test('readAccount: the data of a 2xx answer, else the reason', async () => {
+  assert.deepEqual(await readAccount(async () => ({ ok: true, status: 200, json: { data: { limit: 1 } } })), {
+    ok: true,
+    data: { limit: 1 },
+  });
+  assert.deepEqual(await readAccount(async () => ({ ok: false, status: 403, json: null })), {
+    ok: false,
+    reason: 'http',
+    status: 403,
+  });
+  assert.deepEqual(await readAccount(async () => ({ ok: true, status: 200, json: null })), {
+    ok: false,
+    reason: 'bad-answer',
+  });
+  assert.deepEqual(await readAccount(null), { ok: false, reason: 'no-client' });
+  const timeout = Object.assign(new Error('t'), { name: 'TimeoutError' });
+  assert.deepEqual(
+    await readAccount(async () => {
+      throw timeout;
+    }),
+    { ok: false, reason: 'timeout' }
+  );
+  assert.deepEqual(
+    await readAccount(async () => {
+      throw new TypeError('fetch failed');
+    }),
+    { ok: false, reason: 'network' }
+  );
+});
+
+// ---- the accumulator ------------------------------------------------------------------
+
+test('usage: requests add up per role, the cost is the upstream cost when there is one, ordered by cost', () => {
+  const usage = createUsage({ dataDir: tmpDir(), now: clock() });
+  const tap = usageTap(usage);
+  tap({
+    msg: 'llm: usage',
+    role: 'analyzer',
+    promptTokens: 1000,
+    cachedTokens: null,
+    completionTokens: 50,
+    cost: 0.01,
+    upstreamCost: null,
+  });
+  tap({
+    msg: 'llm: usage',
+    role: 'core',
+    promptTokens: 20000,
+    cachedTokens: 8000,
+    completionTokens: 300,
+    cost: 0.002,
+    upstreamCost: 0.5,
+    byok: true,
+  });
+  tap({ msg: 'llm: usage', role: 'core', promptTokens: 10000, cachedTokens: 2000, completionTokens: 100, cost: 0.3 });
+  tap({ msg: 'llm: usage', role: null, promptTokens: 5 });
+  tap({ msg: 'turn: sent', role: 'core', promptTokens: 999 });
+  tap(null);
+  assert.deepEqual(usage.byRole(), [
+    { role: 'core', requests: 2, promptTokens: 30000, cachedTokens: 10000, completionTokens: 400, cost: 0.8 },
+    { role: 'analyzer', requests: 1, promptTokens: 1000, cachedTokens: 0, completionTokens: 50, cost: 0.01 },
+    { role: 'other', requests: 1, promptTokens: 5, cachedTokens: 0, completionTokens: 0, cost: 0 },
+  ]);
+});
+
+test('usage: a generated picture counts under drawing with its cost and no tokens', () => {
+  const usage = createUsage({ dataDir: tmpDir(), now: clock() });
+  const tap = usageTap(usage);
+  tap({
+    msg: 'images: generated',
+    model: 'x/img',
+    family: 'openai',
+    seconds: 12.5,
+    cost: 0.04,
+    bytes: 1000,
+    reference: true,
+  });
+  tap({ msg: 'images: generated', model: 'x/img', cost: null, bytes: 900 });
+  tap({ msg: 'llm: usage', role: 'core', promptTokens: 100, completionTokens: 5, cost: 0.01 });
+  assert.deepEqual(usage.byRole(), [
+    { role: 'drawing', requests: 2, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: 0.04 },
+    { role: 'core', requests: 1, promptTokens: 100, cachedTokens: 0, completionTokens: 5, cost: 0.01 },
+  ]);
+});
+
+test('roleCostsLines: a role with no tokens shows them as -', () => {
+  const rows = [
+    { role: 'drawing', requests: 3, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: 0.12 },
+    { role: 'core', requests: 1, promptTokens: 100, cachedTokens: 0, completionTokens: 5, cost: 0.01 },
+  ];
+  assert.deepEqual(roleCostsLines({ rows, labels: LABELS }), [
+    'drawing 3 in - c - out - = 0.12',
+    'core 1 in 100 c 0 out 5 = 0.01',
+  ]);
+});
+
+test('usage: equal costs order by requests, then by role name', () => {
+  const usage = createUsage({ dataDir: tmpDir(), now: clock() });
+  for (const role of ['b', 'a', 'c', 'c']) usage.record({ role, cost: 0 });
+  assert.deepEqual(
+    usage.byRole().map((row) => row.role),
+    ['c', 'a', 'b']
+  );
+});
+
+test('usage: the UTC day rolls over at midnight; the last 31 days are kept and day 32 is dropped', async () => {
+  const dataDir = tmpDir();
+  const now = clock(Date.parse('2026-10-14T23:00:00.000Z'));
+  const usage = createUsage({ dataDir, now });
+  usage.record({ role: 'core', promptTokens: 10, cost: 1 });
+  now.advance(2 * HOUR);
+  assert.deepEqual(usage.byRole(), [], 'a new day starts empty');
+  usage.record({ role: 'core', promptTokens: 20, cost: 2 });
+  assert.equal(usage.byRole()[0].promptTokens, 20);
+  await usage.save({ force: true });
+  const daysOnDisk = () => Object.keys(JSON.parse(fs.readFileSync(path.join(dataDir, USAGE_FILE), 'utf8')).days).sort();
+  assert.deepEqual(daysOnDisk(), ['2026-10-14', '2026-10-15']);
+  assert.equal(KEEP_DAYS, 31);
+  now.advance(29 * 24 * HOUR); // 2026-11-13: 2026-10-14 is day 31 counting today
+  usage.record({ role: 'core', cost: 3 });
+  await usage.save({ force: true });
+  assert.deepEqual(daysOnDisk(), ['2026-10-14', '2026-10-15', '2026-11-13']);
+  now.advance(24 * HOUR); // 2026-11-14: 2026-10-14 is day 32
+  usage.record({ role: 'core', cost: 4 });
+  await usage.save({ force: true });
+  assert.deepEqual(daysOnDisk(), ['2026-10-15', '2026-11-13', '2026-11-14']);
+});
+
+test('usage: sumDays sums the last N days per role, filtered by only or except, with the first day covered', () => {
+  const now = clock(Date.parse('2026-10-01T12:00:00.000Z'));
+  const usage = createUsage({ dataDir: tmpDir(), now });
+  usage.record({ role: 'core', cost: 1, promptTokens: 10 }); // 2026-10-01, outside the 7 days of 10-15
+  now.advance(10 * 24 * HOUR); // 2026-10-11
+  usage.record({ role: 'core', cost: 2 });
+  usage.record({ role: 'analyzer', cost: 0.5 });
+  now.advance(4 * 24 * HOUR); // 2026-10-15
+  usage.record({ role: 'vision', cost: 0.25 });
+  usage.record({ role: 'core', cost: 0.75 });
+
+  const week = usage.sumDays(7);
+  assert.deepEqual(
+    week.rows.map((row) => [row.role, row.requests, row.cost]),
+    [
+      ['core', 2, 2.75],
+      ['analyzer', 1, 0.5],
+      ['vision', 1, 0.25],
+    ]
+  );
+  assert.equal(week.total.cost, 3.5);
+  assert.equal(week.total.requests, 4);
+  assert.deepEqual(
+    [week.since, week.partial],
+    ['2026-10-09', false],
+    'the accumulator reaches back further: the whole window'
+  );
+
+  const month = usage.sumDays(30);
+  assert.equal(month.total.cost, 4.5);
+  assert.equal(month.total.promptTokens, 10);
+  assert.deepEqual(
+    [month.since, month.partial],
+    ['2026-10-01', true],
+    'fewer days than the window: since the first recorded day'
+  );
+
+  assert.equal(usage.sumDays(30, { only: ['core'] }).total.cost, 3.75);
+  assert.deepEqual(
+    usage.sumDays(7, { except: ['core', 'vision'] }).rows.map((row) => row.role),
+    ['analyzer']
+  );
+  assert.deepEqual(usage.sumDays(7, { only: [] }).rows, [], 'a key with no role sums nothing');
+});
+
+test('usage: sumDays of an empty accumulator covers today only', () => {
+  const usage = createUsage({ dataDir: tmpDir(), now: clock() });
+  const sum = usage.sumDays(7);
+  assert.deepEqual([sum.total.cost, sum.since, sum.partial], [0, '2026-10-15', true]);
+});
+
+test('usage: the day survives a restart through the file; a broken file starts empty', async () => {
+  const dataDir = tmpDir();
+  const now = clock();
+  const first = createUsage({ dataDir, now });
+  first.record({ role: 'core', promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 });
+  assert.equal(await first.save(), true);
+  assert.equal(await first.save(), false, 'nothing new, no write');
+  const saved = JSON.parse(fs.readFileSync(path.join(dataDir, USAGE_FILE), 'utf8'));
+  assert.deepEqual(saved, {
+    v: 1,
+    days: {
+      '2026-10-15': { core: { requests: 1, promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 } },
+    },
+  });
+  const second = createUsage({ dataDir, now });
+  assert.deepEqual(second.byRole(), [
+    { role: 'core', requests: 1, promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 },
+  ]);
+
+  fs.writeFileSync(path.join(dataDir, USAGE_FILE), '{not json');
+  const warnings = [];
+  const third = createUsage({ dataDir, now, log: { warn: (msg, meta) => warnings.push({ msg, meta }) } });
+  assert.deepEqual(third.byRole(), []);
+  assert.equal(warnings.length, 1);
+});
+
+test('usage: an llm usage line of a turn of the cli interface sums under cli, apart from the line of another', () => {
+  const usage = createUsage({ dataDir: tmpDir(), now: clock() });
+  const tap = usageTap(usage);
+  tap({ msg: 'llm: usage', role: 'core', iface: 'cli', promptTokens: 100, completionTokens: 5, cost: 0.03 });
+  tap({ msg: 'llm: usage', role: 'core', iface: 'cli', promptTokens: 50, completionTokens: 5, cost: 0.01 });
+  tap({ msg: 'llm: usage', role: 'core', iface: 'zeta71', promptTokens: 10, completionTokens: 1, cost: 0.5 });
+  const byIface = Object.fromEntries(
+    usage.sumDays(7).interfaces.map((row) => [row.iface, [row.requests, Number(row.cost.toFixed(4))]])
+  );
+  assert.deepEqual(byIface, { cli: [2, 0.04], zeta71: [1, 0.5] });
+});
+
+test('usage: the interface rows survive a restart through the file', async () => {
+  const dataDir = tmpDir();
+  const now = clock();
+  const first = createUsage({ dataDir, now });
+  usageTap(first)({
+    msg: 'llm: usage',
+    role: 'core',
+    iface: 'cli',
+    promptTokens: 100,
+    completionTokens: 5,
+    cost: 0.25,
+  });
+  assert.equal(await first.save({ force: true }), true);
+  const second = createUsage({ dataDir, now });
+  assert.deepEqual(
+    second.sumDays(7).interfaces.map((row) => [row.iface, row.requests, row.cost]),
+    [['cli', 1, 0.25]]
+  );
+});
+
+test('usage: a save within a minute of the last waits unless forced', async () => {
+  const now = clock();
+  const usage = createUsage({ dataDir: tmpDir(), now });
+  usage.record({ role: 'core', cost: 1 });
+  assert.equal(await usage.save(), true);
+  usage.record({ role: 'core', cost: 1 });
+  assert.equal(await usage.save(), false);
+  assert.equal(await usage.save({ force: true }), true);
+});
+
+// ---- rolling windows, extra role keys, the average ------------------------------------
+
+const window = (cost: number, since = '2026-09-16', partial = false) => ({
+  rows: [],
+  total: { requests: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost },
+  since,
+  partial,
+});
+
+test('keyCostsLines: the usage line is today from the key, then the rolling 7 and 30 days; a short window says since when', () => {
+  const lines = keyCostsLines({
+    key: ok({ usage_daily: 0.1, usage_weekly: 9, usage_monthly: 99 }),
+    labels: LABELS,
+    windows: { last7: window(3.5, '2026-10-15', true), last30: window(12) },
+  });
+  assert.equal(lines[1], 'usage D 0.10 | L7 3.50 from 2026-10-15 | L30 12.00');
+  const failed = keyCostsLines({
+    key: { ok: false, reason: 'timeout' },
+    labels: LABELS,
+    windows: { last7: window(1), last30: window(2) },
+  });
+  assert.equal(failed[1], 'usage L7 1.00 | L30 2.00', 'the rolling sums stay when the key read fails');
+});
+
+test('keyCostsLines: each extra role key gets its key line led by its roles and its own usage line under it, after the main key', () => {
+  const labels = {
+    status: {
+      costs: {
+        ...LABELS.status.costs,
+        keyLead: 'main',
+        roleKeyLead: '{roles} key',
+        roleSeparator: '+',
+        keyLimitPlain: '{lead} {spent}/{limit}',
+        keyUnavailable: '{lead} unavailable: {reason}',
+      },
+    },
+  };
+  const lines = keyCostsLines({
+    key: ok({ limit: 30, limit_remaining: 20, usage_daily: 1 }),
+    labels,
+    windows: { last7: window(5), last30: window(6) },
+    roleKeys: [
+      {
+        roles: ['video', 'core'],
+        key: ok({ limit: 200, limit_remaining: 10, usage_daily: 2 }),
+        windows: { last7: window(7), last30: window(8) },
+      },
+      {
+        roles: ['vision'],
+        key: { ok: false, reason: 'http', status: 401 },
+        windows: { last7: window(0.5), last30: window(0.5) },
+      },
+    ],
+  });
+  assert.deepEqual(lines, [
+    'main 10.00/30.00',
+    'usage D 1.00 | L7 5.00 | L30 6.00',
+    'video+core key 190.00/200.00',
+    'usage D 2.00 | L7 7.00 | L30 8.00',
+    'vision key unavailable: http 401',
+    'usage L7 0.50 | L30 0.50',
+  ]);
+  const noLead = { status: { costs: { ...labels.status.costs, roleKeyLead: undefined } } };
+  const without = keyCostsLines({ key: ok({}), labels: noLead, roleKeys: [{ roles: ['core'], key: ok({}) }] });
+  assert.equal(
+    without.some((text) => text.includes('core')),
+    false,
+    'no lead label, no role key line'
+  );
+});
+
+test('keyCostsLines: agentsName names the agents among the roles of an extra key, once, so the agents key is one word', () => {
+  // The agents are read from disk, so one label names them all.
+  const labels = {
+    status: {
+      costs: {
+        ...LABELS.status.costs,
+        keyLead: 'main',
+        roleKeyLead: '{roles} key',
+        roleSeparator: '+',
+        keyLimitPlain: '{lead} {spent}/{limit}',
+        agentsName: 'agents',
+      },
+    },
+  };
+  const lines = keyCostsLines({
+    key: ok({ limit: 30, limit_remaining: 20, usage_daily: 1 }),
+    labels,
+    roleKeys: [
+      {
+        // The agents are code, scout and server.
+        roles: ['code', 'server', 'scout'],
+        key: ok({ limit: 10, limit_remaining: 9, usage_daily: 0.5 }),
+        windows: { last7: window(0), last30: window(0) },
+      },
+      { roles: ['scout', 'core'], key: ok({ limit: 5, limit_remaining: 5 }) },
+    ],
+  });
+  assert.deepEqual(lines.slice(2), [
+    'agents key 1.00/10.00',
+    'usage D 0.50 | L7 0.00 | L30 0.00',
+    'agents+core key 0.00/5.00',
+  ]);
+  const plain = keyCostsLines({
+    key: ok({}),
+    labels: { status: { costs: { ...labels.status.costs, agentsName: 7 } } },
+    roleKeys: [{ roles: ['scout'], key: ok({ limit: 5, limit_remaining: 5 }) }],
+  });
+  assert.ok(
+    plain.some((text) => text.startsWith('scout key')),
+    'no usable agentsName: the role itself'
+  );
+});
+
+test('roleCostsLines: the role lines carry the average cost per request, left out with no request or no label', () => {
+  const labels = {
+    status: { costs: { ...LABELS.status.costs, role: '{role} {requests} = {cost}{avg}', avg: ' avg {usd}' } },
+  };
+  const rows = [
+    { role: 'core', requests: 4, promptTokens: 150_000, cachedTokens: 57_000, completionTokens: 635, cost: 0.61 },
+    { role: 'idle', requests: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: 0 },
+  ];
+  assert.deepEqual(roleCostsLines({ rows, labels }), ['core 4 = 0.61 avg 0.153', 'idle 0 = 0.00']);
+  const noAvg = { status: { costs: { ...labels.status.costs, avg: undefined } } };
+  assert.equal(roleCostsLines({ rows, labels: noAvg })[0], 'core 4 = 0.61');
+});
+
+// ---- the management key's activity ---------------------------------------------------------
+
+test('activitySums: the last 6 and 29 completed UTC days, each day usage plus BYOK inference over its rows; today and older days left out', () => {
+  const rows = [
+    { date: '2026-10-14 00:00:00', usage: 1, byok_usage_inference: 0.5, requests: 3 },
+    { date: '2026-10-14 00:00:00', usage: 0.25, byok_usage_inference: 0 },
+    { date: '2026-10-09 00:00:00', usage: 2, byok_usage_inference: null },
+    { date: '2026-10-08 00:00:00', usage: 4 },
+    { date: '2026-09-16 00:00:00', usage: 8 },
+    { date: '2026-09-15 00:00:00', usage: 16 },
+    { date: '2026-10-15 00:00:00', usage: 32 },
+    { date: 'not a day', usage: 64 },
+    null,
+  ];
+  assert.deepEqual(activitySums(rows, '2026-10-15'), { last7: 3.75, last30: 15.75 });
+  assert.equal(activitySums('odd', '2026-10-15'), null);
+});
+
+test('readActivity: the rows of a 2xx answer, or why not', async () => {
+  assert.deepEqual(await readActivity(async () => ({ ok: true, status: 200, json: { data: [{ usage: 1 }] } })), {
+    ok: true,
+    data: [{ usage: 1 }],
+  });
+  assert.deepEqual(await readActivity(async () => ({ ok: true, status: 200, json: { data: {} } })), {
+    ok: false,
+    reason: 'bad-answer',
+  });
+  assert.deepEqual(await readActivity(async () => ({ ok: false, status: 403, json: null })), {
+    ok: false,
+    reason: 'http',
+    status: 403,
+  });
+  assert.deepEqual(await readActivity(null), { ok: false, reason: 'no-client' });
+});
+
+test('keyCostsLines: with the activity of a key its usage line is today, then today plus the completed days of the last 7 and 30', () => {
+  const labels = {
+    status: {
+      costs: {
+        ...LABELS.status.costs,
+        keyLead: 'main',
+        roleKeyLead: '{roles} key',
+        keyLimitPlain: '{lead} {spent}/{limit}',
+      },
+    },
+  };
+  const lines = keyCostsLines({
+    key: ok({ limit: 30, limit_remaining: 20, usage_daily: 1 }),
+    activity: { last7: 2, last30: 5 },
+    windows: { last7: window(99), last30: window(99) },
+    labels,
+    roleKeys: [
+      {
+        roles: ['core'],
+        key: ok({ limit: 200, limit_remaining: 100, usage_daily: 3 }),
+        activity: { last7: 1, last30: 2 },
+        windows: { last7: window(99), last30: window(99) },
+      },
+      {
+        roles: ['vision'],
+        key: ok({ limit: 10, limit_remaining: 10, usage_daily: 0 }),
+        activity: null,
+        windows: { last7: window(4), last30: window(6) },
+      },
+    ],
+  });
+  assert.deepEqual(
+    lines,
+    [
+      'main 10.00/30.00',
+      'usage D 1.00 | L7 3.00 | L30 6.00',
+      'core key 100.00/200.00',
+      'usage D 3.00 | L7 4.00 | L30 5.00',
+      'vision key 0.00/10.00',
+      'usage D 0.00 | L7 4.00 | L30 6.00',
+    ],
+    'no activity for a key: the accumulator sums'
+  );
+  const failedKey = keyCostsLines({
+    key: { ok: false, reason: 'timeout' },
+    activity: { last7: 2, last30: 5 },
+    labels,
+    windows: { last7: window(1), last30: window(2) },
+  });
+  assert.equal(failedKey[1], 'usage L7 1.00 | L30 2.00', 'a failed key read: no today to add to, the accumulator sums');
+});
+
+test('agentCostsLines: one line per agent in order with today, 7 and 30 days, no runs for an agent without any, then the estimate note', () => {
+  const labels = {
+    status: {
+      costs: {
+        partSeparator: ' | ',
+        agentLine: '{agent}: {parts}',
+        agentWindow: '{window} {runs}r {in}/{out} {usd}',
+        agentWindows: { today: 'D', last7: 'W' },
+        agentNoRuns: '{agent}: none',
+        agentEstimate: 'est.',
+      },
+    },
+  };
+  const row = (runs: number, input: number, output: number, usd: number) => ({ runs, input, output, usd });
+  const totals = {
+    scout: {
+      today: row(2, 12_400, 3_100, 0.123),
+      last7: row(9, 98_000, 20_000, 0.8),
+      last30: row(30, 1_234_567, 99_999, 3.456),
+    },
+    server: { today: row(0, 0, 0, 0), last7: row(0, 0, 0, 0), last30: row(0, 0, 0, 0) },
+  };
+  assert.deepEqual(agentCostsLines({ agents: ['scout', 'server', 'dev'], totals, labels }), [
+    'scout: D 2r 12k/3.1k 0.12 | W 9r 98k/20k 0.80 | last30 30r 1.23M/100k 3.46',
+    'server: none',
+    'dev: none',
+    'est.',
+  ]);
+  const noNote = { status: { costs: { ...labels.status.costs, agentEstimate: undefined } } };
+  assert.deepEqual(agentCostsLines({ agents: ['dev'], totals: null, labels: noNote }), ['dev: none']);
+  assert.deepEqual(agentCostsLines({ agents: ['scout'], totals, labels: {} }), []);
+});
+
+test('keyStateLines: one line per role with the key it is on and, once it switched, when; none without the lead label', () => {
+  const labels = {
+    status: { costs: { keyState: '{role} on {key}{since}', keySince: ', switched {when}' } },
+  };
+  const states = [
+    { role: 'core', key: 'OPENROUTER_CORE_BACKUP_KEY', switchedAt: 1_000 },
+    { role: 'vision', key: 'OPENROUTER_V1', switchedAt: null },
+  ];
+  const when = (ms: number) => `t${ms}`;
+  assert.deepEqual(keyStateLines({ states, labels, when }), [
+    'core on OPENROUTER_CORE_BACKUP_KEY, switched t1000',
+    // Bug caught: a role that never switched shown with a switch time of 1970.
+    'vision on OPENROUTER_V1',
+  ]);
+  assert.deepEqual(keyStateLines({ states, labels: {}, when }), []);
+  assert.deepEqual(keyStateLines({ states: [], labels, when }), []);
+});
+
+test('usage saved through the writer survives reopening without usage.json', async () => {
+  const now = clock();
+  let memory = await openTestMemory({ now });
+  const dataDir = memory.dataDir;
+  try {
+    const options = { dataDir, now, memoryDb: memory.memoryDb };
+    const first = createUsage(options);
+    first.record({ role: 'core', promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 });
+    assert.equal(await first.save({ force: true }), true);
+    assert.equal(fs.existsSync(path.join(dataDir, USAGE_FILE)), false);
+    await memory.close();
+    memory = await openTestMemory({ dataDir, now });
+    const loaded = createUsage({ ...options, memoryDb: memory.memoryDb });
+    assert.deepEqual(loaded.byRole(), [
+      { role: 'core', requests: 1, promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 },
+    ]);
+    assert.equal(fs.existsSync(path.join(dataDir, USAGE_FILE)), false);
+  } finally {
+    await memory.close();
+  }
+});

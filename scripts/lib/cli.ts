@@ -1,0 +1,136 @@
+// What every script under scripts/ shares: flag parsing, the UTC day range, the deployment's data and private
+// directories (src/paths.ts), the guild of a data directory, the service credentials of the tools, the spend gate,
+// and the entry point (print the result, or the error and exit 1).
+// The spend gate is the one rule for a tool that sends model requests: it prints its estimate
+// first and refuses unless `--spend <usd>` covers it.
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { resolvePaths } from '../../src/paths.ts';
+import { serviceCredential } from '../../src/keys/file.ts';
+import { interfaceCredential } from '../../src/config/files.ts';
+import { CliError } from './cli-args.ts';
+import type { Flags } from './cli-args.ts';
+export { CliError, parseFlags, runCli } from './cli-args.ts';
+export type { Flags } from './cli-args.ts';
+
+/** The text of a value flag, or undefined when it was not given (a value flag is never `true`). */
+export function flagText(flags: Flags, name: string): string | undefined {
+  const value: unknown = flags[name];
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** The checkout this file belongs to. */
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/** A tool receives one named service credential from the original selected persona. */
+export function serviceKey(
+  name: 'youtube' | 'brave' | 'exa' | 'proxy',
+  { env = process.env, dataDir }: { env?: Record<string, string | undefined>; dataDir?: string } = {}
+): string | null {
+  return serviceCredential(dataDir ?? privateDirOf(ROOT, env), name);
+}
+
+/** Web lookup receives only its own optional credentials, independently of scratch prompt layers. */
+export function serviceKeys(options: { env?: Record<string, string | undefined>; dataDir?: string } = {}): {
+  brave: string | null;
+  exa: string | null;
+} {
+  return { brave: serviceKey('brave', options), exa: serviceKey('exa', options) };
+}
+
+/** A tool that requires platform access reads only the selected interface's own credential. */
+export function platformToken(
+  name: string,
+  {
+    rootDir = ROOT,
+    env = process.env,
+  }: {
+    rootDir?: string;
+    env?: Record<string, string | undefined>;
+  } = {}
+): string {
+  const token = interfaceCredential(privateDirOf(rootDir, env), name);
+  if (!token) throw new CliError(`missing data/interfaces/${name}/credentials.json token`);
+  return token;
+}
+
+/** Exit code of a run refused by the spend gate. */
+export const REFUSED_EXIT = 2;
+
+/**
+ * The data directory a tool reads when `--data` is not given: `NEPTUNIA_DATA_DIR` resolved against
+ * `cwd` when set, else `<cwd>/data` (src/paths.ts#resolvePaths). A given `--data` still wins.
+ */
+export function defaultDataDir(cwd: string, env: Record<string, string | undefined> = process.env): string {
+  return resolvePaths({ rootDir: cwd, env }).dataDir;
+}
+
+/**
+ * The private directory of the checkout at `root` (where a tool reads .env and the local layer):
+ * the data folder, `NEPTUNIA_DATA_DIR` resolved against `root` when set, else `<root>/data` (src/paths.ts#resolvePaths).
+ */
+export function privateDirOf(root: string, env: Record<string, string | undefined> = process.env): string {
+  return resolvePaths({ rootDir: root, env }).privateDir;
+}
+
+/** The guild of `dataDir`: `given`, else the only directory under `guilds/`; else a CliError. */
+export function resolveGuildId(dataDir: string, given: unknown): string {
+  if (typeof given === 'string' && given) {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(given)) throw new CliError('the guild id is not valid');
+    return given;
+  }
+  let names: Array<string> = [];
+  try {
+    names = fs
+      .readdirSync(path.join(dataDir, 'guilds'), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    names = [];
+  }
+  if (names.length === 1) return names[0];
+  throw new CliError(
+    names.length === 0
+      ? `no guild under ${path.join(dataDir, 'guilds')}`
+      : `several guilds under ${path.join(dataDir, 'guilds')}: give --guild`
+  );
+}
+
+/**
+ * The spend gate. `estimateUsd` is what the run would cost; `spend` the value of `--spend`
+ * (undefined when absent). Returns `{ ok, text }`: `text` always states the estimate; `ok` only
+ * when `--spend` is a non-negative number at least as large as the estimate (nothing to send
+ * passes without it).
+ */
+export function spendGate({
+  estimateUsd,
+  requests,
+  spend,
+  detail = '',
+}: {
+  estimateUsd: number;
+  requests: number;
+  spend?: string;
+  detail?: string;
+}): { ok: boolean; text: string; budget: number | null } {
+  const usd = Number.isFinite(estimateUsd) && estimateUsd > 0 ? estimateUsd : 0;
+  const head = `estimate: ${requests} model request(s), ~${usd.toFixed(2)} USD${detail ? ` (${detail})` : ''}`;
+  if (requests <= 0) return { ok: true, text: head, budget: null };
+  const budget = spend === undefined ? NaN : Number(spend);
+  if (!Number.isFinite(budget) || budget < 0)
+    return {
+      ok: false,
+      text: `${head}\nrefused: give --spend <usd> of at least ${usd.toFixed(2)} to run it`,
+      budget: null,
+    };
+  if (budget < usd) return { ok: false, text: `${head}\nrefused: --spend ${budget} is below the estimate`, budget };
+  return { ok: true, text: head, budget };
+}
+
+/** Writes a private file of a run under its out folder: the folder and the file readable by the account that runs it alone. */
+export function writePrivate(file: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+}

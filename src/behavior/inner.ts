@@ -1,0 +1,420 @@
+// The persona's inner life, step 2 (docs/inner-life.md): a deterministic scheduler that lists
+// what is due for them -- an intention whose time came and an errand they wait for that ran past its
+// deadline -- and hands each as an `inner.wake` event through the core's event door (src/interface/door.ts). Listing
+// is not choosing: no model runs here, nothing ranks or invents a reason. A queued wake keeps its due
+// time while people's turns hold the lease; compatible wakes (the same chat) coalesce into one inner turn; a
+// queue past `wakes.queueMax` records the overflow. The inner turn itself is the turn runner's
+// (src/behavior/turn.ts, mode `inner`) on the turn frame: no human message, the persona's tools.
+//
+// The heartbeat (docs/inner-life.md "The heartbeat"): a wake kind of its own on its own timer,
+// `heartbeat.schedule`, an interval moved by a jitter either way, kept in the state
+// (`heartbeat: { nextAt, lastAt }`, drawn again once its wake is handled). It has no place and its own chain
+// (`heartbeat:<at>`), is never coalesced with another wake and goes before them in the queue, and its turn runs
+// nowhere on the service template.
+//
+// Bounds are code, not prose (`wakes.caps`, a ceiling of the deployment): inner turns per
+// local day and per rolling hour, per causal chain (an intention's `chainId`, else the intention
+// itself), public posts per local day. No bound is in dollars: what
+// a turn and the errands it hands off cost is recorded (`state.spend`, the `errand-cost` journal
+// event) and reported, never limited.
+// Every drop and every hold of a wake is a fact at the moment it happens, and so is every call
+// outcome that did not go well: facts are kept in the state (`state.facts`) until a model answer
+// that carried them completed (`told`), and are shown by the first turn that can carry them -- an
+// inner turn's `<feedback>`, or an addressed turn (src/behavior/turn.ts). A fact of a private chat is
+// shown only in that chat; a fact of the server never in a private chat.
+// Over a cap no turn runs and the refusal is journalled once per wake and held as a fact (with the
+// local midnight it waits for). What is left and when it resets reach the persona as facts in `<feedback>`,
+// never as a rule.
+//
+// Feedback on the persona's own turn (docs/inner-life.md, its section on feedback): when an inner turn
+// ends, `feedbackFacts` lists from its result what did not go through -- output they wrote outside
+// a call and lost, every call whose status was not `ok`, an intention they closed as done while no
+// delivery call went through, and the loop cut with calls dropped; a failed turn is a fact too
+// (`turnFailed`). A non-empty list is kept as facts and queues ONE `feedback` wake
+// (`inner.wake:feedback:<turnId>`) in the turn's chain and chat, due at the next tick,
+// carrying them -- unless the turn's own wakes come back for a retry, which carries them. A call refused
+// `heartbeat-only` stays a kept fact, wakes no feedback turn and is not shown in one, since that turn could post it. The
+// feedback wake is never held by a cap, never coalesced with another wake and does not count
+// against the chain; a feedback turn's own misses are facts but queue no second wake (no loops).
+//
+// A recurring intention (`every`, src/intentions/model.ts) is advanced to its next occurrence
+// whenever a wake naming it is marked handled -- the persona's turn ended (whatever its outcome), or the
+// engine dropped the wake (`no-channel`, `overflow`, `stale`, the stop) --
+// through the intention service's `advance`: `recurred` when a call of the turn named it (the
+// turn result's `inner.intentIds`), `missed` otherwise. Without a chain of its own each occurrence
+// is its own chain (`intention:<id>:<dueAt>`), so the per-chain cap bounds one occurrence. The
+// last occurrence before its expiry carries the note `last-occurrence` on its line of why the persona is awake.
+//
+// The persona's attention (docs/inner-life.md, its section on attention): an open intention of kind `attend`
+// (src/intentions/model.ts) names a place; the tick counts the place's lines in the record since
+// their last look there -- their last own line in that place, or the last attend wake handled for
+// that place, whichever is later, and never before the attention was set -- and, once the newest
+// line is `settle` seconds old, lists one `attend` wake (`inner.wake:attend:<intentionId>:<newestLineId>`,
+// each wake its own chain). One queued wake per attention: a newer burst replaces the queued wake's
+// id and newest line, nothing observed lost (the turn's history is the place's lines). With
+// `people` on the attention only their lines count and the wake names them. Past the attention's
+// own `perDay` the wake waits in the queue (`capped: 'attend-per-day'`), as a chain past
+// `wakes.caps.perChain` waits (`capped: 'per-chain'`). The record is read incrementally (a per-place place index over the last
+// `wakes.attention.lookbackHours`); the same index feeds `places` (their `places.list` skill): per place the
+// interface publishes (`places`, an injected directory of opaque addresses; nothing of the
+// interface's own objects is read here), its lines and people since their last look there.
+//
+// `wakes.mode`: `shadow` (the default) runs the turn with nothing leaving it -- the persona's reads run,
+// every other call is recorded as proposed -- and `live` lets their calls run through the gateway on
+// their own grants. The kill switch is persisted with the state, drops the queue, and is asked again right before any
+// external action of a running inner turn (`mayAct`). No command throws it, and the core clears a stored one before
+// each tick (status.ts#releaseStoredStop). Off (`features.wakes` not exactly true, read at every tick) nothing is listed and
+// nothing is written. The queue, the handled ids and the turn in flight are rows of the memory
+// database's `wakes`, written by the wake queue (src/behavior/inner/wake-queue.ts) at each transition: a turn claims
+// its wakes with fenced leases before it asks the model and completes them after. The rest of the persona state (the
+// counters, the facts, the stop) is `inner.json`, written after every change. A restart resumes: the queue's start
+// handles a cut-off turn's wakes interrupted without running them again, and a wake that fell due while the core was
+// down or paused sleeps and never runs. Logs carry ids, codes and counts, never text.
+//
+// Each inner turn is also a wake run in the memory database
+// (src/memory/db/wakes.ts, through the service's writer): started before the turn runs (its id the in-flight turn id,
+// its inputs the ids and versions its view showed, the envelope's policy version), each action recorded once by its
+// number, ended `succeeded` or `failed` with the outcome. The journal and the state file are unchanged by it.
+//
+// The parts live in src/behavior/inner/: the settings (settings.ts), the state file and the wakes an intention gives
+// (queue.ts), the wake queue and its recovery (wake-queue.ts), the persona's attention and the places view
+// (places.ts), the heartbeat's schedule (heartbeat.ts),
+// the drain and the turn it opens (drain.ts), the facts (facts.ts) and the owner's status and switch (status.ts).
+// Each of them works over the `life` context createInnerLife builds; this module keeps the tick and the exports.
+
+import { randomUUID } from 'node:crypto';
+import { log as defaultLog } from '../log.ts';
+import { errorCode } from '../tools/types.ts';
+import { createCostMeter, drain, drainLanes, onTaskFinished } from './inner/drain.ts';
+import type { DrainAnswer } from './inner/drain.ts';
+import { markFactsTold, pendingFactsOf } from './inner/facts.ts';
+import { heartbeatDue } from './inner/heartbeat.ts';
+import { attendWakes, places, refreshPlaces } from './inner/places.ts';
+import type { PlacesQuery } from './inner/places.ts';
+import {
+  contextOf,
+  addFact,
+  deadlineWakes,
+  mayAct,
+  note,
+  save,
+  stateOf,
+  wakeFields,
+  wakeOfDue,
+} from './inner/queue.ts';
+import {
+  admitListed,
+  admitWake,
+  beforeTick,
+  createWakeQueueState,
+  idleWakes,
+  knownWake,
+  releaseAlive,
+  renewLeases,
+  withdrawWakes,
+} from './inner/wake-queue.ts';
+import type { WakeAnswer } from './inner/wake-queue.ts';
+import { innerSettings } from './inner/settings.ts';
+import { releaseStoredStop, start, status, stop } from './inner/status.ts';
+import type { InnerStatus, SwitchAnswer, SwitchOptions } from './inner/status.ts';
+import type {
+  CostMeter,
+  FactsApi,
+  InnerContext,
+  InnerIntentions,
+  InnerJournal,
+  InnerMemoryDb,
+  InnerPort,
+  InnerState,
+  InnerStore,
+  InnerTurns,
+  InnerWakeEvent,
+  Logger,
+  PlacesPage,
+  RecordSource,
+  Wake,
+} from './inner/types.ts';
+
+export { DELIVERY_SKILLS, FACTS_SHOWN_MAX, POSTING_SKILLS, WAKE_KINDS, innerSettings } from './inner/settings.ts';
+export { createLocalFacts, factPayload, feedbackFacts } from './inner/facts.ts';
+export { coalesceGroup, deadlineWakes, emptyState, normalizeState, wakeOfDue } from './inner/queue.ts';
+export { PLACE_SORTS, attendWake, placesPage } from './inner/places.ts';
+export { drawHeartbeatAt, heartbeatWake } from './inner/heartbeat.ts';
+export { chainBudget, createCostMeter, currentChannelOf, turnsToday } from './inner/drain.ts';
+export type * from './inner/types.ts';
+
+/** What createInnerLife is given. */
+export type InnerLifeOptions = {
+  hot: { readonly config: unknown };
+  dataDir: string;
+  turns: InnerTurns;
+  /** src/intentions/service.ts. */
+  intentions?: InnerIntentions | null;
+  /** The record: every place's lines for the persona's attention. */
+  record?: RecordSource | null;
+  /**
+   * The places the interface publishes for the place (opaque addresses, names, whether the persona may write in each), for
+   * `places`; without it the places are the ones the record shows.
+   */
+  places?: (() => unknown) | null;
+  /** A member's name for an attention's lines (null: the id is shown). */
+  nameOf?: ((accountId: string) => unknown) | null;
+  journal?: InnerJournal | null;
+  /** The core's reads of the interface: the chat a turn runs in. */
+  reads?: InnerContext['reads'];
+  /** The interface the chats belong to (from `hello`). */
+  iface?: () => string;
+  /**
+   * The name an interface reported for a chat (src/interface/directory.ts); null when it reported none, and
+   * the id is shown.
+   */
+  chatName?: (chatId: string) => string | null;
+  /** The event door's submit (src/index.ts). */
+  submit?: ((event: InnerWakeEvent) => Promise<unknown>) | null;
+  /** The memory store (its pause). */
+  store?: InnerStore | null;
+
+  /** Calls queued for the attention (people first). */
+  peopleWaiting?: () => boolean;
+  /**
+   * Resolves once the journal's start-up reconciliation is done (src/index.ts); a turn that a restart cut off is
+   * resolved from the journal only after it.
+   */
+  ready?: () => Promise<unknown>;
+  /**
+   * Ids for the turns this life starts (the in-flight mark names the turn before it runs) and for the holder of its
+   * wake queue's leases.
+   */
+  uuid?: () => string;
+  /** createCostMeter's. */
+  meter?: CostMeter | null;
+  /**
+   * The memory database (src/memory/db/service.ts): the wake queue is kept in it through its writer, and with
+   * `memoryDb.wakeRuns` on each inner turn is recorded as a wake run with its actions. Without one the queue lives in
+   * an in-memory database per data directory.
+   */
+  memoryDb?: InnerMemoryDb | null;
+  /**
+   * The port a live wake turn's held posts go out through once the wake completed (src/behavior/inner/deliveries.ts);
+   * src/core.ts passes the guarded port. Without one a wake turn's posts go out during the turn.
+   */
+  port?: InnerPort | null;
+  rng?: () => number;
+  now?: () => number;
+  log?: Logger;
+};
+
+/** What one tick did: whether it ran, why not, and what it listed, handed to the door and drained. */
+export type TickAnswer = {
+  ran: boolean;
+  /** Why it did not run. */
+  reason?: string;
+  listed?: number;
+  submitted?: number;
+  drained?: DrainAnswer;
+};
+
+/** The persona's inner life (createInnerLife). */
+export type InnerLife = {
+  tick: () => Promise<TickAnswer>;
+  drain: () => Promise<DrainAnswer>;
+  onWake: (event: unknown) => WakeAnswer;
+  onTaskFinished: (task: unknown) => boolean;
+  mayAct: () => boolean;
+  stop: (options?: SwitchOptions) => SwitchAnswer;
+  start: (options?: SwitchOptions) => SwitchAnswer;
+  /** Clears a stop kept in the stored state (status.ts#releaseStoredStop). */
+  releaseStoredStop: () => boolean;
+  status: () => InnerStatus;
+  places: (options?: PlacesQuery) => PlacesPage;
+  state: () => InnerState;
+  facts: FactsApi;
+  /** The clean stop's end of `core:alive` (recovery.ts#releaseAlive). */
+  release: () => Promise<void>;
+};
+
+/**
+ * The context the steps of the inner life share (src/behavior/inner/drain.ts and its siblings) over the stores and
+ * sources it is given, its in-process state empty.
+ */
+export function innerContextOf({
+  hot,
+  dataDir,
+  turns,
+  intentions = null,
+  record = null,
+  places: placesOf = null,
+  nameOf = null,
+  journal = null,
+  reads = null,
+  iface = () => '',
+  chatName = () => null,
+  submit = null,
+  store = null,
+  peopleWaiting = () => false,
+  ready = () => Promise.resolve(),
+  uuid = randomUUID,
+  meter = null,
+  memoryDb = null,
+  port = null,
+  rng = Math.random,
+  now = Date.now,
+  log = defaultLog,
+}: InnerLifeOptions): InnerContext {
+  return {
+    hot,
+    dataDir,
+    turns,
+    intentions,
+    record,
+    placesOf,
+    nameOf,
+    journal,
+    reads,
+    iface,
+    chatName,
+    submit,
+    store,
+    peopleWaiting,
+    ready,
+    uuid,
+    costs: meter ?? createCostMeter(),
+    memoryDb,
+    port,
+    rng,
+    now,
+    log,
+    states: new Map(),
+    placeIndexes: new Map(),
+    ticking: false,
+    showing: new Set(),
+    factSeq: 0,
+    writes: Promise.resolve(),
+    wakes: createWakeQueueState(`core:${uuid()}`),
+  };
+}
+
+/** The persona's inner life over the stores and sources it is given (see the head of this file). */
+export function createInnerLife(options: InnerLifeOptions): InnerLife {
+  const life = innerContextOf(options);
+  const { hot, intentions, now, log } = life;
+
+  /**
+   * One tick: with the switch on and nothing paused or stopped, what is due is listed and handed
+   * to the door (intentions due, waits past their deadline, the heartbeat), the waits are
+   * reconciled, then the queue is drained by up to one inner turn per lane of their attention. A heartbeat turn runs on
+   * after the tick has let the next one in, so a wake that falls due meanwhile runs at the next tick, and the tick
+   * answers once it ended. Never throws; answers what it did.
+   */
+  async function tick(): Promise<TickAnswer> {
+    const started: { service: Promise<DrainAnswer> | null } = { service: null };
+    const answer = await tickOnce(started);
+    if (started.service === null) return answer;
+    // What the heartbeat did is the tick's answer when its drain ran no chat-lane turn.
+    const beat = await started.service;
+    return answer.drained ? answer : { ...answer, drained: beat };
+  }
+
+  /** The tick up to the end of its chat-lane turn; a heartbeat's turn it started is handed back in `started`. */
+  async function tickOnce(started: { service: Promise<DrainAnswer> | null }): Promise<TickAnswer> {
+    const config = hot.config;
+    // A tick that finds the last one still running its turn keeps that turn's leases on before it steps aside.
+    if (life.ticking) {
+      renewLeases(life);
+      return { ran: false, reason: 'ticking' };
+    }
+    if (await beforeTick(life)) return { ran: false, reason: 'paused' };
+    if (stateOf(life).stopped) return { ran: false, reason: 'stopped' };
+    life.ticking = true;
+    try {
+      const settings = innerSettings(config);
+      const at = now();
+      const listed: Array<Wake> = [];
+      if (intentions) {
+        let due: ReadonlyArray<Parameters<typeof wakeOfDue>[0]> = [];
+        try {
+          due = intentions.due?.() ?? [];
+        } catch (err) {
+          log.warn('inner: due list failed', { code: errorCode(err) });
+        }
+        listed.push(...due.map(wakeOfDue));
+        try {
+          intentions.reconcile?.();
+          listed.push(...deadlineWakes(intentions.list?.({ all: true })));
+        } catch (err) {
+          log.warn('inner: reconcile failed', { code: errorCode(err) });
+        }
+      }
+      const beat = heartbeatDue(life, settings, at);
+      if (beat) listed.push(beat);
+      if (intentions) {
+        await refreshPlaces(life, at, settings);
+        listed.push(...attendWakes(life, at));
+      }
+      let submitted = 0;
+      for (const wake of listed) {
+        if (knownWake(life, wake.id)) continue;
+        // One queued wake per attention: a newer burst replaces the queued one (its history covers the gap).
+        if (wake.kind === 'attend') {
+          const older = idleWakes(life).filter(
+            (queued) => queued.kind === 'attend' && queued.intentionIds?.[0] === wake.intentionIds[0]
+          );
+          if (older.length > 0) {
+            withdrawWakes(life, older);
+            save(life);
+            for (const previous of older) note(life, { event: 'replaced', wake: wakeFields(previous), by: wake.id });
+          }
+        }
+        submitted += await admitListed(life, wake);
+      }
+      const { answer: drained, service } = await drainLanes(life);
+      started.service = service;
+      return { ran: true, listed: listed.length, submitted, drained };
+    } catch (err) {
+      log.warn('inner: tick failed', { error: err });
+      return { ran: false, reason: 'error' };
+    } finally {
+      // The queue's writes of this tick are in the database before it answers (wake-queue.ts).
+      await life.writes;
+      life.ticking = false;
+    }
+  }
+
+  /**
+   * The facts for the turns that are not inner turns (src/behavior/turn.ts's addressed turns): `add` a
+   * fact (`kind`, `placeId`, `dmChat`, its payload), `pending` ones a chat may be shown
+   * (`scope`: `{ placeId, dmChat }`; a private chat's only in it), `markTold` the ones a completed
+   * answer carried. `enabled` follows the switch; without it the turn runner keeps its own in process.
+   */
+  const factsApi: FactsApi = {
+    enabled: () => true,
+    add(fact) {
+      const stored = addFact(life, stateOf(life), { ...contextOf(life, fact.placeId), ...fact });
+      save(life);
+      return stored;
+    },
+    pending(scope) {
+      return pendingFactsOf(stateOf(life), { ...contextOf(life, scope?.placeId), ...scope });
+    },
+    markTold(ids) {
+      markFactsTold(stateOf(life), ids, now(), contextOf(life));
+      save(life);
+    },
+  };
+
+  return {
+    tick,
+    drain: () => drain(life),
+    onWake: (event) => admitWake(life, event),
+    onTaskFinished: (task) => onTaskFinished(life, task),
+    mayAct: () => mayAct(life),
+    stop: (options) => stop(life, options),
+    start: (options) => start(life, options),
+    releaseStoredStop: () => releaseStoredStop(life),
+    status: () => status(life),
+    places: (options) => places(life, options),
+    state: () => stateOf(life),
+    facts: factsApi,
+    release: () => releaseAlive(life),
+  };
+}
